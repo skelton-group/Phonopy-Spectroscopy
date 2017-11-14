@@ -1,0 +1,8 @@
+# Python cache files.
+
+SpectroscoPy/*.pyc
+SpectroscoPy/__pycache__/
+
+SpectroscoPy/*/*.pyc
+SpectroscoPy/*/__pycache__/
+
