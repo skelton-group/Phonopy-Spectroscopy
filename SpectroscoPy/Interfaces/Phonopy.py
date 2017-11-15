@@ -12,6 +12,7 @@
 # Imports
 # -------
 
+import h5py;
 import yaml;
 
 import numpy as np;
@@ -168,3 +169,47 @@ def ReadBORN(structure, filePath = "BORN"):
     # Return the Born effective-charge tensors from the dictionary returned by parse_BORN.
 
     return [becTensor for becTensor in bornData['born']];
+
+def ReadPhono3pyHDF5(filePath, linewidthTemperature):
+    """ Read a Phono3py HDF5 file and return the Gamma-point mode linewidths at the specified temperature. """
+
+    linewidths = None;
+
+    phono3pyHDF5 = h5py.File(filePath, 'r');
+
+    try:
+        # Locate the temperature index corresponding to linewidthTemperature.
+
+        tIndex = None;
+
+        for i, t in enumerate(phono3pyHDF5['temperature']):
+            if t == linewidthTemperature:
+                tIndex = i;
+                break;
+
+        if tIndex == None:
+            raise Exception("Error: Linewidth temperature {0} not dfound under the 'temperature' key.".format(linewidthTemperature));
+
+        # Locate the q-point index corresponding to the Gamma point.
+
+        qIndex = None;
+
+        for i, (qx, qy, qz) in enumerate(phono3pyHDF5['qpoint']):
+            if qx == 0.0 and qy == 0.0 and qz == 0.0:
+                qIndex = i;
+                break;
+
+        if qIndex == None:
+            raise Exception("Error: q = (0, 0, ) not found under the 'q-point' key.");
+
+        # Extract the linewidths.
+
+        linewidths = [
+            linewidth for linewidth in phono3pyHDF5['gamma'][tIndex][qIndex]
+            ];
+    finally:
+        # Make sure we close the input file.
+
+        phono3pyHDF5.close();
+
+    return linewidths;

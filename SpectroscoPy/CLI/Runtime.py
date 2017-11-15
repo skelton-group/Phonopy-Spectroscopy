@@ -60,11 +60,16 @@ def RunMode_IR(frequencies, frequencyUnits, eigendisplacements, becTensors, args
     if args.IrReps and irRepData == None:
         raise Exception("Error: If the IrReps argument is set, ir. rep. data must be available.");
 
-    # Make sure frequencies are in supported units.
+    # Make sure frequencies and linewidths, if supplied, are in supported units.
 
     frequencies = ConvertFrequencyUnits(
         frequencies, frequencyUnits, args.FrequencyUnits if args.FrequencyUnits != None else frequencyUnits
         );
+
+    if linewidths != None:
+        linewidths = ConvertFrequencyUnits(
+            linewidths, frequencyUnits, args.FrequencyUnits if args.FrequencyUnits != None else frequeuencyUnits
+            );
 
     if args.FrequencyUnits != None:
         frequencyUnits = args.FrequencyUnits;

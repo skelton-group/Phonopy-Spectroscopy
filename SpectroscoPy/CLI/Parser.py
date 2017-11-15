@@ -51,6 +51,10 @@ def UpdateParser(parser, supportedFeatures = None):
 
     # If the CLI supports irreducible representations, add a "Peak table" argument group.
 
+    parser.set_defaults(
+        IrReps = False
+        );
+
     if 'ir_reps' in supportedFeatures:
         group = parser.add_argument_group("Peak table");
 

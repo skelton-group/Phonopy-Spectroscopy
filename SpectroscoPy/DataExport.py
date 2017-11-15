@@ -182,7 +182,7 @@ def SavePeakTable(frequencies, intensities, filePath, irRepSymbols = None, linew
     headerRow = headerRow + ["I [{0}]".format(intensityUnits)];
 
     if linewidths != None:
-        headerRow = headerRow + [r"\Gamma [{0}]".format(frequencyUnits)];
+        headerRow = headerRow + [r"\Gamma [{0}]".format(Utilities.GetFrequencyUnitLabel(frequencyUnits))];
 
     dataItems = [frequencies];
 

@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+
+
+# -------
+# Imports
+# -------
+
+from argparse import ArgumentParser;
+
+from SpectroscoPy.Interfaces.VASP import ParseOUTCAR;
+
+from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
+
+from SpectroscoPy.CLI.Parser import UpdateParser, PostProcessArgs;
+from SpectroscoPy.CLI.Runtime import RunMode_IR;
+
+
+# ----
+# Main
+# ----
+
+if __name__ == "__main__":
+    # Parse command-line arguments.
+
+    parser = ArgumentParser(
+        description = "Simulate IR spectra from VASP phonon-frequency and Born-charge calculations"
+        );
+
+    # Add input-files argument group.
+
+    group = parser.add_argument_group("Input files");
+
+    group.add_argument(
+        "--outcar_freq",
+        metavar = "<file_path>",
+        type = str, dest = "OUTCARFreq",
+        default = "OUTCAR",
+        help = "OUTCAR file to read frequencies and eigenvectors from (default: OUTCAR)"
+        );
+
+    group.add_argument(
+        "--outcar_born",
+        metavar = "<file_path>",
+        type = str, dest = "OUTCARBorn",
+        default = "OUTCAR",
+        help = "OUTCAR file to read Born charges from (default: OUTCAR)"
+        );
+
+    # Add standard arguments groups.
+
+    UpdateParser(parser);
+
+    # Parse and process arguments.
+
+    args = parser.parse_args();
+
+    PostProcessArgs(args);
+
+    # Read input files.
+
+    outcarData = None;
+
+    if args.OUTCARFreq == args.OUTCARBorn:
+        outcarData = ParseOUTCAR(
+            extractList = ['atomic_masses', 'phonon_modes', 'born_charges'], filePath = args.OUTCARFreq
+            );
+    else:
+        outcarData = ParseOUTCAR(
+            extractList = ['atomic_masses', 'phonon_modes'], filePath = args.OUTCARFreq
+            );
+
+        outcarData2 = ParseOUTCAR(
+            extractList = ['born_charges'], filePath = args.OUTCARBorn
+            );
+
+        outcarData['born_charges'] = outcarData2['born_charges'];
+
+    # Convert eigenvectors to eigendisplacements.
+
+    frequencySets, eigenvectors = outcarData['phonon_modes'];
+
+    eigendisplacements = EigenvectorsToEigendisplacements(
+        eigenvectors, outcarData['atomic_masses']
+        );
+
+    # Pass the input data to RunMode_IR() for processing.
+
+    RunMode_IR(
+        frequencySets[2], 'inv_cm', eigendisplacements, outcarData['born_charges'], args
+        );

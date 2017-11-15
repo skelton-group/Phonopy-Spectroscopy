@@ -7,7 +7,7 @@
 
 from argparse import ArgumentParser;
 
-from SpectroscoPy.Interfaces.Phonopy import ReadMeshYAML, ReadIrRepsYAML, ReadBORN;
+from SpectroscoPy.Interfaces.Phonopy import ReadMeshYAML, ReadIrRepsYAML, ReadBORN, ReadPhono3pyHDF5;
 
 from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
 
@@ -54,6 +54,24 @@ if __name__ == "__main__":
         help = "irreps.yaml file to read if using the --ir_reps argument (default: irreps.yaml)"
         );
 
+    group = parser.add_argument_group("Linewidths");
+
+    group.add_argument(
+        "--linewidth_hdf5",
+        metavar = "<file_path>",
+        type = str, dest = "LinewidthHDF5",
+        default = None,
+        help = "Read mode linewidths from a Phono3py HDF5 file"
+        );
+
+    group.add_argument(
+        "--linewidth_temperature",
+        metavar = "<temperature>",
+        type = float, dest = "LinewidthTemperature",
+        default = None,
+        help = "Temperature to extract linewidths at"
+        );
+
     # Add standard arguments groups.
 
     UpdateParser(parser, supportedFeatures = ['ir_reps']);
@@ -87,8 +105,18 @@ if __name__ == "__main__":
     if args.IrReps:
         irRepData = ReadIrRepsYAML(filePath = args.IrRepsYAML);
 
+    # Read linewidths, if specified.
+
+    linewidths = None;
+
+    if args.LinewidthHDF5:
+        if args.LinewidthTemperature == None:
+            raise Exception("Error: If reading linewidths from a Phono3py HDF5 file, a temperature must be supplied using the --linewidth_temperature argument.");
+
+        linewidths = ReadPhono3pyHDF5(args.LinewidthHDF5, args.LinewidthTemperature);
+
     # Hand over to the RunMode_IR() routine.
 
     RunMode_IR(
-        frequencies, 'thz', eigendisplacements, becTensors, args, linewidths = None, irRepData = irRepData
+        frequencies, 'thz', eigendisplacements, becTensors, args, linewidths = linewidths, irRepData = irRepData
         );
