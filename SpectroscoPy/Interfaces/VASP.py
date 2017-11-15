@@ -5,7 +5,7 @@
 # Docstring
 # ---------
 
-""" Contains routines for interfacing with the Vienna Ab-initio Simulation Package (VASP) code. """
+""" Routines for interfacing with the Vienna Ab-initio Simulation Package (VASP) code. """
 
 
 # -------
@@ -192,7 +192,7 @@ def ParseOUTCAR(extractList, filePath = r"OUTCAR"):
                 next(inputReader);
 
             outputData['phonon_modes'] = (frequencies, eigenvectors);
-    
+
     # Check we were able to extract everything that was asked for.
 
     for tag in extractList:

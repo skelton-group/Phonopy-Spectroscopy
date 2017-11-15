@@ -55,7 +55,7 @@ def Lorentzian(x, i, x0, gamma):
 def SimulateSpectrum(
     frequencies, intensities, linewidths,
     spectrumRange = None, spectrumResolution = None,
-    instrumentBroadening = None, instrumentBroadeningShape = 'gaussian'
+    instrumentBroadeningWidth = None, instrumentBroadeningShape = 'gaussian'
     ):
 
     """
@@ -70,8 +70,11 @@ def SimulateSpectrum(
     Keyword arguments:
         spectrumRange -- range of frequencies over which to simulate the spectrum (defaults to approx. min(frequencies) - SpectrumPaddingMultiplier * max(linewidths) -> max(frequencies) + SpectrumPaddingMultiplier * max(linewidths)).
         spectrumResolution -- frequency resolution of the spectrum (default: adjust to give at least SpectrumResolutionMinPoints data points, or a minimum resolution of 1, whichever is larger).
-        instrumentBroadening -- instrumental broadening (default: no instrument broadening).
-        instrumentBroadeningShape -- shape of instrumental broadening ('gaussian' or 'lorentzian'; default: 'gaussian').
+        instrumentBroadeningWidth -- instrument broadening width (default: no instrument broadening).
+        instrumentBroadeningShape -- shape of instrument broadening ('gaussian' or 'lorentzian'; default: 'gaussian').
+
+    Return value:
+        A tuple of (spectrumX, spectrumY, spectrumYNorm) data.
 
     Notes:
         If a min and max are specified with spectrumRange, they may be modified to "align" with the resolution (i.e. so that the frequency axis starts and finished on an integer multiple of the resolution).
@@ -120,25 +123,26 @@ def SimulateSpectrum(
 
     if spectrumResolution == None:
         spectrumResolution = math.pow(
-            10.0, math.floor(math.log(math.ceil(spectrumMax - spectrumMin) / SpectrumResolutionMinPoints))
+            10.0, math.floor(math.log10(math.ceil(spectrumMax - spectrumMin) / SpectrumResolutionMinPoints))
             );
 
-    # Make sure the range is "aligned" with the resolution.
+    # If the spectrum range is being automatically determined, make sure it is "aligned" with the resolution.
 
-    spectrumMin = spectrumResolution * math.floor(spectrumMin / spectrumResolution);
-    spectrumMax = spectrumResolution * math.ceil(spectrumMax / spectrumResolution);
+    if spectrumRange == None:
+        spectrumMin = spectrumResolution * math.floor(spectrumMin / spectrumResolution);
+        spectrumMax = spectrumResolution * math.ceil(spectrumMax / spectrumResolution);
 
     # If applying instrument broadening, calculate the convolution kernel.
     # Also expand the range of the spectrum so the the convolution kernel does not produce boundary effects inside the selected region.
 
     convNumPoints, convKernel = None, None;
 
-    if instrumentBroadening != None:
+    if instrumentBroadeningWidth != None:
         # Calculating the convolution kernel to +/- 5 sigma/gamma should be sufficient.
         # According to https://en.wikipedia.org/wiki/Gaussian_blur, +/- 3 sigma is considered enough for Gaussian blurring kernels.
 
         convNumPoints = int(
-            math.ceil(SpectrumPaddingMultiplier * instrumentBroadening / spectrumResolution)
+            math.ceil(SpectrumPaddingMultiplier * instrumentBroadeningWidth / spectrumResolution)
             );
 
         convX = np.arange(
@@ -146,9 +150,9 @@ def SimulateSpectrum(
             );
 
         if instrumentBroadeningShape == 'gaussian':
-            convKernel = Gaussian(convX, 1.0, 0.0, instrumentBroadening);
+            convKernel = Gaussian(convX, 1.0, 0.0, instrumentBroadeningWidth);
         elif instrumentBroadeningShape == 'lorentzian':
-            convKernel = Lorentzian(convX, 1.0, 0.0, instrumentBroadening);
+            convKernel = Lorentzian(convX, 1.0, 0.0, instrumentBroadeningWidth);
         else:
             raise Exception("Error: Unrecognised instrumentBroadeningShape '{0}'.".format(instrumentBroadeningShape));
 
@@ -177,6 +181,10 @@ def SimulateSpectrum(
 
         assert len(spectrumX) == len(spectrumY);
 
+    # Normalise spectrum.
+
+    spectrumYNorm = spectrumY / math.fabs(spectrumY.max())
+
     # Return simulated spectrum.
 
-    return (spectrumX, spectrumY);
+    return (spectrumX, spectrumY, spectrumYNorm);

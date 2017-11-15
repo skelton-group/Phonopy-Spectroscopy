@@ -15,18 +15,13 @@
 import csv;
 import sys;
 
+from SpectroscoPy import Constants;
+from SpectroscoPy import Utilities;
+
 
 # ---------
 # Constants
 # ---------
-
-""" Default frequency unit. """
-
-DefaultFrequencyUnit = "?";
-
-""" Default intensity unit. """
-
-DefaultIntensityUnit = "AU";
 
 """ Format code for converting floating-point values to text when writing plain-text DAT files. """
 
@@ -94,11 +89,14 @@ def WriteDataDAT(dataRows, filePath):
             floatFormat = False;
 
             try:
-                item = float(item);
-
-                if not item.is_integer():
+                if isinstance(item, float):
                     floatFormat = True;
-            except ValueError:
+                else:
+                    item = float(item);
+
+                    if not item.is_integer():
+                        floatFormat = True;
+            except (TypeError, ValueError):
                 pass;
 
             if floatFormat:
@@ -140,7 +138,7 @@ def WriteDataDAT(dataRows, filePath):
 # Text Export Functions
 # ---------------------
 
-def SavePeakTable(frequencies, intensities, filePath, irReps = None, linewidths = None, frequencyUnit = None, intensityUnit = None, fileFormat = 'dat'):
+def SavePeakTable(frequencies, intensities, filePath, irRepSymbols = None, linewidths = None, frequencyUnits = None, intensityUnits = None, fileFormat = 'dat'):
     """
     Save a set of peak parameters (peak table) to a plain-text file.
 
@@ -150,10 +148,10 @@ def SavePeakTable(frequencies, intensities, filePath, irReps = None, linewidths 
         filePath -- path to output file.
 
     Keyword arguments:
-        irReps -- (optional) list of irreducible representation symbols (ir. reps.).
+        irRepSymbols -- (optional) list of irreducible representation symbols (ir. reps.).
         linewidths -- (optional) list of mode linewidths.
-        frequencyUnit -- units of frequencies and linewidths, if supplied (default: DefaultFrequencyUnit constant).
-        intensityUnit -- units of spectral intensity (default: DefaultIntensityUnit constant).
+        frequencyUnits -- units of frequencies and linewidths, if supplied (default: Constants.DefaultFrequencyUnits).
+        intensityUnits -- units of spectral intensity (default: Constants.DefaultIntensityUnits).
         fileFormat -- file format to export to ('csv' or 'dat'; default 'dat');
     """
 
@@ -162,34 +160,34 @@ def SavePeakTable(frequencies, intensities, filePath, irReps = None, linewidths 
     if intensities == None or len(intensities) != numModes:
         raise Exception("Error: intensities cannot be None and must be the same length as frequencies.");
 
-    if irReps != None and len(irReps) != numModes:
+    if irRepSymbols != None and len(irRepSymbols) != numModes:
         raise Exception("Error: If supplied, irReps must be the same length as frequencies.");
 
-    if linewidths != None and len(irReps) != numModes:
+    if linewidths != None and len(linewidths) != numModes:
         raise Exception("Error: If supplied, linewidths must be the same length as frequencies.");
 
-    if frequencyUnit == None:
-        frequencyUnit = DefaultFrequencyUnit;
+    if frequencyUnits == None:
+        frequencyUnits = Constants.DefaultFrequencyUnits;
 
-    if intensityUnit == None:
-        intensityUnit = DefaultIntensityUnit;
+    if intensityUnits == None:
+        intensityUnits = Constants.DefaultIntensityUnits;
 
     # Compile data rows.
 
-    headerRow = ["v [{0}]".format(frequencyUnit)];
+    headerRow = ["v [{0}]".format(Utilities.GetFrequencyUnitLabel(frequencyUnits))];
 
-    if irReps != None:
+    if irRepSymbols != None:
         headerRow = headerRow + ["Ir. Rep."];
 
-    headerRow = headerRow + ["I [{0}]".format(intensityUnit)];
+    headerRow = headerRow + ["I [{0}]".format(intensityUnits)];
 
     if linewidths != None:
-        headerRow = headerRow + [r"\Gamma [{0}]".format(frequencyUnit)];
+        headerRow = headerRow + [r"\Gamma [{0}]".format(frequencyUnits)];
 
     dataItems = [frequencies];
 
-    if irReps != None:
-        dataItems.append(irReps);
+    if irRepSymbols != None:
+        dataItems.append(irRepSymbols);
 
     dataItems.append(intensities);
 
@@ -202,37 +200,39 @@ def SavePeakTable(frequencies, intensities, filePath, irReps = None, linewidths 
 
     WriteData(dataRows, filePath, fileFormat);
 
-def SaveSpectrum(spectrum, filePath, frequencyUnit = None, intensityUnit = None, fileFormat = 'dat'):
+def SaveSpectrum(spectrum, filePath, frequencyUnits = None, intensityUnits = None, fileFormat = 'dat'):
     """
     Save a simulated spectrum to a plain-text file.
 
     Arguments:
-        spectrum -- a tuple of (frequencies, intensities) data sets.
+        spectrum -- a tuple of (frequencies, intensities, intensities_norm) data sets.
         filePath -- path to output file.
 
     Keyword arguments:
-        frequencyUnit -- units of the frequency axis (defaults to the DefaultFrequencyUnit constant).
-        intensityUnit -- units of the intensity axis (defaults to the DefaultIntensityUnit constant).
+        FrequencyUnits -- units of the frequency axis (defaults to Constants.DefaultFrequencyUnits).
+        intensityUnits -- units of the intensity axis (defaults to Constants.DefaultIntensityUnits).
         fileFormat -- file format to export to ('csv' or 'dat'; default: 'dat').
     """
 
-    spectrumX, spectrumY = spectrum;
+    spectrumX, spectrumY, spectrumYNorm = spectrum;
 
-    if len(spectrumX) != len(spectrumY):
-        raise Exception("Error: the number of frequency and intensity points in spectrum are inconsistent.");
+    numDataPoints = len(spectrumX);
 
-    if frequencyUnit == None:
-        frequencyUnit = DefaultFrequencyUnit;
+    if len(spectrumY) != numDataPoints or len(spectrumYNorm) != numDataPoints:
+        raise Exception("Error: The number of frequency and intensity points in spectra are inconsistent.");
 
-    if intensityUnit == None:
-        intensityUnit = DefaultIntensityUnit;
+    if frequencyUnits == None:
+        frequencyUnits = Constants.DefaultFrequencyUnits;
+
+    if intensityUnits == None:
+        intensityUnits = Constants.DefaultIntensityUnits;
 
     # Compile data rows.
 
     dataRows = [];
 
     dataRows.append(
-        ["v [{0}]".format(frequencyUnit), "I(v) [{0}]".format(intensityUnit)]
+        ["v [{0}]".format(Utilities.GetFrequencyUnitLabel(frequencyUnits)), "I(v) [{0}]".format(intensityUnits), "I_Norm(v) [AU]"]
         );
 
     for dataRow in zip(*spectrum):

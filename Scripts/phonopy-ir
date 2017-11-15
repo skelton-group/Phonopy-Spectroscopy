@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+
+
+# -------
+# Imports
+# -------
+
+from argparse import ArgumentParser;
+
+from SpectroscoPy.Interfaces.Phonopy import ReadMeshYAML, ReadIrRepsYAML, ReadBORN;
+
+from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
+
+from SpectroscoPy.CLI.Parser import UpdateParser, PostProcessArgs;
+from SpectroscoPy.CLI.Runtime import RunMode_IR;
+
+
+# ----
+# Main
+# ----
+
+if __name__ == "__main__":
+    # Parse command-line arguments.
+
+    parser = ArgumentParser(
+        description = "Simulate IR spectra using Phonopy calculations"
+        );
+
+    # Add input-files argument group.
+
+    group = parser.add_argument_group("Input files");
+
+    group.add_argument(
+        "--mesh_yaml",
+        metavar = "<file_path>",
+        type = str, dest = "MeshYAML",
+        default = "mesh.yaml",
+        help = "mesh.yaml file to read (default: mesh.yaml)"
+        );
+
+    group.add_argument(
+        "--born_file",
+        metavar = "<file_path>",
+        type = str, dest = "BORNFile",
+        default = "BORN",
+        help = "BORN file to read (default: BORN)"
+        );
+
+    group.add_argument(
+        "--ir_reps_yaml",
+        metavar = "<file_path>",
+        type = str, dest = "IrRepsYAML",
+        default = "irreps.yaml",
+        help = "irreps.yaml file to read if using the --ir_reps argument (default: irreps.yaml)"
+        );
+
+    # Add standard arguments groups.
+
+    UpdateParser(parser, supportedFeatures = ['ir_reps']);
+
+    # Parse and process arguments.
+
+    args = parser.parse_args();
+
+    PostProcessArgs(args);
+
+    # Read mesh.yaml file.
+
+    meshData = ReadMeshYAML(filePath = args.MeshYAML);
+
+    frequencies, eigenvectors = meshData['gamma_modes'];
+
+    # Convert eigenvectors to eigendisplacements.
+
+    eigendisplacements = EigenvectorsToEigendisplacements(
+        eigenvectors, meshData['atomic_masses']
+        );
+
+    # Read Born effective-charge tensors.
+
+    becTensors = ReadBORN(meshData['structure'], filePath = args.BORNFile);
+
+    # Read ir. rep. data, if required.
+
+    irRepData = None;
+
+    if args.IrReps:
+        irRepData = ReadIrRepsYAML(filePath = args.IrRepsYAML);
+
+    # Hand over to the RunMode_IR() routine.
+
+    RunMode_IR(
+        frequencies, 'thz', eigendisplacements, becTensors, args, linewidths = None, irRepData = irRepData
+        );
