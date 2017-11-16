@@ -46,7 +46,8 @@ def UpdateParser(parser, supportedFeatures = None):
         "--freq_units",
         metavar = "<units>",
         type = str, dest = "FrequencyUnits",
-        help = "Frequency units ('thz', 'inv_cm' or 'mev'; default: 'inv_cm')"
+        default = 'inv_cm',
+        help = "Frequency units for simulated spectrum ('thz', 'inv_cm', 'mev' or 'um'; default: 'inv_cm')"
         );
 
     # If the CLI supports irreducible representations, add a "Peak table" argument group.
@@ -73,7 +74,7 @@ def UpdateParser(parser, supportedFeatures = None):
         metavar = "<linewidth>",
         type = float, dest = "Linewidth",
         default = None,
-        help = "Uniform mode linewidth (required if per-mode linewidths are not supplied)"
+        help = "Uniform mode linewidth ***in inverse cm*** (required if per-mode linewidths are not supplied)"
         );
 
     group.add_argument(
@@ -127,7 +128,6 @@ def UpdateParser(parser, supportedFeatures = None):
         default = 'dat',
         help = "Format for plain-text output files ('dat' or 'csv'; default: 'dat')"
         );
-
 
 def PostProcessArgs(args):
     """ Post-process arguments added by UpdateParser() after collecting with ArgumentParser.parse_args(). """

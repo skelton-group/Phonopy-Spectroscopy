@@ -12,21 +12,25 @@
 # Constants
 # ---------
 
-""" Conversion factors from THz to other supported frequency units. """
+""" Conversion factor from THz to inverse cm. """
 
-FrequencyConversionFactors = {
-    # These conversion factors were taken from http://halas.rice.edu/conversions.
+THzToInvCm = 33.35641;
 
-    'inv_cm' : 33.35641,
-    'mev' : 4.13567
-    };
+""" Conversion factor from THz to meV. """
 
-""" Labels for the frequency units supported by the ConvertFrequencyUnits() routine. """
+THzToMeV = 4.13567;
+
+""" Conversion factor from THz to _inverse_ microns. """
+
+THzToInvUm = 1.0e-4 * THzToInvCm;
+
+""" Labels for varuious supported frequency units. """
 
 FrequencyUnitLabels = {
     'thz' : "THz",
     'inv_cm' : "cm$^{-1}$",
-    'mev' : "meV"
+    'mev' : "meV",
+    'um' : "$\mu$m"
     };
 
 """ Default frequency units. """

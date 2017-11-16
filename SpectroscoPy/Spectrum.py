@@ -122,9 +122,11 @@ def SimulateSpectrum(
     # Set a resolution if required.
 
     if spectrumResolution == None:
-        spectrumResolution = math.pow(
+        nominalResolution = math.pow(
             10.0, math.floor(math.log10(math.ceil(spectrumMax - spectrumMin) / SpectrumResolutionMinPoints))
             );
+
+        spectrumResolution = min(nominalResolution, 1.0);
 
     # If the spectrum range is being automatically determined, make sure it is "aligned" with the resolution.
 

@@ -36,34 +36,41 @@ def GetFrequencyUnitLabel(frequencyUnits):
 def ConvertFrequencyUnits(frequencies, unitsFrom, unitsTo):
     """
     Convert frequencies in unitsFrom to unitsTo.
-    Supported values of unitsFrom/unitsTo are: 'thz', 'inv_cm' and 'mev'.
+    Supported values of unitsFrom/unitsTo are: 'thz', 'inv_cm', 'mev' and 'um'.
     """
 
     unitsFrom, unitsTo = unitsFrom.lower(), unitsTo.lower();
-
-    # Check unit conversion is supported.
-
-    for units in unitsFrom, unitsTo:
-        if units != 'thz' and units not in Constants.FrequencyConversionFactors:
-            raise Exception("Error: Unsupported frequency unit '{0}'.".format(units));
 
     # No point in doing any work if we don't have to...
 
     if unitsFrom == unitsTo:
         return frequencies;
 
-    conversionFactor = 1.0;
+    # First convert frequencies to THz...
 
     if unitsFrom != 'thz':
-        # Convert frequencies to THz.
+        if unitsFrom == 'inv_cm':
+            frequencies = [frequency / Constants.THzToInvCm for frequency in frequencies];
+        elif unitsFrom == 'mev':
+            frequencies = [frequency / Constants.THzToMeV for frequency in frequencies];
+        elif unitsFrom == 'um':
+            frequencies = [1.0 / (frequency * Constants.THzToInvUm) for frequency in frequencies];
+        else:
+            raise Exception("Error: Unsupported units '{0}'.".format(unitsFrom));
 
-        conversionFactor /= Constants.FrequencyConversionFactors[unitsFrom];
+    # ... and now convert to the desired unit.
 
     if unitsTo != 'thz':
-        conversionFactor *= Constants.FrequencyConversionFactors[unitsTo];
+        if unitsTo == 'inv_cm':
+            frequencies = [frequency * Constants.THzToInvCm for frequency in frequencies];
+        elif unitsTo == 'mev':
+            frequencies = [frequency * Constants.THzToMeV for frequency in frequencies];
+        elif unitsTo == 'um':
+            frequencies = [1.0 / (frequency * Constants.THzToInvUm) for frequency in frequencies];
+        else:
+            raise Exception("Error: Unsupported units '{0}'.".format(unitsTo));
 
-    return [frequency * conversionFactor for frequency in frequencies];
-
+    return frequencies;
 
 # ----------------------
 # Peak-Table Preparation
