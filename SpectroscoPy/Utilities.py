@@ -147,6 +147,52 @@ def GroupForPeakTable(frequencies, intensities, irRepData, linewidths = None):
 # Helper Routines
 # ---------------
 
+def CartesianToFractionalCoordinates(positions, latticeVectors):
+    """
+    Convert positions from cartesian to fractional coordinates.
+
+    Arguments:
+        positions -- a list of N three-component vectors in Cartesian coordinates.
+        latticeVectors -- must be convertible to a 3x3 NumPy matrix.
+    """
+
+    dim1, dim2 = np.shape(latticeVectors);
+
+    if dim1 != 3 or dim2 != 3:
+        raise Exception("Error: latticeVectors must be a 3x3 matrix.");
+
+    # The transformation matrix from cartesian to fractional coordinates is the inverse of a matrix built from the lattice vectors.
+
+    transformationMatrix = np.linalg.inv(latticeVectors);
+
+    # If the positions are not three-component vectors, np.dot() raises a readable error message.
+
+    return [
+        np.dot(position, transformationMatrix)
+            for position in positions
+        ];
+
+def FractionalToCartesianCoordinates(positions, latticeVectors):
+    """
+    Convert positions from fractional to cartesian coordinates.
+
+    Arguments:
+        positions -- a list of N three-component vectors in Cartesian coordinates.
+        latticeVectors -- must be convertible to a 3x3 NumPy matrix.
+    """
+
+    dim1, dim2 = np.shape(latticeVectors);
+
+    if dim1 != 3 or dim2 != 3:
+        raise Exception("Error: latticeVectors must be a 3x3 matrix.");
+
+    v1, v2, v3 = latticeVectors[0], latticeVectors[1], latticeVectors[2];
+
+    return [
+        np.multiply(f1, v1) + np.multiply(f2, v2) + np.multiply(f3, v3)
+            for f1, f2, f3 in positions
+        ];
+
 def EigenvectorsToEigendisplacements(eigenvectors, atomicMasses):
     """
     Return the eigenvectors after division of each component by sqrt(mass).

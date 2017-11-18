@@ -188,25 +188,35 @@ def ReadPhono3pyHDF5(filePath, linewidthTemperature):
                 break;
 
         if tIndex == None:
-            raise Exception("Error: Linewidth temperature {0} not dfound under the 'temperature' key.".format(linewidthTemperature));
+            raise Exception("Error: Linewidth temperature {0} not found under the 'temperature' key.".format(linewidthTemperature));
 
-        # Locate the q-point index corresponding to the Gamma point.
+        # If the file has a 'qpoint' key, locate the q-point index corresponding to the Gamma point.
 
         qIndex = None;
 
-        for i, (qx, qy, qz) in enumerate(phono3pyHDF5['qpoint']):
-            if qx == 0.0 and qy == 0.0 and qz == 0.0:
-                qIndex = i;
-                break;
+        if 'qpoint' in phono3pyHDF5.keys():
+            for i, (qx, qy, qz) in enumerate(phono3pyHDF5['qpoint']):
+                if qx == 0.0 and qy == 0.0 and qz == 0.0:
+                    qIndex = i;
+                    break;
 
-        if qIndex == None:
-            raise Exception("Error: q = (0, 0, ) not found under the 'q-point' key.");
+            if qIndex == None:
+                raise Exception("Error: q = (0, 0, ) not found under the 'qpoint' key.");
 
         # Extract the linewidths.
 
-        linewidths = [
-            linewidth for linewidth in phono3pyHDF5['gamma'][tIndex][qIndex]
-            ];
+        if qIndex != None:
+            # If the 'qpoint' key is present in the file, the linewidths dataset has shape (num_temperatures, num_q_points, num_bands).
+
+            linewidths = [
+                linewidth for linewidth in phono3pyHDF5['gamma'][tIndex][qIndex]
+                ];
+        else:
+            # If not, the dataset has shape (num_temperatures, num_bands).
+            
+            linewidths = [
+                linewidth for linewidth in phono3pyHDF5['gamma'][tIndex]
+                ];
     finally:
         # Make sure we close the input file.
 

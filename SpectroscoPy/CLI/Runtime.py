@@ -91,9 +91,6 @@ def RunMode_Output(frequencies, frequencyUnits, intensities, intensityUnits, arg
         raise Exception("Error: The numbers of frequencies and intensities are inconsistent.");
 
     if linewidths == None:
-        if args.Linewidth == None:
-            raise Exception("Error: A nominal linewidth must be supplied using the --linewidth argument.");
-
         if args.Linewidth < 0.0:
             raise Exception("Error: Negative mode linewidths are unphysical (!?).");
 
@@ -127,7 +124,7 @@ def RunMode_Output(frequencies, frequencyUnits, intensities, intensityUnits, arg
 
     # Save peak table.
 
-    fileName = "PeakTable.{0}".format(dataFormat);
+    fileName = "IR-PeakTable.{0}".format(dataFormat);
 
     if args.OutputPrefix != None:
         fileName = "{0}_{1}".format(args.OutputPrefix, fileName);
@@ -167,7 +164,7 @@ def RunMode_Output(frequencies, frequencyUnits, intensities, intensityUnits, arg
     spectrum = SimulateSpectrum(
         frequencies, intensities, linewidths if linewidths != None else args.Linewidth,
         spectrumRange = spectrumRange, spectrumResolution = args.SpectrumResolution,
-        instrumentBroadeningWidth = args.InstrumentBroadeningWidth, instrumentBroadeningShape = args.InstrumentBroadeningShape
+        instrumentBroadening = args.InstrumentBroadening, instrumentBroadeningShape = args.InstrumentBroadeningShape
         );
 
     if args.FrequencyUnits != frequencyUnits:
@@ -199,7 +196,7 @@ def RunMode_Output(frequencies, frequencyUnits, intensities, intensityUnits, arg
 
     # Save spectrum.
 
-    fileName = "IRSpectrum.{0}".format(dataFormat);
+    fileName = "IR-Spectrum.{0}".format(dataFormat);
 
     if args.OutputPrefix != None:
         fileName = "{0}_{1}".format(args.OutputPrefix, fileName);
@@ -212,7 +209,7 @@ def RunMode_Output(frequencies, frequencyUnits, intensities, intensityUnits, arg
 
     # Plot spectrum.
 
-    fileName = "IRSpectrum.png";
+    fileName = "IR-Spectrum.png";
 
     if args.OutputPrefix != None:
         fileName = "{0}_{1}".format(args.OutputPrefix, fileName);

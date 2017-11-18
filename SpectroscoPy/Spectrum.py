@@ -55,7 +55,7 @@ def Lorentzian(x, i, x0, gamma):
 def SimulateSpectrum(
     frequencies, intensities, linewidths,
     spectrumRange = None, spectrumResolution = None,
-    instrumentBroadeningWidth = None, instrumentBroadeningShape = 'gaussian'
+    instrumentBroadening = None, instrumentBroadeningShape = 'gaussian'
     ):
 
     """
@@ -70,7 +70,7 @@ def SimulateSpectrum(
     Keyword arguments:
         spectrumRange -- range of frequencies over which to simulate the spectrum (defaults to approx. min(frequencies) - SpectrumPaddingMultiplier * max(linewidths) -> max(frequencies) + SpectrumPaddingMultiplier * max(linewidths)).
         spectrumResolution -- frequency resolution of the spectrum (default: adjust to give at least SpectrumResolutionMinPoints data points, or a minimum resolution of 1, whichever is larger).
-        instrumentBroadeningWidth -- instrument broadening width (default: no instrument broadening).
+        instrumentBroadening -- instrument broadening width (default: no instrument broadening).
         instrumentBroadeningShape -- shape of instrument broadening ('gaussian' or 'lorentzian'; default: 'gaussian').
 
     Return value:
@@ -139,12 +139,12 @@ def SimulateSpectrum(
 
     convNumPoints, convKernel = None, None;
 
-    if instrumentBroadeningWidth != None:
+    if instrumentBroadening != None:
         # Calculating the convolution kernel to +/- 5 sigma/gamma should be sufficient.
         # According to https://en.wikipedia.org/wiki/Gaussian_blur, +/- 3 sigma is considered enough for Gaussian blurring kernels.
 
         convNumPoints = int(
-            math.ceil(SpectrumPaddingMultiplier * instrumentBroadeningWidth / spectrumResolution)
+            math.ceil(SpectrumPaddingMultiplier * instrumentBroadening / spectrumResolution)
             );
 
         convX = np.arange(
@@ -152,9 +152,9 @@ def SimulateSpectrum(
             );
 
         if instrumentBroadeningShape == 'gaussian':
-            convKernel = Gaussian(convX, 1.0, 0.0, instrumentBroadeningWidth);
+            convKernel = Gaussian(convX, 1.0, 0.0, instrumentBroadening);
         elif instrumentBroadeningShape == 'lorentzian':
-            convKernel = Lorentzian(convX, 1.0, 0.0, instrumentBroadeningWidth);
+            convKernel = Lorentzian(convX, 1.0, 0.0, instrumentBroadening);
         else:
             raise Exception("Error: Unrecognised instrumentBroadeningShape '{0}'.".format(instrumentBroadeningShape));
 

@@ -73,8 +73,8 @@ def UpdateParser(parser, supportedFeatures = None):
         "--linewidth",
         metavar = "<linewidth>",
         type = float, dest = "Linewidth",
-        default = None,
-        help = "Uniform mode linewidth ***in inverse cm*** (required if per-mode linewidths are not supplied)"
+        default = 16.5,
+        help = "Uniform mode linewidth ***in inverse cm*** (default: 16.5 cm^-1 ~= 0.5 THz)"
         );
 
     group.add_argument(
@@ -94,9 +94,9 @@ def UpdateParser(parser, supportedFeatures = None):
         );
 
     group.add_argument(
-        "--instrument_broadening_width",
+        "--instrument_broadening",
         metavar = "<broadening>",
-        type = float, dest = "InstrumentBroadeningWidth",
+        type = float, dest = "InstrumentBroadening",
         default = None,
         help = "Instrument broadening width (default: None)"
         );

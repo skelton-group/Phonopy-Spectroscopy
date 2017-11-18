@@ -5,7 +5,7 @@
 # Docstring
 # ---------
 
-""" Core routines for exporting data in plain-text formats. """
+""" Routines for exporting data in plain-text formats. """
 
 
 # -------

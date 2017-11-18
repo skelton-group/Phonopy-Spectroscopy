@@ -5,7 +5,7 @@
 # Docstring
 # ---------
 
-""" Core routines for plotting spectra with Matplotlib. """
+""" Routines for plotting spectra with Matplotlib. """
 
 
 # -------

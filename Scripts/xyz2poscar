@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+
+
+# -------
+# Imports
+# -------
+
+from argparse import ArgumentParser;
+
+import numpy as np;
+
+from SpectroscoPy.StructureIO import ReadXYZ, WritePOSCAR;
+
+from SpectroscoPy.Utilities import CartesianToFractionalCoordinates;
+
+
+# ----
+# Main
+# ----
+
+if __name__ == "__main__":
+    # Parse command-line arguments.
+
+    parser = ArgumentParser("Convert an XYZ-format molecular structure to a VASP 5 POSCAR file");
+
+    parser.add_argument(
+        "XYZFile",
+        metavar = "<xyz_file>",
+        type = str,
+        help = "XYZ-format file to convert"
+        );
+
+    parser.add_argument(
+        "-o", "--output",
+        metavar = "<poscar_file>",
+        type = str, dest = "POSCARFile",
+        default = "POSCAR.vasp",
+        help = "Output POSCAR file"
+        );
+
+    parser.add_argument(
+        "--padding",
+        metavar = "<box_padding>",
+        type = float, dest = "Padding",
+        default = 15.0,
+        help = "Padding between periodic images (default: 15 A)"
+        );
+
+    parser.add_argument(
+        "--title",
+        metavar = "<title>",
+        type = str, dest = "TitleLine",
+        default = None,
+        help = "Override the title line (line 1) of the POSCAR file (default: read from XYZ file)"
+        );
+
+    args = parser.parse_args();
+
+    # Read XYZ file.
+
+    titleLine, atomicSymbols, atomPositions = ReadXYZ(args.XYZFile);
+
+    # Find minimum and maximum x, y and z coordinates and work out the lattice vectors using the supplied padding.
+
+    minPos = np.min(atomPositions, axis = 0);
+    maxPos = np.max(atomPositions, axis = 0);
+
+    latticeVectors = np.diag(
+        (maxPos - minPos) + args.Padding
+        );
+
+    # Adjust positions to place the atom at the centre of the cell.
+
+    translationVector = (-1.0 * minPos) + args.Padding / 2.0;
+
+    atomPositions = [
+        position + translationVector for position in atomPositions
+        ];
+
+    # Convert positions from cartesian to fractional coordinates.
+
+    atomPositions = CartesianToFractionalCoordinates(atomPositions, latticeVectors);
+
+    # Write output file.
+
+    WritePOSCAR(
+        (latticeVectors, atomicSymbols, atomPositions),
+        args.POSCARFile,
+        titleLine = args.TitleLine if args.TitleLine != None else titleLine
+        );
