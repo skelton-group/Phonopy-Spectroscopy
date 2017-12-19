@@ -322,7 +322,7 @@ def RunMode_Raman_PostProc(args, linewidths = None, irRepData = None):
 
     # Write out Raman tensors.
 
-    fileName = "RamanTensors.yaml";
+    fileName = "Raman-Tensors.yaml";
 
     if args.OutputPrefix != None:
         fileName = "{0}_{1}".format(args.OutputPrefix, fileName);
