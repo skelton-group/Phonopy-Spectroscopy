@@ -16,7 +16,6 @@ import matplotlib as mpl;
 import matplotlib.pyplot as plt;
 
 from SpectroscoPy import Constants;
-from SpectroscoPy import Utilities;
 
 
 # ---------
@@ -114,7 +113,7 @@ def PlotSpectrum(spectrum, filePath, frequencyUnits = None, plotType = None):
     plt.plot(spectrumX, spectrumYNorm, color = lineColour);
 
     plt.xlabel(
-        r"$\nu$ [{0}]".format(Utilities.GetFrequencyUnitLabel(frequencyUnits))
+        r"$\nu$ [{0}]".format(Constants.GetFrequencyUnitLabel(frequencyUnits))
         );
 
     plt.ylabel(

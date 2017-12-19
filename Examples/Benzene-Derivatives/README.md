@@ -23,8 +23,7 @@ To prepare the phonon frequencies and eigenvectors:
 
 3. Collect forces: `phonopy -f vasprun-{1..X}.xml`
 
-4. Generate a `mesh.yaml` file with the &Gamma;-point phonon frequencies and 
-eigenvectors: `phonopy --dim="1 1 1" --fc_symmetry=1 --mesh="1 1 1" --eigenvectors`
+4. Generate a `mesh.yaml` file containing the structure and &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="1 1 1" --fc_symmetry=1 --mesh="1 1 1" --eigenvectors` (structures can also be read from a `phonopy.yaml` or VASP 5.x-format `POSCAR` file)
 
 To prepare the Born effective-charge tensors:
 
@@ -39,49 +38,49 @@ Finally, to generate the spectrum:
 
 ## Results
 
-### Benzene
+#### a. Benzene
 
 * Raw data: [Benzene](./Benzene); CAS/NIST database ID: 71-43-2
 
 <img src="./Benzene/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Phenol
+#### b. Phenol
 
 * Raw data: [Phenol](./Phenol); CAS/NIST database ID: 108-95-2
 
 <img src="./Phenol/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Toluene
+#### c. Toluene
 
 * Raw data: [Toluene](./Toluene); CAS/NIST database ID: 108-88-3
 
 <img src="./Toluene/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Anisole
+#### d. Anisole
 
 * Raw data: [Anisole](./Anisole); CAS/NIST database ID: 100-66-3
 
 <img src="./Anisole/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Aniline
+#### e. Aniline
 
 * Raw data: [Aniline](./Aniline); CAS/NIST database ID: 62-53-3
 
 <img src="./Aniline/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Benzoic acid
+#### f. Benzoic acid
 
 * Raw data: [Benzoic acid](./Benzoic-Acid); CAS/NIST database ID: 65-85-0
 
 <img src="./Benzoic-Acid/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Benzaldehyde
+#### g. Benzaldehyde
 
 * Raw data: [Benzaldehyde](./Benzaldehyde); CAS/NIST database ID: 100-52-7
 
 <img src="./Benzaldehyde/Expt-Comparison.png" width="500px" alt="Expt-Comparison.png" />
 
-### Benzonitrile
+#### h. Benzonitrile
 
 * Raw data: [Benzonitrile](./Benzonitrile); CAS/NIST database ID: 100-47-0
 

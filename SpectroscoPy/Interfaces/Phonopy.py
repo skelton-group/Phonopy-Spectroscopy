@@ -13,7 +13,16 @@
 # -------
 
 import h5py;
+
 import yaml;
+
+# This code tries to use the C version of the YAML Loader and falls back to the standard Loader if this is not available.
+# This code was taken from https://pyyaml.org/wiki/PyYAMLDocumentation.
+
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper;
+except ImportError:
+    from yaml import Loader, Dumper;
 
 import numpy as np;
 
@@ -23,24 +32,17 @@ from phonopy.file_IO import parse_BORN;
 from phonopy.structure.atoms import Atoms
 
 
-# ---------
-# Functions
-# ---------
+# ----------
+# YAML Files
+# ----------
 
-def ReadMeshYAML(filePath = r"mesh.yaml"):
+def ReadPhonopyYAML(filePath = r"phonopy.yaml"):
     """
-    Read a Phonopy mesh.yaml file and extract the structure, atomic masses and Gamma-point eigenvectors.
-
-    If the specified file is missing one or more of these items, an error is raised.
+    Read a Phonopy phonopy.yaml file and extract the structure and atomic masses.
 
     Return value:
-        A dictionary of containing the extracted data under the following keys:
-            'structure' : a tuple of (lattice_vectors, atomic_symbols, atom_positions) data.
-            'atomic_masses' : a list of atomic masses.
-            'gamma_modes' : lists of 3N Gamma-point frequencies and eigenvectors as Nx3 NumPy arrays.
-
-    Notes:
-        The atom positions under the 'structure' key in the output dictionary are in fractional coordinates.
+        A (structure, atomic_masses) tuple containing the extracted data.
+        The structure is returned as a tuple of (lattice_vectors, atomic_symbols, atom_positions_frac) data.
     """
 
     # Load and parse YAML file.
@@ -48,37 +50,113 @@ def ReadMeshYAML(filePath = r"mesh.yaml"):
     inputYAML = None;
 
     with open(filePath, 'r') as inputReader:
-        inputYAML = yaml.load(inputReader);
+        inputYAML = yaml.load(inputReader, Loader = Loader);
 
-    outputData = { };
+    # Get primitive cell used in the calculation.
+
+    primitiveCell = inputYAML['primitive_cell'];
 
     # Get structure.
 
     latticeVectors = [
         np.array(vector, dtype = np.float64)
-            for vector in inputYAML['lattice']
+            for vector in primitiveCell['lattice']
         ];
 
     atomicSymbols = [
-        atom['symbol'] for atom in inputYAML['atoms']
+        atom['symbol'] for atom in primitiveCell['points']
         ];
 
     atomPositions = [
-        np.array(atom['position'], dtype = np.float64)
-            for atom in inputYAML['atoms']
+        np.array(atom['coordinates'], dtype = np.float64)
+            for atom in primitiveCell['points']
         ];
 
-    outputData['structure'] = (latticeVectors, atomicSymbols, atomPositions);
+    structure = (latticeVectors, atomicSymbols, atomPositions);
 
     # Get atomic masses.
 
     atomicMasses = [
-        atom['mass'] for atom in inputYAML['atoms']
+        atom['mass'] for atom in primitiveCell['points']
         ];
 
-    outputData['atomic_masses'] = atomicMasses;
+    # Return data.
 
-    # Try to get Gamma-point eigenvectors.
+    return (structure, atomicMasses);
+
+def ReadMeshYAML(filePath = r"mesh.yaml"):
+    """
+    Read a Phonopy mesh.yaml file and extract the Gamma-point eigenvectors.
+
+    Return value:
+        A tuple of (phonon_modes, structure, atomic_masses) containing the Gamma-point frequencies/eigenvectors, and the structure and a list of atomic masses if available.
+        The phonon modes are returned as a tuple of (frequencies, eigenvectors) lists with 3N elements; the eigenvectors are Nx3 NumPy arrays.
+        The structure is returned as a tuple of (lattice_vectors, atomic_symbols, atom_positions_frac).
+
+    Notes:
+        If the input file does not contain frequencies and eigenvectors at q_Gamma = (0, 0, 0), errors are raised.
+        YAML files exported by older versions of Phonopy do not contain the structure and atomic masses - in this case, structure and atomic_masses are set to None.
+    """
+
+    # Load and parse YAML file.
+
+    inputYAML = None;
+
+    with open(filePath, 'r') as inputReader:
+        inputYAML = yaml.load(inputReader, Loader = Loader);
+
+    # Get structure and atomic masses if available.
+
+    structure, atomicMasses = None, None;
+
+    latticeVectors, atomPositions, atomicSymbols = None, None, None;
+
+    if 'lattice' in inputYAML:
+        latticeVectors = [
+            np.array(vector, dtype = np.float64)
+                for vector in inputYAML['lattice']
+            ];
+
+    # Get atom positions, atomic symbols and atomic masses.
+
+    if 'atoms' or 'points' in inputYAML:
+        # Workaround for differences between older and newer versions of Phonopy...
+
+        atomsKey = 'atoms';
+
+        if atomsKey not in inputYAML:
+            atomsKey = 'points';
+
+        atomicSymbols = [
+            atom['symbol'] for atom in inputYAML[atomsKey]
+            ];
+
+        # ... and again!
+
+        positionKey = 'position';
+
+        if positionKey not in inputYAML[atomsKey][0]:
+            positionKey = 'coordinates';
+
+        atomPositions = [
+            np.array(atom[positionKey], dtype = np.float64)
+                for atom in inputYAML[atomsKey]
+            ];
+
+        atomicMasses = [
+            atom['mass'] for atom in inputYAML[atomsKey]
+            ];
+
+    # If structural information was read, create a (lattice_vectors, atomic_symbols, atom_positions) tuple.
+
+    if latticeVectors != None and atomPositions != None and atomicSymbols != None:
+        structure = (latticeVectors, atomicSymbols, atomPositions);
+
+    # Get Gamma-point frequencies and eigenvectors.
+
+    phononModes = None;
+
+    frequencies, eigenvectors = None, None;
 
     for qPoint in inputYAML['phonon']:
         qx, qy, qz = qPoint['q-position'];
@@ -89,6 +167,9 @@ def ReadMeshYAML(filePath = r"mesh.yaml"):
             for mode in qPoint['band']:
                 frequencies.append(mode['frequency']);
 
+                if 'eigenvector' not in mode:
+                    raise Exception("Error: Eigenvectors not found in YAML file \"{0}\".".format(filePath));
+
                 eigenvector = [
                      [atomDisp[i][0] for i in range(0, 3)]
                         for atomDisp in mode['eigenvector']
@@ -98,14 +179,18 @@ def ReadMeshYAML(filePath = r"mesh.yaml"):
                     np.array(eigenvector, dtype = np.float64)
                     );
 
-            outputData['gamma_modes'] = (frequencies, eigenvectors);
-
             break;
 
-    if 'gamma_modes' not in outputData:
-        raise Exception("Error: Gamma-point phonon eigenvectors could not be read from YAML file \"{0}\".".format(filePath));
+    # Check Gamma-point frequencies and eigenvectors were found.
 
-    return outputData;
+    if frequencies == None:
+        raise Exception("Error: Data for q_Gamma = (0, 0, 0) not found in YAML file \"{0}\".".format(filePath));
+
+    phononModes = (frequencies, eigenvectors);
+
+    # Return Gamma-point frequencies and eigenvectors, structure and atomic masses.
+
+    return (phononModes, structure, atomicMasses);
 
 def ReadIrRepsYAML(filePath = r"irreps.yaml"):
     """
@@ -133,42 +218,19 @@ def ReadIrRepsYAML(filePath = r"irreps.yaml"):
 
     for mode in inputYAML['normal_modes']:
         irRepLabels.append(mode['ir_label']);
-        bandIndices.append(mode['band_indices']);
+
+        # Band indices in the irreps.yaml files start from one -> adjust to zero-based.
+
+        bandIndices.append(
+            [index - 1 for index in mode['band_indices']]
+            );
 
     return [item for item in zip(irRepLabels, bandIndices)];
 
-def ReadBORN(structure, filePath = "BORN"):
-    """
-    Read a Phonopy BORN file, and expand the charges for the supplied structure, and return a list of Born effective-charge tensors for each atom in the structure.
 
-    Arguments:
-        structure -- a tuple of (lattice_vectors, atomic_symbols, atom_positions) specifying the structure to be used to expand the Born charges to the full set of atoms.
-
-    Keyword arguments:
-        filePath -- path to the Phonopy BORN-format file to read (default: BORN).
-
-    Return value:
-        A list of 3x3 Born effective-charge tensors for each atom in the supplied structure.
-
-    Notes:
-        The atom positions supplied with structure are assumed to be in fractional coordinates.
-    """
-
-    # Convert the supplied structure to a Phonopy Atoms object.
-
-    latticeVectors, atomicSymbols, atomPositions = structure;
-
-    cell = Atoms(
-        symbols = atomicSymbols, cell = latticeVectors, scaled_positions = atomPositions
-        );
-
-    # Read the BORN file.
-
-    bornData = parse_BORN(cell, filename = filePath);
-
-    # Return the Born effective-charge tensors from the dictionary returned by parse_BORN.
-
-    return [becTensor for becTensor in bornData['born']];
+# ----------
+# HDF5 Files
+# ----------
 
 def ReadPhono3pyHDF5(filePath, linewidthTemperature):
     """ Read a Phono3py HDF5 file and return the Gamma-point mode linewidths at the specified temperature. """
@@ -213,7 +275,7 @@ def ReadPhono3pyHDF5(filePath, linewidthTemperature):
                 ];
         else:
             # If not, the dataset has shape (num_temperatures, num_bands).
-            
+
             linewidths = [
                 linewidth for linewidth in phono3pyHDF5['gamma'][tIndex]
                 ];
@@ -223,3 +285,41 @@ def ReadPhono3pyHDF5(filePath, linewidthTemperature):
         phono3pyHDF5.close();
 
     return linewidths;
+
+
+# ----------
+# Misc Files
+# ----------
+
+def ReadBORN(structure, filePath = "BORN"):
+    """
+    Read a Phonopy BORN file, and expand the charges for the supplied structure, and return a list of Born effective-charge tensors for each atom in the structure.
+
+    Arguments:
+        structure -- a tuple of (lattice_vectors, atomic_symbols, atom_positions) specifying the structure to be used to expand the Born charges to the full set of atoms.
+
+    Keyword arguments:
+        filePath -- path to the Phonopy BORN-format file to read (default: BORN).
+
+    Return value:
+        A list of 3x3 Born effective-charge tensors for each atom in the supplied structure.
+
+    Notes:
+        The atom positions supplied with structure are assumed to be in fractional coordinates.
+    """
+
+    # Convert the supplied structure to a Phonopy Atoms object.
+
+    latticeVectors, atomicSymbols, atomPositions = structure;
+
+    cell = Atoms(
+        symbols = atomicSymbols, cell = latticeVectors, scaled_positions = atomPositions
+        );
+
+    # Read the BORN file.
+
+    bornData = parse_BORN(cell, filename = filePath);
+
+    # Return the Born effective-charge tensors from the dictionary returned by parse_BORN.
+
+    return [becTensor for becTensor in bornData['born']];

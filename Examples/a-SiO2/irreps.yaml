@@ -1,0 +1,106 @@
+q-position: [    0.0000000,    0.0000000,    0.0000000 ]
+point_group: 32
+transformation_matrix:
+- [  1.0000000, -0.0000000,  0.0000000 ]
+- [  0.0000000,  1.0000000,  0.0000000 ]
+- [  0.0000000,  0.0000000,  1.0000000 ]
+rotations:
+- matrix:
+  - [  1,  0,  0 ]
+  - [  0,  1,  0 ]
+  - [  0,  0,  1 ]
+  symbol: E
+- matrix:
+  - [  0, -1,  0 ]
+  - [  1, -1,  0 ]
+  - [  0,  0,  1 ]
+  symbol: C3
+- matrix:
+  - [ -1,  1,  0 ]
+  - [ -1,  0,  0 ]
+  - [  0,  0,  1 ]
+  symbol: C3
+- matrix:
+  - [  0,  1,  0 ]
+  - [  1,  0,  0 ]
+  - [  0,  0, -1 ]
+  symbol: C2'
+- matrix:
+  - [  1, -1,  0 ]
+  - [  0, -1,  0 ]
+  - [  0,  0, -1 ]
+  symbol: C2'
+- matrix:
+  - [ -1,  0,  0 ]
+  - [ -1,  1,  0 ]
+  - [  0,  0, -1 ]
+  symbol: C2'
+normal_modes:
+- band_indices: [ 1, 2, 3 ]
+  frequency: -0.0000003340  
+  ir_label: None
+  characters: [ [  3,   0.0 ], [  0,   0.0 ], [  0,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  1, 180.0 ] ]
+- band_indices: [ 4, 5 ]
+  frequency: 3.8237323036   
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0,   0.0 ], [  0, 180.0 ] ]
+- band_indices: [ 6 ]
+  frequency: 6.7239360642   
+  ir_label: A1
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ] ]
+- band_indices: [ 7, 8 ]
+  frequency: 7.6469682653   
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0, 180.0 ], [  0,   0.0 ], [  0, 180.0 ] ]
+- band_indices: [ 9 ]
+  frequency: 10.0940349898  
+  ir_label: A1
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ] ]
+- band_indices: [ 10 ]
+  frequency: 10.2394552273  
+  ir_label: A2
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  1, 180.0 ] ]
+- band_indices: [ 11, 12 ]
+  frequency: 11.2191458224  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]
+- band_indices: [ 13, 14 ]
+  frequency: 13.0453813557  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]
+- band_indices: [ 15 ]
+  frequency: 13.6819903673  
+  ir_label: A1
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ] ]
+- band_indices: [ 16 ]
+  frequency: 14.4521131571  
+  ir_label: A2
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  1, 180.0 ] ]
+- band_indices: [ 17, 18 ]
+  frequency: 20.7374151420  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]
+- band_indices: [ 19 ]
+  frequency: 23.0802793960  
+  ir_label: A2
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  1, 180.0 ] ]
+- band_indices: [ 20, 21 ]
+  frequency: 23.7484220257  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]
+- band_indices: [ 22, 23 ]
+  frequency: 32.0939106599  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]
+- band_indices: [ 24 ]
+  frequency: 32.3972790659  
+  ir_label: A2
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  1, 180.0 ] ]
+- band_indices: [ 25 ]
+  frequency: 32.5620816648  
+  ir_label: A1
+  characters: [ [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ], [  1,   0.0 ] ]
+- band_indices: [ 26, 27 ]
+  frequency: 34.4382228118  
+  ir_label: E
+  characters: [ [  2,   0.0 ], [  1, 180.0 ], [  1, 180.0 ], [  0,   0.0 ], [  0, 180.0 ], [  0,   0.0 ] ]

@@ -12,9 +12,9 @@
 # Functions
 # ---------
 
-def UpdateParser(parser, supportedFeatures = None):
+def UpdateParser(parser, spectrumType, supportedFeatures = None):
     """
-    Updates parser with groups of arguments read by the Run* methods in the Runtime module.
+    Updates parser with groups of arguments for the supplied spectrumType, read by the Run* methods in the Runtime module.
 
     The supportedFeatures parameter specifies a list of optional features supported by the CLI, which may include the following:
         'ir_reps' : the CLI can provide mode irreducible representations for building the peak table.
@@ -27,16 +27,56 @@ def UpdateParser(parser, supportedFeatures = None):
     else:
         supportedFeatures = [];
 
-    # Add run-mode argument group.
+    # If runMode is 'raman', add Raman-specific arguments.
 
-    group = parser.add_argument_group("Run mode");
+    if spectrumType == 'raman':
+        parser.set_defaults(
+            RunMode = None
+            );
 
-    group.add_argument(
-        "--ir",
-        action = 'store_const', const = 'ir',
-        dest = 'RunMode',
-        help = "Simulate IR spectrum"
-        );
+        group = parser.add_argument_group("Raman calculations");
+
+        group.add_argument(
+            "-d", "--create_disp",
+            action = 'store_const', const = "raman_disp", dest = "RunMode",
+            help = "Generate displaced structures for a Raman calculation"
+            );
+
+        group.add_argument(
+            "-r", "--read",
+            metavar = "<file>",
+            nargs = '+', dest = "RamanInputFiles",
+            help = "Collect dielectric constants from a sequence of input files"
+            );
+
+        group.add_argument(
+            "-p", "--post_process",
+            action = 'store_const', const = 'raman_postproc', dest = "RunMode",
+            help = "Post-process a Raman calculation"
+            );
+
+        group.add_argument(
+            "--amplitude",
+            metavar = "<step>",
+            type = float, dest = "RamanStep",
+            default = 1.0e-2,
+            help = "Step size for generating displaced structures (default: 0.01)"
+            );
+
+        group.add_argument(
+            "--step_type",
+            metavar = "< delta_q | max_r | norm_x >",
+            type = str, dest = "RamanStepType",
+            default = 'norm_x',
+            help = "Step size is given in normal-mode amplitude (dQ; 'delta_q') max. Cartesian displacement ('max_r') or eigendisplacement norm ('norm_x'); default: 'norm_x'"
+            );
+
+        group.add_argument(
+            "--bands",
+            metavar = "<band_indices>",
+            type = str, dest = "RamanBandIndices",
+            help = "Band indices to generate displacements for (1-N, default: all except acoustic modes)"
+            );
 
     # Add frequency units group.
 
@@ -44,7 +84,7 @@ def UpdateParser(parser, supportedFeatures = None):
 
     group.add_argument(
         "--freq_units",
-        metavar = "<units>",
+        metavar = "< thz | inv_cm | mev | um >",
         type = str, dest = "FrequencyUnits",
         default = 'inv_cm',
         help = "Frequency units for simulated spectrum ('thz', 'inv_cm', 'mev' or 'um'; default: 'inv_cm')"
@@ -123,14 +163,27 @@ def UpdateParser(parser, supportedFeatures = None):
 
     group.add_argument(
         "--data_format",
-        metavar = "<format>",
+        metavar = "dat | csv",
         type = str, dest = "DataFormat",
         default = 'dat',
         help = "Format for plain-text output files ('dat' or 'csv'; default: 'dat')"
         );
 
-def PostProcessArgs(args):
+def PostProcessArgs(args, spectrumType):
     """ Post-process arguments added by UpdateParser() after collecting with ArgumentParser.parse_args(). """
+
+    if spectrumType == 'raman':
+        if args.RamanInputFiles != None:
+            # The -r/--read flag was set -> set RunMode to 'raman_collect'.
+
+            args.RunMode = 'raman_read';
+
+        if args.RamanBandIndices != None:
+            # Convert to a list of zero-based indices.
+
+            args.RamanBandIndices = [
+                int(item) - 1 for item in args.RamanBandIndices.strip().split()
+                ];
 
     if args.SpectrumRange != None:
         # Convert to a (min, max) tuple.

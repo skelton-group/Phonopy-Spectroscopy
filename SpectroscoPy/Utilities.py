@@ -17,21 +17,9 @@ import numpy as np;
 from SpectroscoPy import Constants;
 
 
-# -------------
-# Unit Handling
-# -------------
-
-def GetFrequencyUnitLabel(frequencyUnits):
-    """ Get a label for units frequencyUnits to be used in plots and output files. """
-
-    # If frequencyUnits is one of the units supported by ConvertFrequencyUnits(), FrequencyUnitLabels will have a label for it.
-
-    key = frequencyUnits.lower();
-
-    if key in Constants.FrequencyUnitLabels:
-        return Constants.FrequencyUnitLabels[key];
-    else:
-        return frequencyUnits;
+# ---------------
+# Unit Conversion
+# ---------------
 
 def ConvertFrequencyUnits(frequencies, unitsFrom, unitsTo):
     """
@@ -72,84 +60,26 @@ def ConvertFrequencyUnits(frequencies, unitsFrom, unitsTo):
 
     return frequencies;
 
-# ----------------------
-# Peak-Table Preparation
-# ----------------------
 
-def GroupForPeakTable(frequencies, intensities, irRepData, linewidths = None):
-    """
-    Average mode frequencies, intensities and linewidths (if supplied) into groups defined by the (symbol, band_indices) tuples in irRepData.
-    Returns a tuple of (new_frequencies, new_intensities, irrep_symbols, new_linewidths) lists, each with the same length as irRepData.
-    """
+# ------------------
+# Structure Handling
+# ------------------
 
-    numModes = len(frequencies);
+def CalculateCellVolume(latticeVectors):
+    """ Calculate the cell volume from a set of lattice vectors by computing the scalar triple product. """
 
-    if len(intensities) != numModes:
-        raise Exception("Error: The lengths of frequencies and intensities are inconsistent.");
+    dim1, dim2 = np.shape(latticeVectors);
 
-    if linewidths is not None and len(linewidths) != numModes:
-        raise Exception("Error: If supplied, linewidths must have the same number of elements as frequencies and intensities.");
+    if dim1 != 3 or dim2 != 3:
+        raise Exception("Error: Lattice vectors must be a 3x3 matrix.");
 
-    # Check band indices.
+    v1, v2, v3 = latticeVectors;
 
-    includedIndices = set();
-
-    for _, bandIndices in irRepData:
-        for index in bandIndices:
-            if index in includedIndices:
-                raise Exception("Error: Band index {0} assigned to multiple ir. rep. groups.".format(index));
-
-            if index < 1 or index > numModes:
-                raise Exception("Error: Band index {0} is out of bounds for # modes = {1}.".format(index, numModes));
-
-            includedIndices.add(index);
-
-    if len(includedIndices) != len(frequencies):
-        raise Exception("Error: The number of bands references in the ir. rep. groups is more than # modes = {0}.".format(numModes));
-
-    frequenciesNew, intensitiesNew = [], [];
-    linewidthsNew = [] if linewidths != None else None;
-
-    for _, bandIndices in irRepData:
-        if len(bandIndices) == 1:
-            index = bandIndices[0] - 1;
-
-            frequenciesNew.append(frequencies[index]);
-            intensitiesNew.append(intensities[index]);
-
-            if linewidths != None:
-                linewidthsNew.append(linewidths[index]);
-
-        else:
-            # Average the frequencies.
-
-            frequenciesNew.append(
-                np.average([frequencies[index - 1] for index in bandIndices])
-                );
-
-            # Sum the intensities.
-
-            intensitiesNew.append(
-                np.sum([intensities[index - 1] for index in bandIndices])
-                );
-
-            if linewidths != None:
-                # Average the linewidths.
-
-                linewidthsNew.append(
-                    np.average([linewidths[index - 1] for index in bandIndices])
-                    );
-
-    return (frequenciesNew, intensitiesNew, [symbol for symbol, _ in irRepData], linewidthsNew);
-
-
-# ---------------
-# Helper Routines
-# ---------------
+    return np.dot(v1, np.cross(v2, v3));
 
 def CartesianToFractionalCoordinates(positions, latticeVectors):
     """
-    Convert positions from cartesian to fractional coordinates.
+    Convert positions from Cartesian to fractional coordinates.
 
     Arguments:
         positions -- a list of N three-component vectors in Cartesian coordinates.
@@ -168,13 +98,13 @@ def CartesianToFractionalCoordinates(positions, latticeVectors):
     # If the positions are not three-component vectors, np.dot() raises a readable error message.
 
     return [
-        np.dot(position, transformationMatrix)
+        np.dot(position, transformationMatrix) % 1.0
             for position in positions
         ];
 
 def FractionalToCartesianCoordinates(positions, latticeVectors):
     """
-    Convert positions from fractional to cartesian coordinates.
+    Convert positions from fractional to Cartesian coordinates.
 
     Arguments:
         positions -- a list of N three-component vectors in Cartesian coordinates.
@@ -192,6 +122,11 @@ def FractionalToCartesianCoordinates(positions, latticeVectors):
         np.multiply(f1, v1) + np.multiply(f2, v2) + np.multiply(f3, v3)
             for f1, f2, f3 in positions
         ];
+
+
+# --------------------
+# Eigenvector handling
+# --------------------
 
 def EigenvectorsToEigendisplacements(eigenvectors, atomicMasses):
     """

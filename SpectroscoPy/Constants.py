@@ -8,9 +8,9 @@
 """ Defines constants used by other modules. """
 
 
-# ---------
-# Constants
-# ---------
+# ------------------
+# Conversion Factors
+# ------------------
 
 """ Conversion factor from THz to inverse cm. """
 
@@ -24,7 +24,29 @@ THzToMeV = 4.13567;
 
 THzToInvUm = 1.0e-4 * THzToInvCm;
 
-""" Labels for varuious supported frequency units. """
+
+# -------------
+# Default Units
+# -------------
+
+""" Default frequency units. """
+
+DefaultFrequencyUnits = "?";
+
+""" Default activity units. """
+
+DefaultActivityUnits = "AU";
+
+""" Default intensity units. """
+
+DefaultIntensityUnits = "AU";
+
+
+# -----------
+# Unit Labels
+# -----------
+
+""" TeX labels for varuious supported frequency units. """
 
 FrequencyUnitLabels = {
     'thz' : "THz",
@@ -33,10 +55,16 @@ FrequencyUnitLabels = {
     'um' : "$\mu$m"
     };
 
-""" Default frequency units. """
+def GetFrequencyUnitLabel(frequencyUnits):
+    """ Get a label for units frequencyUnits to be used in plots and output files. """
 
-DefaultFrequencyUnits = "?";
+    # If frequencyUnits is one of the units supported by ConvertFrequencyUnits(), FrequencyUnitLabels should have a label for it.
 
-""" Default intensity units. """
+    key = frequencyUnits.lower();
 
-DefaultIntensityUnits = "AU";
+    if frequencyUnits == None:
+        return DefaultFrequencyUnits;
+    elif key in FrequencyUnitLabels:
+        return FrequencyUnitLabels[key];
+    else:
+        return frequencyUnits;

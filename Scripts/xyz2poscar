@@ -9,7 +9,8 @@ from argparse import ArgumentParser;
 
 import numpy as np;
 
-from SpectroscoPy.StructureIO import ReadXYZ, WritePOSCAR;
+from SpectroscoPy.Interfaces.Misc import ReadXYZ;
+from SpectroscoPy.Interfaces.VASP import WritePOSCAR;
 
 from SpectroscoPy.Utilities import CartesianToFractionalCoordinates;
 

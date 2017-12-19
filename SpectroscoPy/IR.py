@@ -8,6 +8,13 @@
 """ Core routines for calculating infrared (IR) intensities. """
 
 
+# -------
+# Imports
+# -------
+
+import numpy as np;
+
+
 # ---------
 # Functions
 # ---------
@@ -23,12 +30,12 @@ def CalculateIRIntensity(eigendisplacement, becTensors):
 
     # This should in principle allow external code to supply the parameters as (correctly-dimensioned) lists.
 
-    eigDim1, eigDim2 = len(eigendisplacement), len(eigendisplacement[0]);
+    eigDim1, eigDim2 = np.shape(eigendisplacement);
 
     if eigDim2 != 3:
         raise Exception("Error: eigendisplacement must be a set of N three-component vectors.")
 
-    becDim1, becDim2, becDim3 = len(becTensors), len(becTensors[0]), len(becTensors[0][0]);
+    becDim1, becDim2, becDim3 = np.shape(becTensors);
 
     if becDim2 != 3 or becDim3 != 3:
         raise Exception("Error: becTensors must be a set of N 3x3 matrices.");

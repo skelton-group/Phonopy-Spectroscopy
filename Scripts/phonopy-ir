@@ -7,11 +7,12 @@
 
 from argparse import ArgumentParser;
 
-from SpectroscoPy.Interfaces.Phonopy import ReadMeshYAML, ReadIrRepsYAML, ReadBORN, ReadPhono3pyHDF5;
-
 from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
 
+from SpectroscoPy.Interfaces.Phonopy import ReadBORN;
+
 from SpectroscoPy.CLI.Parser import UpdateParser, PostProcessArgs;
+from SpectroscoPy.CLI.Phonopy import Phonopy_UpdateParser, Phonopy_LoadData_Core, Phonopy_LoadData_Optional;
 from SpectroscoPy.CLI.Runtime import RunMode_IR;
 
 
@@ -26,94 +27,44 @@ if __name__ == "__main__":
         description = "Simulate IR spectra using Phonopy calculations"
         );
 
-    # Add input-files argument group.
+    # Add standard Phonopy argument groups.
 
-    group = parser.add_argument_group("Input files");
-
-    group.add_argument(
-        "--mesh_yaml",
-        metavar = "<file_path>",
-        type = str, dest = "MeshYAML",
-        default = "mesh.yaml",
-        help = "mesh.yaml file to read (default: mesh.yaml)"
-        );
-
-    group.add_argument(
-        "--born_file",
-        metavar = "<file_path>",
-        type = str, dest = "BORNFile",
-        default = "BORN",
-        help = "BORN file to read (default: BORN)"
-        );
-
-    group.add_argument(
-        "--ir_reps_yaml",
-        metavar = "<file_path>",
-        type = str, dest = "IrRepsYAML",
-        default = "irreps.yaml",
-        help = "irreps.yaml file to read if using the --ir_reps argument (default: irreps.yaml)"
-        );
-
-    group = parser.add_argument_group("Linewidths");
-
-    group.add_argument(
-        "--linewidth_hdf5",
-        metavar = "<file_path>",
-        type = str, dest = "LinewidthHDF5",
-        default = None,
-        help = "Read mode linewidths from a Phono3py HDF5 file"
-        );
-
-    group.add_argument(
-        "--linewidth_temperature",
-        metavar = "<temperature>",
-        type = float, dest = "LinewidthTemperature",
-        default = None,
-        help = "Temperature to extract linewidths at"
-        );
+    Phonopy_UpdateParser(parser, 'ir');
 
     # Add standard arguments groups.
 
-    UpdateParser(parser, supportedFeatures = ['ir_reps']);
+    UpdateParser(parser, 'ir', supportedFeatures = ['ir_reps']);
 
     # Parse and process arguments.
 
     args = parser.parse_args();
 
-    PostProcessArgs(args);
+    PostProcessArgs(args, 'ir');
 
-    # Read mesh.yaml file.
+    # Read input data.
 
-    meshData = ReadMeshYAML(filePath = args.MeshYAML);
+    inputData = Phonopy_LoadData_Core(
+        args, extractList = ['structure', 'atomic_masses', 'phonon_modes']
+        );
 
-    frequencies, eigenvectors = meshData['gamma_modes'];
+    structure = inputData['structure'];
+    atomicMasses = inputData['atomic_masses'];
+
+    frequencies, eigenvectors = inputData['phonon_modes'];
 
     # Convert eigenvectors to eigendisplacements.
 
     eigendisplacements = EigenvectorsToEigendisplacements(
-        eigenvectors, meshData['atomic_masses']
+        eigenvectors, atomicMasses
         );
 
     # Read Born effective-charge tensors.
 
-    becTensors = ReadBORN(meshData['structure'], filePath = args.BORNFile);
+    becTensors = ReadBORN(structure, filePath = args.BORNFile);
 
-    # Read ir. rep. data, if required.
+    # Read ir. rep. data and/or linewidths, if required.
 
-    irRepData = None;
-
-    if args.IrReps:
-        irRepData = ReadIrRepsYAML(filePath = args.IrRepsYAML);
-
-    # Read linewidths, if specified.
-
-    linewidths = None;
-
-    if args.LinewidthHDF5:
-        if args.LinewidthTemperature == None:
-            raise Exception("Error: If reading linewidths from a Phono3py HDF5 file, a temperature must be supplied using the --linewidth_temperature argument.");
-
-        linewidths = ReadPhono3pyHDF5(args.LinewidthHDF5, args.LinewidthTemperature);
+    linewidths, irRepData = Phonopy_LoadData_Optional(args);
 
     # Hand over to the RunMode_IR() routine.
 

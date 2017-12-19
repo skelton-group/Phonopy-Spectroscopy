@@ -7,9 +7,9 @@
 
 from argparse import ArgumentParser;
 
-from SpectroscoPy.Interfaces.VASP import ParseOUTCAR;
-
 from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
+
+from SpectroscoPy.Interfaces.VASP import ParseOUTCAR;
 
 from SpectroscoPy.CLI.Parser import UpdateParser, PostProcessArgs;
 from SpectroscoPy.CLI.Runtime import RunMode_IR;
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     group.add_argument(
         "--outcar_freq",
         metavar = "<file_path>",
-        type = str, dest = "OUTCARFreq",
+        type = str, dest = "OUTCARFreqPath",
         default = "OUTCAR",
         help = "OUTCAR file to read frequencies and eigenvectors from (default: OUTCAR)"
         );
@@ -41,36 +41,36 @@ if __name__ == "__main__":
     group.add_argument(
         "--outcar_born",
         metavar = "<file_path>",
-        type = str, dest = "OUTCARBorn",
+        type = str, dest = "OUTCARBornPath",
         default = "OUTCAR",
         help = "OUTCAR file to read Born charges from (default: OUTCAR)"
         );
 
     # Add standard arguments groups.
 
-    UpdateParser(parser);
+    UpdateParser(parser, 'ir');
 
     # Parse and process arguments.
 
     args = parser.parse_args();
 
-    PostProcessArgs(args);
+    PostProcessArgs(args, 'ir');
 
     # Read input files.
 
     outcarData = None;
 
-    if args.OUTCARFreq == args.OUTCARBorn:
+    if args.OUTCARFreqPath == args.OUTCARBornPath:
         outcarData = ParseOUTCAR(
-            extractList = ['atomic_masses', 'phonon_modes', 'born_charges'], filePath = args.OUTCARFreq
+            args.OUTCARFreqPath, extractList = ['atomic_masses', 'phonon_modes', 'born_charges']
             );
     else:
         outcarData = ParseOUTCAR(
-            extractList = ['atomic_masses', 'phonon_modes'], filePath = args.OUTCARFreq
+            args.OUTCARFreqPath, extractList = ['atomic_masses', 'phonon_modes']
             );
 
         outcarData2 = ParseOUTCAR(
-            extractList = ['born_charges'], filePath = args.OUTCARBorn
+            args.OUTCARBornPath, extractList = ['born_charges']
             );
 
         outcarData['born_charges'] = outcarData2['born_charges'];
