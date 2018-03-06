@@ -23,7 +23,7 @@ To prepare the phonon frequencies and eigenvectors:
 
 3. Collect forces: `phonopy -f vasprun-{1..X}.xml`
 
-4. Generate a `mesh.yaml` file containing the structure and &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="1 1 1" --fc_symmetry=1 --mesh="1 1 1" --eigenvectors` (structures can also be read from a `phonopy.yaml` or VASP 5.x-format `POSCAR` file)
+4. Generate a `mesh.yaml` file containing the structure and &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="1 1 1" --fc-symmetry --mesh="1 1 1" --eigenvectors` (structures can also be read from a `phonopy.yaml` or VASP 5.x-format `POSCAR` file); for older versions of Phonopy, you may need to use `--fc_symmetry=1` instead of `--fc-symmetry`
 
 To prepare the Born effective-charge tensors:
 

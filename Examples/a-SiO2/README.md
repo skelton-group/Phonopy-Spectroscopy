@@ -14,12 +14,12 @@ The Phono(3)py calculations used as the base for this example were prepared by A
 
 ### 1. Preparation
 
-The input files generated from the `phono(3)py` calculations are the structure (`POSCAR`), the second- and third-order force constants (`fc2.hdf5`, `fc3.hdf5`), and the Born effective-charge tensors (`BORN`).
+The input files generated from the Phono(3)py calculations are the structure (`POSCAR`), the second- and third-order force constants (`fc2.hdf5`, `fc3.hdf5`), and the Born effective-charge tensors (`BORN`).
 For post-processing with `phonopy`, `fc2.hdf5` needs to be copied/renamed to `force_constants.hdf5`.
 
-1. Generate a `mesh.yaml` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc_symmetry=1 --mesh="0 0 0" --eigenvectors`.
+1. Generate a `mesh.yaml` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --mesh="1 1 1" --eigenvectors`; for older versions of Phonopy, you may need to use `--fc_symmetry=1` in place of `--fc-symmetry`.
 
-2. Generate an `irreps.yaml` file containing the grouping of the modes by Mulliken symbol: `phonopy --dim="6 6 3" --readfc --hdf5 --fc_symmetry=1 --irreps="0 0 0"`.
+2. Generate an `irreps.yaml` file containing the grouping of the modes by Mulliken symbol: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --irreps="0 0 0"`.
 
 3. Generate the phonon linewidths for the &Gamma;-point modes: `phono3py --dim="2 2 2" --dim_fc2="6 6 3" --fc2 --fc3 -v --br --thm --mesh="48 48 48" --write_gamma --gp=0`
 
@@ -28,7 +28,7 @@ For post-processing with `phonopy`, `fc2.hdf5` needs to be copied/renamed to `fo
 
 Using the `BORN` file provided with the calculaton, generate a simulated IR spectrum and peak table with the room-temperature (300 K) linewidths:
 
-`phonopy-ir --ir_reps --linewidth_hdf5="kappa-m484848-g0.hdf5" --linewidth_temperature=300`
+`phonopy-ir --ir-reps --linewidth-hdf5="kappa-m484848-g0.hdf5" --linewidth-temperature=300`
 
 Sample VASP input files for calculating the Born charges - used for the convergence tests - can be found in the [VASP-Files](./VASP-Files) folder.
 
@@ -43,7 +43,7 @@ From the `irreps.yaml` file, and with reference to the character table for the D
 
 3. Collect the dielectric constants calculated for the displaced structures: `phonopy-raman -r OUTCAR.*`
 
-4. Post-process the results to generate a peak table and simulated Raman spectrum: `phonopy-raman -p --ir_reps --linewidth_hdf5="kappa-m484848-g0.hdf5" --linewidth_temperature=300`
+4. Post-process the results to generate a peak table and simulated Raman spectrum: `phonopy-raman -p --ir-reps --linewidth-hdf5="kappa-m484848-g0.hdf5" --linewidth-temperature=300`
 
 
 ## Results
@@ -86,6 +86,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<th><i>I</i><sub>IR</sub> [<i>e</i><sup>2</sup> amu<sup>-1</sup>]   </th>
 		<th><i>I</i><sub>Raman</sub> [<i>e</i><sup>2</sup> amu<sup>-1</sup>]</th>
 		<th>&Gamma;<sub><i>T</i>=300K</sub> [cm<sup>-1</sup>]               </th>
+		<th><i>&rho;</i>                                                    </th>
 	</tr>
 	<tr>
 		<td>       127.37</td>
@@ -93,6 +94,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.000</td>
 		<td>        0.834</td>
 		<td>         2.63</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>       223.52</td>
@@ -100,6 +102,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>Inactive     </td>
 		<td>        6.930</td>
 		<td>         9.52</td>
+		<td>         0.00</td>
 	</tr>
 	<tr>
 		<td>       255.08</td>
@@ -107,6 +110,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.021</td>
 		<td>        0.404</td>
 		<td>         1.96</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>       337.02</td>
@@ -114,6 +118,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>Inactive     </td>
 		<td>        1.057</td>
 		<td>         1.69</td>
+		<td>         0.42</td>
 	</tr>
 	<tr>
 		<td>       341.54</td>
@@ -121,13 +126,15 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.202</td>
 		<td>Inactive     </td>
 		<td>         1.44</td>
+		<td>-            </td>
 	</tr>
 	<tr>
 		<td>       374.19</td>
 		<td>E            </td>
 		<td>        0.268</td>
 		<td>        0.624</td>
-		<td>         1.58</td
+		<td>         1.58</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>       434.99</td>
@@ -135,6 +142,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.685</td>
 		<td>        0.718</td>
 		<td>         2.13</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>       454.96</td>
@@ -142,6 +150,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>Inactive     </td>
 		<td>       35.085</td>
 		<td>         4.83</td>
+		<td>         0.00</td>
 	</tr>
 	<tr>
 		<td>       482.03</td>
@@ -149,6 +158,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.362</td>
 		<td>Inactive     </td>
 		<td>         2.75</td>
+		<td>-            </td>
 	</tr>
 	<tr>
 		<td>       691.77</td>
@@ -156,6 +166,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.074</td>
 		<td>        1.359</td>
 		<td>         5.15</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>       769.87</td>
@@ -163,6 +174,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.213</td>
 		<td>Inactive     </td>
 		<td>         3.63</td>
+		<td>-            </td>
 	</tr>
 	<tr>
 		<td>       792.15</td>
@@ -170,6 +182,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.298</td>
 		<td>        1.554</td>
 		<td>         3.43</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>      1070.57</td>
@@ -177,6 +190,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        3.441</td>
 		<td>        1.366</td>
 		<td>         4.15</td>
+		<td>         0.75</td>
 	</tr>
 	<tr>
 		<td>      1080.66</td>
@@ -184,6 +198,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        1.804</td>
 		<td>Inactive     </td>
 		<td>         4.17</td>
+		<td>-            </td>
 	</tr>
 	<tr>
 		<td>      1085.88</td>
@@ -191,6 +206,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>Inactive     </td>
 		<td>        1.113</td>
 		<td>         3.56</td>
+		<td>         0.72</td>
 	</tr>
 	<tr>
 		<td>      1148.71</td>
@@ -198,6 +214,7 @@ From the character table, we expect the A<sub>1</sub> modes to be Raman active, 
 		<td>        0.078</td>
 		<td>        2.811</td>
 		<td>         5.85</td>
+		<td>         0.75</td>
 	</tr>
 </table>
 
