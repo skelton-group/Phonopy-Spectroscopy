@@ -17,9 +17,9 @@ The Phono(3)py calculations used as the base for this example were prepared by A
 The input files generated from the Phono(3)py calculations are the structure (`POSCAR`), the second- and third-order force constants (`fc2.hdf5`, `fc3.hdf5`), and the Born effective-charge tensors (`BORN`).
 For post-processing with `phonopy`, `fc2.hdf5` needs to be copied/renamed to `force_constants.hdf5`.
 
-1. Generate a `mesh.yaml` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --mesh="1 1 1" --eigenvectors`; for older versions of Phonopy, you may need to use `--fc_symmetry=1` in place of `--fc-symmetry`.
+1. Generate a `mesh.yaml` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --mesh="1 1 1" --eigenvectors`; for older versions of Phonopy, you may need to use `--fc_symmetry=1` in place of `--fc-symmetry`
 
-2. Generate an `irreps.yaml` file containing the grouping of the modes by Mulliken symbol: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --irreps="0 0 0"`.
+2. Generate an `irreps.yaml` file containing the grouping of the modes by Mulliken symbol: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --irreps="0 0 0"`
 
 3. Generate the phonon linewidths for the &Gamma;-point modes: `phono3py --dim="2 2 2" --dim_fc2="6 6 3" --fc2 --fc3 -v --br --thm --mesh="48 48 48" --write_gamma --gp=0`
 
@@ -39,7 +39,7 @@ From the `irreps.yaml` file, and with reference to the character table for the D
 
 1. Generate displaced structures for the Raman-intensity calculations: `phonopy-raman -d --bands="4 5 6 7 8 9 11 12 13 14 15 17 18 20 21 22 23 25 26 27"`
 
-2. Run dielectric-constant calculations on the displaced structures (sample VASP input files in the [VASP-Files](./VASP-Files) folder).
+2. Run dielectric-constant calculations on the displaced structures (sample VASP input files in the [VASP-Files](./VASP-Files) folder)
 
 3. Collect the dielectric constants calculated for the displaced structures: `phonopy-raman -r OUTCAR.*`
 
