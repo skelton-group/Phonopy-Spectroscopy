@@ -14,9 +14,11 @@
 
 import os;
 
+import yaml;
+
 from phonopy.structure.atoms import atom_data;
 
-from SpectroscoPy.Interfaces.Phonopy import ReadPhonopyYAML, ReadMeshYAML, ReadIrRepsYAML, ReadPhono3pyHDF5;
+from SpectroscoPy.Interfaces.Phonopy import ReadPhonopyYAML, ReadMeshYAML, ReadIrRepsYAML, ReadMeshHDF5, ReadPhono3pyHDF5;
 from SpectroscoPy.Interfaces.VASP import ReadPOSCAR;
 
 
@@ -37,6 +39,14 @@ def Phonopy_UpdateParser(parser, spectrumType):
         type = str, dest = "MeshYAML",
         default = "mesh.yaml",
         help = "mesh.yaml file to read Gamma-point frequencies/eigenvectors and structure, if present, from (default: mesh.yaml)"
+        );
+
+    group.add_argument(
+        "--mesh_hdf5",
+        metavar = "<file_path>",
+        type = str, dest = "MeshHDF5",
+        default = "mesh.hdf5",
+        help = "mesh.hdf5 file to read Gamma-point frequencies and eigenvectors from (default: mesh.hdf5)"
         );
 
     group.add_argument(
@@ -131,7 +141,13 @@ def Phonopy_LoadData_Core(args, extractList):
     # Read frequencies and eigenvectors if required.
 
     if 'phonon_modes' in extractList:
-        if os.path.isfile(args.MeshYAML):
+        if os.path.isfile(args.MeshHDF5):
+            phononModes = ReadMeshHDF5(args.MeshHDF5);
+
+            print("Frequencies and eigenvectors read from \"{0}\"".format(args.MeshHDF5));
+
+            printSpacer = True;
+        elif os.path.isfile(args.MeshYAML):
             phononModes, structure, atomicMasses = ReadMeshYAML(args.MeshYAML);
 
             print("Frequencies and eigenvectors read from \"{0}\"".format(args.MeshYAML));
@@ -157,15 +173,23 @@ def Phonopy_LoadData_Core(args, extractList):
         # If available, read the structure and atomic masses from a phonopy.yaml file.
 
         if os.path.isfile(args.PhonopyYAML):
-            structure, atomicMasses = ReadPhonopyYAML(args.PhonopyYAML);
+            # In some cases, spglib returns quotes in the Hall symbol, and Phonopy writes the symbol into the Phonopy YAML file without escaping, which prevents the YAML being parsed correctly.
+            # As a workaround, we catch the yaml.scanner.ScannerError, print a warning message and continue.
 
-            # The ReadPhonopyYAML() routine fails if the correct data is not present.
+            try:
+                structure, atomicMasses = ReadPhonopyYAML(args.PhonopyYAML);
 
-            print("Structure read from \"{0}\"".format(args.PhonopyYAML));
-            print("Atomic masses read from \"{0}\"".format(args.PhonopyYAML));
+                # The ReadPhonopyYAML() routine fails if the correct data is not present.
 
-            printSpacer = True;
-        else:
+                print("Structure read from \"{0}\"".format(args.PhonopyYAML));
+                print("Atomic masses read from \"{0}\"".format(args.PhonopyYAML));
+
+            except yaml.scanner.ScannerError:
+                print("WARNING: Error parsing \"{0}\" -> try to read structure from other input files.".format(args.PhonopyYAML));
+
+                printSpacer = True;
+
+        if structure == None:
             # Next, try to read the structure from a cell file (currently only VASP 5.x POSCAR files are supported).
 
             if os.path.isfile(args.CellFile):

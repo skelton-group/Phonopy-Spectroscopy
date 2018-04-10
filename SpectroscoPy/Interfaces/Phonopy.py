@@ -12,6 +12,8 @@
 # Imports
 # -------
 
+import math;
+
 import h5py;
 
 import yaml;
@@ -30,6 +32,8 @@ import numpy as np;
 
 from phonopy.file_IO import parse_BORN;
 from phonopy.structure.atoms import Atoms
+
+from SpectroscoPy.Constants import ZeroTolerance;
 
 
 # ----------
@@ -161,7 +165,7 @@ def ReadMeshYAML(filePath = r"mesh.yaml"):
     for qPoint in inputYAML['phonon']:
         qx, qy, qz = qPoint['q-position'];
 
-        if qx == 0.0 and qy == 0.0 and qz == 0.0:
+        if math.fabs(qx) < ZeroTolerance and math.fabs(qy) < ZeroTolerance and math.fabs(qz) < ZeroTolerance:
             frequencies, eigenvectors = [], [];
 
             for mode in qPoint['band']:
@@ -211,7 +215,7 @@ def ReadIrRepsYAML(filePath = r"irreps.yaml"):
 
     qx, qy, qz = inputYAML['q-position'];
 
-    if qx != 0.0 or qy != 0.0 or qz != 0.0:
+    if math.fabs(qx) < ZeroTolerance and math.fabs(qy) < ZeroTolerance and math.fabs(qz) < ZeroTolerance:
         raise Exception("Error: Ir. reps. are required for the Gamma point modes.");
 
     irRepLabels, bandIndices = [], [];
@@ -231,6 +235,77 @@ def ReadIrRepsYAML(filePath = r"irreps.yaml"):
 # ----------
 # HDF5 Files
 # ----------
+
+def ReadMeshHDF5(filePath):
+    """
+    Read a Phonopy mesh.hdf5 file and return the Gamma-point eigenvectors.
+
+    Return value:
+        A tuple of (frequencies, eigenvectors) lists containing the 3N Gamma-point frequencies and eigenvectors.
+        The eigenvectors are Nx3 NumPy arrays.
+
+    Notes:
+        Errors are raised if the file does not contain an entry for q_Gamma = (0, 0, 0) or does not contain eigenvectors.
+    """
+
+    frequencies, eigenvectors = None, None;
+
+    meshHDF5 = h5py.File(filePath, 'r');
+
+    try:
+        # Locate the Gamma point in the q-point sampling mesh.
+
+        qIndex = None;
+
+        for i, (qx, qy, qz) in enumerate(meshHDF5['qpoint']):
+            if math.fabs(qx) < ZeroTolerance and math.fabs(qy) < ZeroTolerance and math.fabs(qz) < ZeroTolerance:
+                qIndex = i;
+                break;
+
+        if qIndex == None:
+            raise Exception("Error: q_Gamma = (0, 0, 0) not found in the q-point mesh specified in \"{0}\".".format(filePath));
+
+        # Extract a list of Gamma-point frequencies.
+
+        frequencies = [
+            frequency for frequency in meshHDF5['frequency'][qIndex]
+            ];
+
+        if 'eigenvector' not in meshHDF5:
+            raise Exception("Error: Eigenvectors not found in \"{0}\".".format(filePath));
+
+        # Sanity check.
+
+        assert len(frequencies) % 3 == 0;
+
+        nAtoms = len(frequencies) // 3;
+
+        # Extract the Gamma-point eigenvectors.
+
+        eigenvectors = [];
+
+        for i in range(0, len(frequencies)):
+            eigenvector = [];
+
+            # Indexing taken from the Mesh.write_yaml() routine in Phonopy.
+
+            for j in range(0, nAtoms):
+                eigenvector.append(
+                    [meshHDF5['eigenvector'][qIndex, j * 3 + k, i].real for k in range(0, 3)]
+                    );
+
+            eigenvectors.append(
+                np.array(eigenvector, dtype = np.float64)
+                );
+
+    finally:
+        # Make sure the input file gets closed.
+
+        meshHDF5.close();
+
+    # Return the Gamma-point frequencies and eigenvectors.
+
+    return (frequencies, eigenvectors);
 
 def ReadPhono3pyHDF5(filePath, linewidthTemperature):
     """ Read a Phono3py HDF5 file and return the Gamma-point mode linewidths at the specified temperature. """
