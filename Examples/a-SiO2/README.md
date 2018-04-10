@@ -17,7 +17,7 @@ The Phono(3)py calculations used as the base for this example were prepared by A
 The input files generated from the Phono(3)py calculations are the structure (`POSCAR`), the second- and third-order force constants (`fc2.hdf5`, `fc3.hdf5`), and the Born effective-charge tensors (`BORN`).
 For post-processing with `phonopy`, `fc2.hdf5` needs to be copied/renamed to `force_constants.hdf5`.
 
-1. Generate a `mesh.yaml` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --mesh="1 1 1" --eigenvectors`; for older versions of Phonopy, you may need to use `--fc_symmetry=1` in place of `--fc-symmetry`
+1. Generate a `mesh.yaml` or `mesh.hdf5` file containing the &Gamma;-point phonon frequencies and eigenvectors: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --mesh="1 1 1" --eigenvectors`; for older versions of Phonopy, you may need to use `--fc_symmetry=1` or `fc-symmetry=1` in place of `--fc-symmetry`
 
 2. Generate an `irreps.yaml` file containing the grouping of the modes by Mulliken symbol: `phonopy --dim="6 6 3" --readfc --hdf5 --fc-symmetry --irreps="0 0 0"`
 
