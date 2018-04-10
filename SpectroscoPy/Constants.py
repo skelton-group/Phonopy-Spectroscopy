@@ -8,6 +8,15 @@
 """ Defines constants used by other modules. """
 
 
+# ----------
+# Tolerances
+# ----------
+
+""" Zero tolerance. """
+
+ZeroTolerance = 1.0e-8;
+
+
 # ------------------
 # Conversion Factors
 # ------------------
