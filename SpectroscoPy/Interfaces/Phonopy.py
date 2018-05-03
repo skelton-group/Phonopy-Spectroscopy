@@ -215,7 +215,7 @@ def ReadIrRepsYAML(filePath = r"irreps.yaml"):
 
     qx, qy, qz = inputYAML['q-position'];
 
-    if math.fabs(qx) < ZeroTolerance and math.fabs(qy) < ZeroTolerance and math.fabs(qz) < ZeroTolerance:
+    if math.fabs(qx) > ZeroTolerance or math.fabs(qy) > ZeroTolerance or math.fabs(qz) > ZeroTolerance:
         raise Exception("Error: Ir. reps. are required for the Gamma point modes.");
 
     irRepLabels, bandIndices = [], [];
