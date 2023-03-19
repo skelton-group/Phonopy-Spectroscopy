@@ -12,61 +12,70 @@
 # Imports
 # -------
 
-import numpy as np;
+import numpy as np
 
 
 # ---------
 # Functions
 # ---------
 
-def CalculateIRIntensity(eigendisplacement, becTensors):
+# lowercase functions and arguments.
+def calculateirintensity(eigendisplacement, bectensors):
     """
-    Calculate the infrared intensity of a mode with eigendisplacement vector X_j,b from the Born effective-charge tensor Z_j,ab.
+    Calculate the infrared intensity of a mode with eigendisplacement vector
+    X_j,b from the Born effective-charge tensor Z_j,ab.
 
     Arguments:
-        eigendisplacement -- mode eigendisplacement (N x three-component vectors).
+        eigendisplacement -- mode eigendisplacement (N x three-component
+        vectors).
         becTensors -- Born effective-charge tensors (N x 3x3 matrices).
     """
 
-    # This should in principle allow external code to supply the parameters as (correctly-dimensioned) lists.
+    # This should in principle allow external code to supply the parameters
+    # as (correctly-dimensioned) lists.
 
-    eigDim1, eigDim2 = np.shape(eigendisplacement);
+    eigdim1, eigdim2 = np.shape(eigendisplacement)
 
-    if eigDim2 != 3:
-        raise Exception("Error: eigendisplacement must be a set of N three-component vectors.")
+    if eigdim2 != 3:
+        raise Exception("Error: eigendisplacement must be a set of N "
+                        "three-component vectors."
+                        )
 
-    becDim1, becDim2, becDim3 = np.shape(becTensors);
+    becdim1, becdim2, becdim3 = np.shape(bectensors)
 
-    if becDim2 != 3 or becDim3 != 3:
-        raise Exception("Error: becTensors must be a set of N 3x3 matrices.");
+    if becdim2 != 3 or becdim3 != 3:
+        raise Exception("Error: becTensors must be a set of N 3x3 matrices.")
 
-    if eigDim1 != becDim1:
-        raise Exception("Error: The first dimensions of eigendisplacement and becTensors (= the number of atoms) must be the same.");
+    if eigdim1 != becdim1:
+        raise Exception("Error: The first dimensions of eigendisplacement and "
+                        "becTensors (= the number of atoms) must be the same."
+                        )
 
     # This could be written more efficiently using e.g. np.einsum.
-    # However, this routine is unlikely to be called inside a tight loop, and having the formula laid out clearly makes it a lot more readable.
+    # However, this routine is unlikely to be called inside a tight loop, and
+    # having the formula laid out clearly makes it a lot more readable.
 
-    irIntensity = 0.0;
+    irintensity = 0.0
 
     for a in range(0, 3):
         # Sum(a).
 
-        sumTemp1 = 0.0;
+        sumtemp1 = 0.0
 
-        # eigDim1 = becDim1 is the number of atoms.
+        # eigdim1 = becdim1 is the number of atoms.
 
-        for j in range(0, eigDim1):
+        for j in range(0, eigdim1):
             # Sum(j).
 
-            sumTemp2 = 0.0;
+            sumtemp2 = 0.0
 
             for b in range(0, 3):
                 # Sum(b) Z_j,ab x X_j,b
 
-                sumTemp2 += becTensors[j][a][b] * eigendisplacement[j][b];
+                sumtemp2 += bectensors[j][a][b] * eigendisplacement[j][b]
 
-            sumTemp1 += sumTemp2;
+            sumtemp1 += sumtemp2
 
-        irIntensity += sumTemp1 ** 2;
+        irintensity += sumtemp1 ** 2
 
-    return irIntensity;
+    return irintensity

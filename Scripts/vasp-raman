@@ -5,16 +5,22 @@
 # Imports
 # -------
 
-from argparse import ArgumentParser;
+from argparse import ArgumentParser
 
-from SpectroscoPy.Utilities import EigenvectorsToEigendisplacements;
+from SpectroscoPy.Utilities import eigenvectors_to_eigendisplacements
 
-from SpectroscoPy.Interfaces.VASP import ReadPOSCAR;
-from SpectroscoPy.Interfaces.VASP import ParseOUTCAR;
+from SpectroscoPy.Interfaces.VASP import readposcar, parseoutcar
 
-from SpectroscoPy.CLI.IOHelper import WriteStructuresRaman, ReadDielectricTensors;
-from SpectroscoPy.CLI.Parser import UpdateParser, PostProcessArgs;
-from SpectroscoPy.CLI.Runtime import RunMode_Raman_Disp, RunMode_Raman_Read, RunMode_Raman_PostProc;
+from SpectroscoPy.CLI.IOHelper import (writestructuresraman,
+                                       read_dielectric_tensors
+                                       )
+
+from SpectroscoPy.CLI.Parser import update_parser, post_process_args
+
+from SpectroscoPy.CLI.Runtime import (runmode_raman_disp,
+                                      runmode_raman_read,
+                                      runmode_raman_postproc
+                                      )
 
 
 # ----
@@ -25,89 +31,97 @@ if __name__ == "__main__":
     # Parse command-line arguments.
 
     parser = ArgumentParser(
-        description = "Simulate Raman spectra starting from a VASP phonon calculation"
-        );
+        description="Simulate Raman spectra starting from a VASP \
+        phonon calculation"
+        )
 
     # Add input-files argument group.
 
-    group = parser.add_argument_group("Input files");
+    group = parser.add_argument_group("Input files")
 
     group.add_argument(
         "--poscar",
-        metavar = "<file_path>",
-        type = str, dest = "POSCARPath",
-        default = "POSCAR",
-        help = "POSCAR file to read structure from (default: POSCAR)"
-        );
+        metavar="<file_path>",
+        type=str, dest="POSCARPath",
+        default="POSCAR",
+        help="POSCAR file to read structure from (default: POSCAR)"
+        )
 
     group.add_argument(
         "--outcar",
-        metavar = "<file_path>",
-        type = str, dest = "OUTCARPath",
-        default = "OUTCAR",
-        help = "OUTCAR file to read frequencies and eigenvectors from (default: OUTCAR)"
-        );
+        metavar="<file_path>",
+        type=str, dest="OUTCARPath",
+        default="OUTCAR",
+        help="OUTCAR file to read frequencies and eigenvectors from \
+        (default: OUTCAR)"
+        )
 
     # Add standard arguments groups.
 
-    UpdateParser(parser, 'raman');
+    update_parser(parser, 'raman')
 
     # Parse and process arguments.
 
-    args = parser.parse_args();
+    args = parser.parse_args()
 
-    PostProcessArgs(args, 'raman');
+    post_process_args(args, 'raman')
 
     # If required, read POSCAR file.
 
-    structure = None;
+    structure = None
 
     if args.RunMode == 'raman_disp':
-        _, latticeVectors, atomicSymbols, atomPositions = ReadPOSCAR(args.POSCARPath);
+        _, latticeVectors, atomicSymbols, atomPositions = \
+            readposcar(args.POSCARPath)
 
-        structure = (latticeVectors, atomicSymbols, atomPositions);
+        structure = (latticeVectors, atomicSymbols, atomPositions)
 
     # If required, read OUTCAR file.
 
-    frequencies, eigendisplacements = None, None;
+    frequencies, eigendisplacements = None, None
 
     if args.RunMode == 'raman_disp':
-        outcarData = ParseOUTCAR(args.OUTCARPath, extractList = ['atomic_masses', 'phonon_modes']);
+        outcarData = parseoutcar(args.OUTCARPath, extractlist=[
+            'atomic_masses', 'phonon_modes']
+            )
 
-        frequencySets, eigenvectors = outcarData['phonon_modes'];
+        frequencySets, eigenvectors = outcarData['phonon_modes']
 
         # The third set of frequencies output by VASP are in inv. cm.
 
-        frequencies = frequencySets[2];
+        frequencies = frequencySets[2]
 
         # Convert eigenvectors to eigendisplacements if needed.
 
-        eigendisplacements = EigenvectorsToEigendisplacements(
+        eigendisplacements = eigenvectors_to_eigendisplacements(
             eigenvectors, outcarData['atomic_masses']
-            );
+            )
 
     # Call the RunMode_Raman_*() routines and post-process output.
 
-    if args.RunMode == None:
-        raise Exception("Error: Please specify a run mode with one of the -d/--create_disp, -r/--read or -p/--post_process options.");
+    if args.RunMode is None:
+        raise Exception("Error: Please specify a run mode with one of the \
+                        -d/--create_disp, -r/--read or -p/--post_process \
+                        options.")
 
     elif args.RunMode == 'raman_disp':
-        dispSetsList = RunMode_Raman_Disp(
+        dispSetsList = runmode_raman_disp(
             structure, frequencies, 'inv_cm', eigendisplacements, args
-            );
+            )
 
-        WriteStructuresRaman(
-            dispSetsList, fileFormat = 'vasp_poscar', outputPrefix = args.OutputPrefix
-            );
+        writestructuresraman(
+            dispSetsList, fileformat='vasp_poscar',
+            outputprefix=args.OutputPrefix
+            )
 
     elif args.RunMode == 'raman_read':
-        epsTensors = ReadDielectricTensors(
-            args.RamanInputFiles, fileFormat = 'vasp_outcar'
-            );
+        epsTensors = read_dielectric_tensors(
+            args.RamanInputFiles, fileformat='vasp_outcar'
+            )
 
-        RunMode_Raman_Read(
+        runmode_raman_read(
             epsTensors, args
-            );
+            )
 
     elif args.RunMode == 'raman_postproc':
-        RunMode_Raman_PostProc(args);
+        runmode_raman_postproc(args)
