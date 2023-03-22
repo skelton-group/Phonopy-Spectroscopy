@@ -5,203 +5,229 @@
 # Docstring
 # ---------
 
-""" Routines for interfacing with the Vienna Ab-initio Simulation Package (VASP) code. """
+""" Routines for interfacing with the Vienna Ab-initio Simulation Package
+(VASP) code. """
 
 
 # -------
 # Imports
 # -------
 
-import math;
-import re;
+import math
+import re
 
-import numpy as np;
+import numpy as np
 
 
 # ------------
 # POSCAR Files
 # ------------
 
-""" Default title line for POSCAR files written by the WritePOSCAR() function. """
+""" Default title line for POSCAR files written by the WritePOSCAR() 
+function. """
 
-_POSCAR_DefaultTitleLine = "Unknown Structure";
+_POSCAR_DefaultTitleLine = "Unknown Structure"
 
-def ReadPOSCAR(filePath):
+
+def readposcar(filepath):
     """
     Read a crystal structure from a VASP POSCAR file.
 
     Return value:
-        A tuple of (title_line, lattice_vectors, atomic_symbols, atom_positions_frac) data.
+        A tuple of (title_line, lattice_vectors, atomic_symbols,
+        atom_positions_frac) data.
 
     Notes:
-        If the title line is blank, it will be set to the _POSCAR_DefaultTitleLine constant.
-        This function only supports VASP 5.x-format POSCAR files (i.e. with atomic symbols as well as counts given in the header).
-        Negative scale factors on line 2, interpreted by VASP as the volume of the cell, are not supported.
+        If the title line is blank, it will be set to the
+        _POSCAR_DefaultTitleLine constant.
+        This function only supports VASP 5.x-format POSCAR files (i.e. with
+        atomic symbols as well as counts given in the header).
+        Negative scale factors on line 2, interpreted by VASP as the volume
+        of the cell, are not supported.
     """
 
-    titleLine = None;
-    latticeVectors = None;
-    atomicSymbols, atomPositions = None, None;
+    titleline = None
+    latticevectors = None
+    atomicsymbols, atompositions = None, None
 
-    with open(filePath, 'r') as inputReader:
+    with open(filepath, 'r') as inputReader:
         # Read title from line 1.
 
-        titleLine = next(inputReader).strip();
+        titleline = next(inputReader).strip()
 
-        if titleLine == "":
-            titleLine = _POSCAR_DefaultTitleLine;
+        if titleline == "":
+            titleline = _POSCAR_DefaultTitleLine
 
         # Read scale factor.
 
-        scaleFactor = float(
+        scalefactor = float(
             next(inputReader).strip()
-            );
+            )
 
-        if scaleFactor < 0.0:
-            raise Exception("Error: Unsupported negative scale factor in input file \"{0}\".".format(filePath));
+        if scalefactor < 0.0:
+            raise Exception("Error: Unsupported negative scale factor in "
+                            "input file \"{0}\".".format(filepath)
+                            )
 
         # Read lattice vectors.
 
-        latticeVectors = [];
+        latticevectors = []
 
         for i in range(0, 3):
-            latticeVectors.append(
+            latticevectors.append(
                 [float(item) for item in next(inputReader).strip().split()[:3]]
-                );
+                )
 
-        latticeVectors = [
-            scaleFactor * np.array(v, dtype = np.float64)
-                for v in latticeVectors
-            ];
+        latticevectors = [
+            scalefactor * np.array(v, dtype=np.float64)
+            for v in latticevectors
+            ]
 
         # Read atom types and positions.
 
-        atomTypes = next(inputReader).strip().split();
+        atomtypes = next(inputReader).strip().split()
 
-        atomCounts = None;
+        atomcounts = None
 
         try:
-            atomCounts = [
+            atomcounts = [
                 int(item) for item in next(inputReader).strip().split()
-                ];
+                ]
         except ValueError:
-            raise Exception("Error: Failed to read atom counts from input file \"{0}\".".format(filePath));
+            raise Exception("Error: Failed to read atom counts from input "
+                            "file \"{0}\".".format(filepath)
+                            )
 
-        if len(atomTypes) != len(atomCounts):
-            raise Exception("Error: Inconsistent number of atom types and atom counts in input file \"{0}\".".format(filePath));
+        if len(atomtypes) != len(atomcounts):
+            raise Exception("Error: Inconsistent number of atom types and "
+                            "atom counts in input file \"{0}\".".format(
+                                                            filepath)
+                            )
 
-        atomicSymbols = [];
+        atomicsymbols = []
 
-        for atomType, atomCount in zip(atomTypes, atomCounts):
-            atomicSymbols = atomicSymbols + [atomType] * atomCount;
+        for atomtype, atomcount in zip(atomtypes, atomcounts):
+            atomicsymbols = atomicsymbols + [atomtype] * atomcount
 
         # Check for direct or Cartesian coordinates.
 
-        key = next(inputReader).strip()[0].lower();
+        key = next(inputReader).strip()[0].lower()
 
         if key == 's':
-            # Selective dynamics keyword -> read first letter of the following line.
+            # Selective dynamics keyword -> read first letter of the
+            # following line.
 
-            key = next(inputReader).strip()[0].lower();
+            key = next(inputReader).strip()[0].lower()
 
-        coordinateType = None;
+        coordinatetype = None
 
         if key == 'c' or key == 'k':
-            coordinateType = 'cartesian';
+            coordinatetype = 'cartesian'
         elif key == 'd':
-            coordinateType = 'fractional';
+            coordinatetype = 'fractional'
         else:
-            raise Exception("Error: Unknown coordinate type in input file \"{0}\".".format(filePath));
+            raise Exception("Error: Unknown coordinate type in input file "
+                            "\"{0}\".".format(filepath)
+                            )
 
         # Read atomic positions.
 
-        atomPositions = [];
+        atompositions = []
 
-        for i in range(0, sum(atomCounts)):
-            atomPositions.append(
+        for i in range(0, sum(atomcounts)):
+            atompositions.append(
                 [float(item) for item in next(inputReader).strip().split()[:3]]
-                );
+                )
 
-        atomPositions = [
-            np.array(v, dtype = np.float64) for v in atomPositions
-            ];
+        atompositions = [
+            np.array(v, dtype=np.float64) for v in atompositions
+            ]
 
-        if coordinateType == 'cartesian':
+        if coordinatetype == 'cartesian':
             # Scale and convert to fractional coordinates.
 
-            atomPositions = Utilities.CartesianToFractionalCoordinates(
-                [scaleFactor * v for v in atomPositions], latticeVectors
-                );
+            atompositions = Utilities.cartesiantofractionalcoordinates(
+                [scalefactor * v for v in atompositions], latticevectors
+                )
 
-    return (titleLine, latticeVectors, atomicSymbols, atomPositions);
+    return titleline, latticevectors, atomicsymbols, atompositions
 
-def WritePOSCAR(structure, filePath, titleLine = None):
+
+def writeposcar(structure, filepath, titleline=None):
     """
     Write a structure to a VASP POSCAR file (VASP 5 format).
 
     Arguments:
-        structure -- a tuple of (lattice_vectors, atomic_symbols, atom_positions_frac) data.
+        structure -- a tuple of (lattice_vectors, atomic_symbols,
+        atom_positions_frac) data.
         filePath -- file path to save structure to.
 
     Keyword arguments:
-        titleLine -- title line to include on line 1 of the POSCAR file (default: _POSCSAR_DefaultTitleLine constant).
+        titleLine -- title line to include on line 1 of the POSCAR file
+        (default: _POSCSAR_DefaultTitleLine constant).
 
     Notes:
         The atom positions should be in fractional coordinates.
     """
 
-    latticeVectors, atomicSymbols, atomPositions = structure;
+    latticevectors, atomicsymbols, atompositions = structure
 
     # Group atom positions by symbol.
-    # To avoid reordering atom types, we keep track of the order in which new symbols were added.
+    # To avoid reordering atom types, we keep track of the order in which
+    # new symbols were added.
 
-    atomGroupsSymbols, atomGroups = [], { };
+    atomgroupssymbols, atomgroups = [], {}
 
-    for symbol, position in zip(atomicSymbols, atomPositions):
-        if symbol not in atomGroupsSymbols:
-            atomGroups[symbol] = [];
-            atomGroupsSymbols.append(symbol);
+    for symbol, position in zip(atomicsymbols, atompositions):
+        if symbol not in atomgroupssymbols:
+            atomgroups[symbol] = []
+            atomgroupssymbols.append(symbol)
 
-        atomGroups[symbol].append(position);
+        atomgroups[symbol].append(position)
 
-    with open(filePath, 'w') as outputWriter:
-        # Comment line.
+    with open(filepath, 'w') as outputWriter:
 
         outputWriter.write(
-            "{0}\n".format(titleLine if titleLine != None else _POSCAR_DefaultTitleLine)
-            );
+            "{0}\n".format(titleLine if titleline is not None else
+                           _POSCAR_DefaultTitleLine)
+            )
 
         # Write scale factor.
 
-        outputWriter.write("  {0: >19.16f}\n".format(1.0));
+        outputWriter.write("  {0: >19.16f}\n".format(1.0))
 
         # Write lattice vectors.
 
         for i in range(0, 3):
-            vx, vy, vz = latticeVectors[i];
-            outputWriter.write("  {0: >21.16f}  {1: >21.16f}  {2: >21.16f}\n".format(vx, vy, vz));
+            vx, vy, vz = latticevectors[i]
+            outputWriter.write("  {0: >21.16f}  {1: >21.16f}  {2: "
+                               ">21.16f}\n".format(vx, vy, vz)
+                               )
 
         # Write atomic symbols and atom counts.
 
         outputWriter.write(
             "  {0}\n".format(
-                "  ".join(["{0: >3}".format(symbol) for symbol in atomGroupsSymbols])
+                "  ".join(["{0: >3}".format(symbol) for symbol in
+                           atomgroupssymbols])
                 )
-            );
+            )
 
         outputWriter.write(
             "  {0}\n".format(
-                "  ".join(["{0: >3}".format(len(atomGroups[symbol])) for symbol in atomGroupsSymbols])
+                "  ".join(["{0: >3}".format(len(atomgroups[symbol])) for
+                           symbol in atomgroupssymbols])
                 )
-            );
+            )
 
         # Write positions.
 
-        outputWriter.write("Direct\n");
+        outputWriter.write("Direct\n")
 
-        for symbol in atomGroupsSymbols:
-            for f1, f2, f3 in atomGroups[symbol]:
-                outputWriter.write("  {0: >21.16f}  {1: >21.16f}  {2: >21.16f}\n".format(f1, f2, f3));
+        for symbol in atomgroupssymbols:
+            for f1, f2, f3 in atomgroups[symbol]:
+                outputWriter.write("  {0: >21.16f}  {1: >21.16f}  {2: "
+                                   ">21.16f}\n".format(f1, f2, f3))
 
 
 # ------------
@@ -210,193 +236,237 @@ def WritePOSCAR(structure, filePath, titleLine = None):
 
 """ Generic regex for capturing integer values. """
 
-_OUTCAR_GenericIntegerRegex = re.compile(r"(?P<value>\d+)");
+_OUTCAR_GenericIntegerRegex = re.compile(r"(?P<value>\d+)")
 
-""" Regex for extrating atomic masses from the POMASS tags in re-printed POTCAR headers at the top of the OUTCAR file. """
+""" Regex for extrating atomic masses from the POMASS tags in re-printed 
+POTCAR headers at the top of the OUTCAR file. """
 
-_OUTCAR_POMASSRegex = re.compile(r"POMASS =\s*(?P<pomass>\d+\.\d+);");
+_OUTCAR_POMASSRegex = re.compile(r"POMASS =\s*(?P<pomass>\d+\.\d+)")
 
 """ Regex for exctracting the number of atoms in the cell. """
 
-_OUTCAR_NIONSRegex = re.compile("NIONS\s*=\s*(?P<nions>\d+)");
+_OUTCAR_NIONSRegex = re.compile(r"NIONS\s*=\s*(?P<nions>\d+)")
 
-""" Regex for extracting phonon frequencies in THz, rad. THz, inv. Cm and meV. """
+""" Regex for extracting phonon frequencies in THz, rad. THz, inv. Cm and 
+meV. """
 
 _OUTCAR_ModeFrequencyRegex = re.compile(
-    r"^\s*(?P<mode_index>\d+) (?P<freq_sign>f|f/i)\s*=\s*(?P<freq_thz>\d+\.\d+) THz\s*(?P<freq_radthz>\d+\.\d+) 2PiTHz\s*(?P<freq_invcm>\d+\.\d+) cm-1\s*(?P<freq_mev>\d+\.\d+) meV\s*$"
-    );
+    r"^\s*(?P<mode_index>\d+) (?P<freq_sign>f|f/i)\s*=\s*("
+    r"?P<freq_thz>\d+\.\d+) THz\s*(?P<freq_radthz>\d+\.\d+) 2PiTHz\s*("
+    r"?P<freq_invcm>\d+\.\d+) cm-1\s*(?P<freq_mev>\d+\.\d+) meV\s*$"
+    )
 
-def ParseOUTCAR(filePath, extractList):
+
+def parseoutcar(filepath, extractlist):
     """
     Parse a VASP OUTCAR file and extract the data specified by extractList.
 
     extractList may contain any of the following items:
-        'atomic_masses' -- atomic masses (taken from the POMASS tags in the re-printed POTCAR headers at the top of the OUTCAR file).
+        'atomic_masses' -- atomic masses (taken from the POMASS tags in the
+        re-printed POTCAR headers at the top of the OUTCAR file).
         'born_charges' -- Born effective-charge tensors.
-        'epsilon_static' -- macroscopic dielectric tensor (_not_ the ionic contribution).
-        'phonon_modes' -- phonon frequencies (in THz, rad. THz, inv. cm and meV) and eigenvectors.
+        'epsilon_static' -- macroscopic dielectric tensor (_not_ the ionic
+        contribution).
+        'phonon_modes' -- phonon frequencies (in THz, rad. THz, inv. cm and
+        meV) and eigenvectors.
 
-    If one or more requested data items cannot be extracted, an error is raised.
+    If one or more requested data items cannot be extracted, an error is
+    raised.
 
     Return value:
-        A dictionary with the requested data stored under the keys specified in extractList.
+        A dictionary with the requested data stored under the keys specified
+        in extractList.
 
     Notes:
-        If the atomic masses are overridden in the INCAR file, this will not be picked up by this function; this is because the fixed column width used to write out the POMASS INCAR tag makes it awkward to parse.
+        If the atomic masses are overridden in the INCAR file, this will not
+        be picked up by this function; this is because the fixed column width
+        used to write out the POMASS INCAR tag makes it awkward to parse.
     """
 
-    extractList = [tag.lower() for tag in extractList];
+    extractlist = [tag.lower() for tag in extractlist]
 
-    for tag in extractList:
-        if tag not in ['atomic_masses', 'born_charges', 'epsilon_static', 'phonon_modes']:
-            raise Exception("Error: Unrecognised extract tag '{0}'.".format(tag));
+    for tag in extractlist:
+        if tag not in ['atomic_masses', 'born_charges', 'epsilon_static',
+                       'phonon_modes']:
+            raise Exception("Error: Unrecognised extract tag '{0}'"
+                            ".".format(tag)
+                            )
 
-    outputData = { };
+    outputdata = {}
 
-    with open(filePath, 'r') as inputReader:
-        # Regardless of what we're returning, we parse the first part of the OUTCAR file to obtain:
+    with open(filepath, 'r') as inputReader:
+        # Regardless of what we're returning, we parse the first part of the
+        # OUTCAR file to obtain:
         # (1) the POMASS values written in the pseudopotential files;
         # (2) the number of atoms; and
         # (3) the number of atoms of each type.
 
-        numAtoms = None;
-        typeMasses, typeCounts = None, None;
+        numatoms = None
+        typemasses, typecounts = None, None
 
         for line in inputReader:
             if "POMASS" in line:
-                match = _OUTCAR_POMASSRegex.search(line);
+                match = _OUTCAR_POMASSRegex.search(line)
 
                 if match:
-                    if typeMasses == None:
-                        typeMasses = [];
+                    if typemasses is None:
+                        typemasses = []
 
-                    typeMasses.append(
+                    typemasses.append(
                         float(match.group('pomass'))
-                        );
+                        )
 
             elif "NIONS" in line:
-                match = _OUTCAR_NIONSRegex.search(line);
-                numAtoms = int(match.group('nions'));
+                match = _OUTCAR_NIONSRegex.search(line)
+                numatoms = int(match.group('nions'))
 
             elif "ions per type =" in line:
-                matches = _OUTCAR_GenericIntegerRegex.findall(line);
+                matches = _OUTCAR_GenericIntegerRegex.findall(line)
 
-                typeCounts = [
+                typecounts = [
                     int(match) for match in matches
-                    ];
+                    ]
 
-            if numAtoms != None and typeMasses != None and typeCounts != None:
-                if sum(typeCounts) != numAtoms or len(typeMasses) != len(typeCounts):
-                    raise Exception("Error: Failed to read atom information from OUTCAR file \"{0}\".".format(filePath));
+            if numatoms is not None and typemasses is not None and \
+                    typecounts is not None:
+                if sum(typecounts) is not numatoms or len(typemasses) is not\
+                        len(typecounts):
+                    raise Exception("Error: Failed to read atom information "
+                                    "from OUTCAR file \"{0}\".".format(
+                                                            filepath)
+                                    )
 
-                break;
+                break
 
-        if 'atomic_masses' in extractList:
-            atomicMasses = [];
+        if 'atomic_masses' in extractlist:
+            atomicmasses = []
 
-            for mass, count in zip(typeMasses, typeCounts):
-                atomicMasses = atomicMasses + [mass] * count;
+            for mass, count in zip(typemasses, typecounts):
+                atomicmasses = atomicmasses + [mass] * count
 
-            outputData['atomic_masses'] = atomicMasses;
+            outputdata['atomic_masses'] = atomicmasses
 
         # Loop over the remaining lines and check for other things to extract.
 
         for line in inputReader:
-            line = line.strip();
+            line = line.strip()
 
-            if 'born_charges' in extractList:
+            if 'born_charges' in extractlist:
                 if line == "BORN EFFECTIVE CHARGES (in e, cummulative output)":
-                    next(inputReader);
+                    next(inputReader)
 
-                    becTensors = [];
+                    bectensors = []
 
-                    for _ in range(0, numAtoms):
-                        next(inputReader);
+                    for _ in range(0, numatoms):
+                        next(inputReader)
 
-                        becTensor = [];
+                        bectensor = []
 
                         for i in range(0, 3):
-                            rowIndex, i1, i2, i3 = next(inputReader).strip().split();
+                            rowindex, i1, i2, i3 = next(inputReader).strip(
+                            ).split()
 
-                            becTensor.append(
+                            bectensor.append(
                                 [float(i1), float(i2), float(i3)]
-                                );
+                                )
 
-                        becTensors.append(
-                            np.array(becTensor, dtype = np.float64)
-                            );
+                        bectensors.append(
+                            np.array(bectensor, dtype=np.float64)
+                            )
 
-                    outputData['born_charges'] = becTensors;
+                    outputdata['born_charges'] = bectensors
 
-            if 'epsilon_static' in extractList:
-                # Make sure we don't capture the ionic part computed with certain combinations of tags -- this is not what we want for Raman calculations.
+            if 'epsilon_static' in extractlist:
+                # Make sure we don't capture the ionic part computed with
+                # certain combinations of tags -- this is not what we want
+                # for Raman calculations.
 
-                if line[:36] == "MACROSCOPIC STATIC DIELECTRIC TENSOR" and "IONIC CONTRIBUTION" not in line:
-                    next(inputReader);
+                if line[:36] == "MACROSCOPIC STATIC DIELECTRIC TENSOR" and \
+                        "IONIC CONTRIBUTION" not in line:
+                    next(inputReader)
 
-                    dielectricTensor = [];
+                    dielectrictensor = []
 
                     for i in range(0, 3):
-                        i1, i2, i3 = next(inputReader).strip().split();
+                        i1, i2, i3 = next(inputReader).strip().split()
 
-                        dielectricTensor.append(
+                        dielectrictensor.append(
                             [float(i1), float(i2), float(i3)]
-                            );
+                            )
 
-                    outputData['epsilon_static'] = np.array(dielectricTensor, dtype = np.float64);
+                    outputdata['epsilon_static'] = np.array(
+                        dielectrictensor, dtype=np.float64)
 
-            if 'phonon_modes' in extractList:
-                if line == "Eigenvectors and eigenvalues of the dynamical matrix":
-                    if 'phonon_modes' in outputData:
-                        # If NWRITE = 3 was set in the INCAR file, a second set of frequencies and eigenvectors after division by sqrt(mass) are written to the OUTCAR file.
-                        # Therefore, if we encounter multiple sets of phonon data, we skip it.
+            if 'phonon_modes' in extractlist:
+                if line == "Eigenvectors and eigenvalues of the dynamical " \
+                           "matrix":
+                    if 'phonon_modes' in outputdata:
+                        # If NWRITE = 3 was set in the INCAR file, a second
+                        # set of frequencies and eigenvectors after division
+                        # by sqrt(mass) are written to the OUTCAR file.
+                        # Therefore, if we encounter multiple sets of phonon
+                        # data, we skip it.
 
-                        continue;
+                        continue
 
-                    frequencies = [[], [], [], []];
-                    eigenvectors = [];
+                    frequencies = [[], [], [], []]
+                    eigenvectors = []
 
                     for i in range(0, 3):
-                        next(inputReader);
+                        next(inputReader)
 
-                    for i in range(0, 3 * numAtoms):
+                    for i in range(0, 3 * numatoms):
                         # Read frequencies in various units.
 
-                        match = _OUTCAR_ModeFrequencyRegex.match(next(inputReader));
+                        match = _OUTCAR_ModeFrequencyRegex.match(next(
+                            inputReader)
+                        )
 
                         if int(match.group('mode_index')) != i + 1:
-                            raise Exception("Error: Unexpected mode ordering in a frequencies/eigenvectors block in OUTCAR file \"{0}\".".format(filePath));
+                            raise Exception("Error: Unexpected mode ordering "
+                                            "in a frequencies/eigenvectors "
+                                            "block in OUTCAR file \""
+                                            "{0}\".".format(filepath)
+                                            )
 
-                        freqSign = -1.0 if match.group('freq_sign') == 'f/i' else 1.0;
+                        freqsign = -1.0 if match.group('freq_sign') == 'f/i'\
+                            else 1.0
 
-                        for i, groupName in enumerate(['freq_thz', 'freq_radthz', 'freq_invcm', 'freq_mev']):
-                            frequencies[i].append(
-                                math.copysign(float(match.group(groupName)), freqSign)
-                                );
+                        for e, groupName in enumerate(['freq_thz',
+                                                       'freq_radthz',
+                                                       'freq_invcm',
+                                                       'freq_mev']):
+                            frequencies[e].append(
+                                math.copysign(float(match.group(groupName)),
+                                              freqsign)
+                                )
 
-                        next(inputReader);
+                        next(inputReader)
 
                         # Read eigenvector.
 
-                        eigenvector = [];
+                        eigenvector = []
 
-                        for j in range(0, numAtoms):
+                        for j in range(0, numatoms):
                             eigenvector.append(
-                                [float(element) for element in next(inputReader).strip().split()[-3:]]
-                                );
+                                [float(element) for element in next(
+                                    inputReader).strip().split()[-3:]]
+                                )
 
                         eigenvectors.append(
-                            np.array(eigenvector, dtype = np.float64)
-                            );
+                            np.array(eigenvector, dtype=np.float64)
+                            )
 
-                        next(inputReader);
+                        next(inputReader)
 
-                    outputData['phonon_modes'] = (frequencies, eigenvectors);
+                    outputdata['phonon_modes'] = (frequencies, eigenvectors)
 
     # Check we were able to extract everything that was asked for.
 
-    for tag in extractList:
-        if tag not in outputData:
-            raise Exception("Error: Failed to extract data for tag '{0}' from OUTCAR file \"{1}\".".format(tag, filePath));
+    for tag in extractlist:
+        if tag not in outputdata:
+            raise Exception("Error: Failed to extract data for tag '{0}' "
+                            "from OUTCAR file \"{1}\".".format(tag, filepath)
+                            )
 
-    return outputData;
+    return outputdata

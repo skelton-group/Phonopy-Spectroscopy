@@ -5,64 +5,69 @@
 # Docstring
 # ---------
 
-""" Routines for reading and writing various types of file not associated with particular codes. """
+""" Routines for reading and writing various types of file not associated
+with particular codes. """
 
 
 # -------
 # Imports
 # -------
 
-import numpy as np;
+import numpy as np
 
 
 # ---------
 # XYZ Files
 # ---------
 
-_XYZ_DefaultTitleLine = "Unknown Molecule";
+_XYZ_DefaultTitleLine = "Unknown Molecule"
 
-def ReadXYZ(filePath):
+
+def readxyz(filepath):
     """
     Read a molecular structure from an XYZ-format file.
 
     Return value:
-        A (title_line, atomic_symbols, atom_positions) tuple containing the data.
+        A (title_line, atomic_symbols, atom_positions) tuple containing the
+        data.
 
     Notes:
-        For XYZ files containing multiple structures, only the first one is read.
-        If the title line in the file is blank, it will be set to the _XYZ_DefaultTitleLine constant.
+        For XYZ files containing multiple structures, only the first one is
+        read.
+        If the title line in the file is blank, it will be set to the
+        _XYZ_DefaultTitleLine constant.
     """
 
-    titleLine = None;
-    atomicSymbols, atomPositions = None, None;
+    titleline = None
+    atomicsymbols, atompositions = None, None
 
-    with open(filePath, 'r') as inputReader:
+    with open(filepath, 'r') as inputReader:
         # Read atom count.
 
-        atomCount = int(
+        atomcount = int(
             next(inputReader).strip()
-            );
+            )
 
         # Read title line.
 
-        titleLine = next(inputReader).strip();
+        titleline = next(inputReader).strip()
 
-        if titleLine == "":
+        if titleline == "":
             # If the title line is empty, replace it with the default.
 
-            titleLine = _XYZ_DefaultTitleLine;
+            titleline = _XYZ_DefaultTitleLine
 
         # Read atom data.
 
-        atomicSymbols, atomPositions = [], [];
+        atomicsymbols, atompositions = [], []
 
-        for i in range(0, atomCount):
-            atomicSymbol, x, y, z = next(inputReader).strip().split();
+        for i in range(0, atomcount):
+            atomicsymbol, x, y, z = next(inputReader).strip().split()
 
-            atomicSymbols.append(atomicSymbol);
+            atomicsymbols.append(atomicsymbol)
 
-            atomPositions.append(
-                np.array([float(x), float(y), float(z)], dtype = np.float64)
-                );
+            atompositions.append(
+                np.array([float(x), float(y), float(z)], dtype=np.float64)
+                )
 
-    return (titleLine, atomicSymbols, atomPositions);
+    return titleline, atomicsymbols, atompositions

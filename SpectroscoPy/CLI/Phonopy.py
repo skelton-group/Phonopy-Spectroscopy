@@ -5,304 +5,368 @@
 # Docstring
 # ---------
 
-""" Shared routines for the phonopy-* scripts, for handling multiple input sources. """
+""" Shared routines for the phonopy-* scripts, for handling multiple input
+sources. """
 
 
 # -------
 # Imports
 # -------
 
-import os;
+import os
 
-import yaml;
+import yaml
 
-from phonopy.structure.atoms import atom_data;
+from phonopy.structure.atoms import atom_data
 
-from SpectroscoPy.Interfaces.Phonopy import ReadPhonopyYAML, ReadMeshYAML, ReadIrRepsYAML, ReadMeshHDF5, ReadPhono3pyHDF5;
-from SpectroscoPy.Interfaces.VASP import ReadPOSCAR;
+from SpectroscoPy.Interfaces.Phonopy import (readphonopyyaml, readmeshyaml,
+                                             readirrepsyaml, readmeshhdf5,
+                                             readphono3pyhdf5
+                                             )
+
+from SpectroscoPy.Interfaces.VASP import readposcar
 
 
 # ------------------------------
 # Command-Line Argument Handling
 # ------------------------------
 
-def Phonopy_UpdateParser(parser, spectrumType):
-    """ Update parser with Phonopy-specific command-line options for spectrumType. """
+def phonopy_update_parser(parser, spectrumtype):
+    """ Update parser with Phonopy-specific command-line options for
+    spectrumType. """
 
-    # Options for input of structure, atomic masses, frequencies/eigenvectors, and Born effective-charge tensors (for IR spectra).
+    # Options for input of structure, atomic masses,
+    # frequencies/eigenvectors, and Born effective-charge tensors (for IR
+    # spectra).
 
-    group = parser.add_argument_group("Input files");
+    group = parser.add_argument_group("Input files")
 
     group.add_argument(
         "--mesh_yaml",
-        metavar = "<file_path>",
-        type = str, dest = "MeshYAML",
-        default = "mesh.yaml",
-        help = "mesh.yaml file to read Gamma-point frequencies/eigenvectors and structure, if present, from (default: mesh.yaml)"
-        );
+        metavar="<file_path>",
+        type=str, dest="MeshYAML",
+        default="mesh.yaml",
+        help="mesh.yaml file to read Gamma-point frequencies/eigenvectors "
+             "and structure, if present, from (default: mesh.yaml)"
+        )
 
     group.add_argument(
         "--mesh_hdf5",
-        metavar = "<file_path>",
-        type = str, dest = "MeshHDF5",
-        default = "mesh.hdf5",
-        help = "mesh.hdf5 file to read Gamma-point frequencies and eigenvectors from (default: mesh.hdf5)"
-        );
+        metavar="<file_path>",
+        type=str, dest="MeshHDF5",
+        default="mesh.hdf5",
+        help="mesh.hdf5 file to read Gamma-point frequencies and "
+             "eigenvectors from (default: mesh.hdf5)"
+        )
 
     group.add_argument(
         "--phonopy_yaml",
-        metavar = "<file_path>",
-        type = str, dest = "PhonopyYAML",
-        default = "phonopy.yaml",
-        help = "phonopy.yaml file to read structure and atomic masses from (optional; default: phonopy.yaml)"
-        );
+        metavar="<file_path>",
+        type=str, dest="PhonopyYAML",
+        default="phonopy.yaml",
+        help="phonopy.yaml file to read structure and atomic masses from ("
+             "optional; default: phonopy.yaml)"
+        )
 
     group.add_argument(
         "-c", "--cell",
-        metavar = "<file_path>",
-        type = str, dest = "CellFile",
-        default = "POSCAR",
-        help = "Input file to read structure from (optional; VASP 5.x POSCAR files only; default: POSCAR)"
-        );
+        metavar="<file_path>",
+        type=str, dest="CellFile",
+        default="POSCAR",
+        help="Input file to read structure from (optional; VASP 5.x POSCAR "
+             "files only; default: POSCAR)"
+        )
 
     group.add_argument(
         "--ir_reps_yaml",
-        metavar = "<file_path>",
-        type = str, dest = "IrRepsYAML",
-        default = "irreps.yaml",
-        help = "irreps.yaml file to read if using the --ir_reps argument (default: irreps.yaml)"
-        );
+        metavar="<file_path>",
+        type=str, dest="IrRepsYAML",
+        default="irreps.yaml",
+        help="irreps.yaml file to read if using the --ir_reps argument ("
+             "default: irreps.yaml)"
+        )
 
-    if spectrumType == 'ir':
+    if spectrumtype == 'ir':
         group.add_argument(
             "--born_file",
-            metavar = "<file_path>",
-            type = str, dest = "BORNFile",
-            default = "BORN",
-            help = "BORN file to read Born charges from (default: BORN)"
-            );
+            metavar="<file_path>",
+            type=str, dest="BORNFile",
+            default="BORN",
+            help="BORN file to read Born charges from (default: BORN)"
+            )
 
     # Options for importing Phono3py linewidths.
 
-    group = parser.add_argument_group("Linewidths");
+    group = parser.add_argument_group("Linewidths")
 
     group.add_argument(
         "--linewidth_hdf5",
-        metavar = "<file_path>",
-        type = str, dest = "LinewidthHDF5",
-        default = None,
-        help = "Phono3py HDF5 file to read mode linewidths from"
-        );
+        metavar="<file_path>",
+        type=str, dest="LinewidthHDF5",
+        default=None,
+        help="Phono3py HDF5 file to read mode linewidths from"
+        )
 
     group.add_argument(
         "--linewidth_temperature",
-        metavar = "<temperature>",
-        type = float, dest = "LinewidthTemperature",
-        default = None,
-        help = "Temperature to read linewidths at"
-        );
+        metavar="<temperature>",
+        type=float, dest="LinewidthTemperature",
+        default=None,
+        help="Temperature to read linewidths at"
+        )
 
 
 # ------------
 # I/O Handling
 # ------------
 
-def Phonopy_LoadData_Core(args, extractList):
+def phonopy_loaddata_core(args, extractlist):
     """
-    Reads input files specified in the parsed command-line arguments args and loads items specified in extractList.
+    Reads input files specified in the parsed command-line arguments args
+    and loads items specified in extractList.
 
     exctractList may contain the following keys:
-        'phonon_modes' -- phonon frequencies (in THz, rad. THz, inv. cm and meV) and eigenvectors.
-        'structure' -- structure specified as a tuple of (lattice_vectors, atomic_symbols, atom_positions_frac) data.
+        'phonon_modes' -- phonon frequencies (in THz, rad. THz, inv. cm and
+        meV) and eigenvectors.
+        'structure' -- structure specified as a tuple of (lattice_vectors,
+        atomic_symbols, atom_positions_frac) data.
         'atomic_masses' -- list of atomic masses.
 
-    If items in the extract list cannot be taken from the supplied input file(s), an error is raised.
+    If items in the extract list cannot be taken from the supplied input
+    file(s), an error is raised.
 
     Return value:
-        A dictionary containing the requested data, keyed with the entries in extractList.
+        A dictionary containing the requested data, keyed with the entries
+        in extractList.
     """
 
-    # We have several options for reading in a structure, a list of atomic masses and a set of Gamma-point frequencies and eigenvectors from Phonopy output.
-    # If the user specifies input files, we use those preferentially; if not, we check for standard files in order of ease of reading.
+    # We have several options for reading in a structure, a list of atomic
+    # masses and a set of Gamma-point frequencies and eigenvectors from
+    # Phonopy output.
+    # If the user specifies input files, we use those preferentially; if
+    # not, we check for standard files in order of ease of reading.
 
     # Data to capture.
 
-    structure, atomicMasses, phononModes = None, None, None;
+    structure, atomicmasses, phononmodes = None, None, None
 
-    # Variable to keep track of whether we've attempted to read the mesh.yaml file.
-    # If mesh.yaml is used as the source of frequencies and eigenvectors, but is an old-format file without structural data, we want to avoid reading it a second time to try and load a structure.
+    # Variable to keep track of whether we've attempted to read the
+    # mesh.yaml file.
+    # If mesh.yaml is used as the source of frequencies and eigenvectors,
+    # but is an old-format file without structural data, we want to avoid
+    # reading it a second time to try and load a structure.
 
-    readMeshYAML = False;
+    readmeshyaml = False
 
-    # Variable to keep track of whether status messages have been printed (used to control printing a "spacer" for output formatting).
+    # Variable to keep track of whether status messages have been printed (
+    # used to control printing a "spacer" for output formatting).
 
-    printSpacer = False;
+    printspacer = False
 
     # Read frequencies and eigenvectors if required.
 
-    if 'phonon_modes' in extractList:
+    if 'phonon_modes' in extractlist:
         if os.path.isfile(args.MeshHDF5):
-            phononModes = ReadMeshHDF5(args.MeshHDF5);
+            phononmodes = readmeshhdf5(args.MeshHDF5)
 
-            print("Frequencies and eigenvectors read from \"{0}\"".format(args.MeshHDF5));
+            print("Frequencies and eigenvectors read from \"{0}\"".format(
+                args.MeshHDF5))
 
-            printSpacer = True;
+            printspacer = True
         elif os.path.isfile(args.MeshYAML):
-            phononModes, structure, atomicMasses = ReadMeshYAML(args.MeshYAML);
+            phononmodes, structure, atomicmasses = readmeshyaml(args.MeshYAML)
 
-            print("Frequencies and eigenvectors read from \"{0}\"".format(args.MeshYAML));
+            print("Frequencies and eigenvectors read from \"{0}\"".format(
+                args.MeshYAML)
+                )
 
-            if structure != None:
-                print("Structure read from \"{0}\"".format(args.MeshYAML));
+            if structure is not None:
+                print("Structure read from \"{0}\"".format(args.MeshYAML))
 
-            if atomicMasses != None:
-                print("Atomic masses read from \"{0}\"".format(args.MeshYAML));
+            if atomicmasses is not None:
+                print("Atomic masses read from \"{0}\"".format(args.MeshYAML))
 
-            readMeshYAML = True;
+            readmeshyaml = True
 
-            printSpacer = True;
+            printspacer = True
 
         # Check we were able to load them.
 
-        if 'phonon_modes' in extractList and phononModes == None:
-            raise Exception("Error: Unable to load frequencies and eigenvectors - please check input files.");
+        if 'phonon_modes' in extractlist and phononnodes is None:
+            raise Exception("Error: Unable to load frequencies and "
+                            "eigenvectors - please check input files.")
 
     # Read structure if required.
 
-    if 'structure' in extractList and structure == None:
-        # If available, read the structure and atomic masses from a phonopy.yaml file.
+    if 'structure' in extractlist and structure is None:
+        # If available, read the structure and atomic masses from a
+        # phonopy.yaml file.
 
         if os.path.isfile(args.PhonopyYAML):
-            # In some cases, spglib returns quotes in the Hall symbol, and Phonopy writes the symbol into the Phonopy YAML file without escaping, which prevents the YAML being parsed correctly.
-            # As a workaround, we catch the yaml.scanner.ScannerError, print a warning message and continue.
+            # In some cases, spglib returns quotes in the Hall symbol,
+            # and Phonopy writes the symbol into the Phonopy YAML file
+            # without escaping, which prevents the YAML being parsed correctly.
+            # As a workaround, we catch the yaml.scanner.ScannerError,
+            # print a warning message and continue.
 
             try:
-                structure, atomicMasses = ReadPhonopyYAML(args.PhonopyYAML);
+                structure, atomicmasses = readphonopyyaml(args.PhonopyYAML)
 
-                # The ReadPhonopyYAML() routine fails if the correct data is not present.
+                # The ReadPhonopyYAML() routine fails if the correct data is
+                # not present.
 
-                print("Structure read from \"{0}\"".format(args.PhonopyYAML));
-                print("Atomic masses read from \"{0}\"".format(args.PhonopyYAML));
+                print("Structure read from \"{0}\"".format(args.PhonopyYAML))
+                print("Atomic masses read from \"{0}\"".format(
+                    args.PhonopyYAML)
+                    )
 
             except yaml.scanner.ScannerError:
-                print("WARNING: Error parsing \"{0}\" -> try to read structure from other input files.".format(args.PhonopyYAML));
+                print("WARNING: Error parsing \"{0}\" -> try to read "
+                      "structure from other input files.".format(
+                                                    args.PhonopyYAML)
+                      )
 
-                printSpacer = True;
+                printspacer = True
 
-        if structure == None:
-            # Next, try to read the structure from a cell file (currently only VASP 5.x POSCAR files are supported).
+        if structure is None:
+            # Next, try to read the structure from a cell file (currently
+            # only VASP 5.x POSCAR files are supported).
 
             if os.path.isfile(args.CellFile):
-                _, latticeVectors, atomicSymbols, atomPositions = ReadPOSCAR(args.CellFile);
+                _, latticevectors, atomicsymbols, atompositions = \
+                    readposcar(args.CellFile)
 
-                structure = (latticeVectors, atomicSymbols, atomPositions);
+                structure = (latticevectors, atomicsymbols, atompositions)
 
-                print("Structure read from \"{0}\"".format(args.CellFile));
-                printSpacer = True;
+                print("Structure read from \"{0}\"".format(args.CellFile))
+                printspacer = True
             else:
-                # Finally, try and read from a mesh.yaml file if we haven't already done so.
-                # If the file contains data for a dense q-point mesh and/or has eigenvectors, this could be very slow, so we only do it as a last resort.
+                # Finally, try and read from a mesh.yaml file if we haven't
+                # already done so.
+                # If the file contains data for a dense q-point mesh and/or
+                # has eigenvectors, this could be very slow, so we only do
+                # it as a last resort.
 
-                if not readMeshYAML and os.path.isfile(args.MeshYAML):
-                    _, structure, atomicMasses = ReadMeshYAML(args.MeshYAML);
+                if not readmeshyaml and os.path.isfile(args.MeshYAML):
+                    _, structure, atomicmasses = readmeshyaml(args.MeshYAML)
 
-                    if structure != None:
-                        print("Structure read from \"{0}\"".format(args.MeshYAML));
-                        printSpacer = True;
+                    if structure is not None:
+                        print("Structure read from \"{0}\"".format(
+                            args.MeshYAML)
+                            )
+                        printspacer = True
 
-                    if atomicMasses != None:
-                        print("Atomic masses read from \"{0}\"".format(args.MeshYAML));
-                        printSpacer = True;
+                    if atomicmasses is not None:
+                        print("Atomic masses read from \"{0}\"".format(
+                            args.MeshYAML)
+                            )
+                        printspacer = True
 
         # Check we have a structure if we need one.
 
-        if 'structure' in extractList and structure == None:
-            raise Exception("Error: Unable to read a structure - please check input files.");
+        if 'structure' in extractlist and structure is None:
+            raise Exception("Error: Unable to read a structure - please "
+                            "check input files.")
 
-    # Finally, if we need atomic masses and we haven't read them from an input file, get them from the phonopy.structure.atoms database.
+    # Finally, if we need atomic masses and we haven't read them from an
+    # input file, get them from the phonopy.structure.atoms database.
 
-    if 'atomic_masses' in extractList and atomicMasses == None:
-        _, atomicSymbols, _ = structure;
+    if 'atomic_masses' in extractlist and atomicmasses is None:
+        _, atomicsymbols, _ = structure
 
-        atomicMasses = [];
+        atomicmasses = []
 
-        for symbol in atomicSymbols:
-            symbol = symbol.title();
+        for symbol in atomicsymbols:
+            symbol = symbol.title()
 
-            mass = None;
+            mass = None
 
             for _, dbSymbol, _, dbMass in atom_data:
                 if symbol == dbSymbol:
-                    mass = dbMass;
-                    break;
+                    mass = dbMass
+                    break
 
-            if mass == None:
-                raise Exception("Error: Atomic mass for symbol '{0}' not found in Phonopy database.".format(symbol));
+            if mass is None:
+                raise Exception("Error: Atomic mass for symbol '{0}' not "
+                                "found in Phonopy database.".format(symbol)
+                                )
 
-            atomicMasses.append(mass);
+            atomicmasses.append(mass)
 
-        print("Atomic masses taken from Phonopy database");
-        printSpacer = True;
+        print("Atomic masses taken from Phonopy database")
+        printspacer = True
 
     # If required, print a blank line after status messages.
 
-    if printSpacer:
-        print("");
+    if printspacer:
+        print("")
 
     # Return a dictonary containing the requested data.
 
-    outputData = { };
+    outputdata = {}
 
-    if 'phonon_modes' in extractList:
-        outputData['phonon_modes'] = phononModes;
+    if 'phonon_modes' in extractlist:
+        outputdata['phonon_modes'] = phononmodes
 
     if 'structure' in extractList:
-        outputData['structure'] = structure;
+        outputdata['structure'] = structure
 
-    if 'atomic_masses' in extractList:
-        outputData['atomic_masses'] = atomicMasses;
+    if 'atomic_masses' in extractlist:
+        outputdata['atomic_masses'] = atomicmasses
 
-    return outputData;
+    return outputdata
 
-def Phonopy_LoadData_Optional(args):
+
+def phonopy_loaddata_optional(args):
     """
-    Reads and returns optional irreducible representation and linewidth data if the relevant arguments are set in the supplied command-line arguments.
+    Reads and returns optional irreducible representation and linewidth
+    data if the relevant arguments are set in the supplied command-line
+    arguments.
 
     Return value:
-        A tuple of (linewidths, ir_rep_data) containing the linewidths and/or irreducible representations.
-        If the associated optional parameters are not set in args, either or both will be set to None.
+        A tuple of (linewidths, ir_rep_data) containing the linewidths
+        and/or irreducible representations.
+        If the associated optional parameters are not set in args, either or
+        both will be set to None.
     """
 
-    printSpacer = False;
+    printspacer = False
 
     # Read linewidths if required.
 
-    linewidths = None;
+    linewidths = None
 
     if args.LinewidthHDF5:
-        if args.LinewidthTemperature == None:
-            raise Exception("Error: If reading linewidths from a Phono3py HDF5 file, a temperature must be supplied using the --linewidth_temperature argument.");
+        if args.LinewidthTemperature is None:
+            raise Exception("Error: If reading linewidths from a Phono3py "
+                            "HDF5 file, a temperature must be supplied using "
+                            "the --linewidth_temperature argument.")
 
-        linewidths = ReadPhono3pyHDF5(args.LinewidthHDF5, args.LinewidthTemperature);
+        linewidths = readphono3pyhdf5(args.LinewidthHDF5,
+                                      args.LinewidthTemperature)
 
-        print("Linewidths read from \"{0}\" (T = {1:.2f} K)".format(args.LinewidthHDF5, args.LinewidthTemperature));
-        printSpacer = True;
+        print("Linewidths read from \"{0}\" (T = {1:.2f} K)".format(
+            args.LinewidthHDF5, args.LinewidthTemperature)
+            )
+        printspacer = True
 
     # Read ir. rep. data if required.
 
-    irRepData = None;
+    irrepdata = None
 
     if args.IrReps:
-        irRepData = ReadIrRepsYAML(filePath = args.IrRepsYAML);
+        irrepdata = readirrepsyaml(filepath=args.IrRepsYAML)
 
-        print("Irreducible representations read from \"{0}\"".format(args.IrRepsYAML));
-        printSpacer = True;
+        print("Irreducible representations read from \"{0}\"".format(
+            args.IrRepsYAML)
+            )
+        printspacer = True
 
     # Spacer after status messages if required.
 
-    if printSpacer:
-        print("");
+    if printspacer:
+        print("")
 
     # Return data.
 
-    return (linewidths, irRepData);
+    return linewidths, irrepdata
