@@ -7,17 +7,16 @@
 
 from argparse import ArgumentParser
 
-from SpectroscoPy.Utilities import eigenvectors_to_eigendisplacements
+from spectroscopy.utilities import eigenvectors_to_eigendisplacements
 
-from SpectroscoPy.Interfaces.Phonopy import readborn
+from spectroscopy.interfaces.phonopy_interface import read_born
 
-from SpectroscoPy.CLI.Parser import update_parser, post_process_args
+from spectroscopy.cli.parser import update_parser, post_process_args
 
-from SpectroscoPy.CLI.Phonopy import (phonopy_update_parser,
-                                      phonopy_loaddata_core,
-                                      phonopy_loaddata_optional
-                                      )
-from SpectroscoPy.CLI.Runtime import runmode_ir
+from spectroscopy.cli.phonopy_helper import (
+    phonopy_update_parser, phonopy_load_core, phonopy_load_optional)
+
+from spectroscopy.cli.runtime import run_mode_ir
 
 
 # ----
@@ -28,8 +27,7 @@ if __name__ == "__main__":
     # Parse command-line arguments.
 
     parser = ArgumentParser(
-        description="Simulate IR spectra using Phonopy calculations"
-        )
+        description="Simulate IR spectra from Phonopy calculations")
 
     # Add standard Phonopy argument groups.
 
@@ -37,7 +35,7 @@ if __name__ == "__main__":
 
     # Add standard arguments groups.
 
-    update_parser(parser, 'ir', supportedfeatures=['ir_reps'])
+    update_parser(parser, 'ir', supported_features=['irreps'])
 
     # Parse and process arguments.
 
@@ -47,32 +45,29 @@ if __name__ == "__main__":
 
     # Read input data.
 
-    inputData = phonopy_loaddata_core(
-        args, extractlist=['structure', 'atomic_masses', 'phonon_modes']
-        )
+    input_data = phonopy_load_core(
+        args, extract_list=['structure', 'atomic_masses', 'phonon_modes'])
 
-    structure = inputData['structure']
-    atomicMasses = inputData['atomic_masses']
-
-    frequencies, eigenvectors = inputData['phonon_modes']
+    structure = input_data['structure']
+    atomic_masses = input_data['atomic_masses']
+    frequencies, eigenvectors = input_data['phonon_modes']
 
     # Convert eigenvectors to eigendisplacements.
 
     eigendisplacements = eigenvectors_to_eigendisplacements(
-        eigenvectors, atomicMasses
-        )
+        eigenvectors, atomic_masses)
 
     # Read Born effective-charge tensors.
 
-    becTensors = readborn(structure, filepath=args.BORNFile)
+    bec_tensors = read_born(structure, file_path=args.BORNFile)
 
     # Read ir. rep. data and/or linewidths, if required.
 
-    linewidths, irRepData = phonopy_loaddata_optional(args)
+    linewidths, irrep_data = phonopy_load_optional(args)
 
     # Hand over to the RunMode_IR() routine.
 
-    runmode_ir(
-        frequencies, 'thz', eigendisplacements, becTensors, args,
-        linewidths=linewidths, irrepdata=irRepData
+    run_mode_ir(
+        frequencies, 'thz', eigendisplacements, bec_tensors, args,
+        linewidths=linewidths, irrep_data=irrep_data
         )

@@ -1,4 +1,4 @@
-# SpectroscoPy/Constants.py
+# spectroscopy/constants.py
 
 
 # ---------
@@ -14,7 +14,7 @@
 
 """ Zero tolerance. """
 
-ZeroTolerance = 1.0e-8
+ZERO_TOLERANCE = 1.0e-8
 
 
 # ------------------
@@ -23,15 +23,15 @@ ZeroTolerance = 1.0e-8
 
 """ Conversion factor from THz to inverse cm. """
 
-THzToInvCm = 33.35641
+THZ_TO_INV_CM = 33.35641
 
 """ Conversion factor from THz to meV. """
 
-THzToMeV = 4.13567
+THZ_TO_MEV = 4.13567
 
 """ Conversion factor from THz to _inverse_ microns. """
 
-THzToInvUm = 1.0e-4 * THzToInvCm
+THZ_TO_INV_UM = 1.0e-4 * THZ_TO_INV_CM
 
 
 # -------------
@@ -40,15 +40,15 @@ THzToInvUm = 1.0e-4 * THzToInvCm
 
 """ Default frequency units. """
 
-DefaultFrequencyUnits = "?"
+DEFAULT_FREQUENCY_UNITS = "?"
 
 """ Default activity units. """
 
-DefaultActivityUnits = "AU"
+DEFAULT_ACTIVITY_UNITS = "AU"
 
 """ Default intensity units. """
 
-DefaultIntensityUnits = "AU"
+DEFAULT_INTENSITY_UNITS = "AU"
 
 
 # -----------
@@ -57,36 +57,24 @@ DefaultIntensityUnits = "AU"
 
 """ TeX labels for various supported frequency units. """
 
-FrequencyUnitLabels = {
-    # E203: no whitespace before colon.
+FREQUENCY_UNIT_LABELS = {
     'thz': "THz",
     'inv_cm': "cm$^{-1}$",
     'mev': "meV",
-    # W605: invalid escape sequence \m.
-    # added r before the quotes to make it a raw string instead of a
-    # string literal.
     'um': r"$\mu$m"
     }
 
 
-# functions name lowercase and two spaces leeway.
-def getfrequencyunitlabel(frequencyunits):
-    """ Get a label for units frequencyUnits to be used in plots and output
-    files. """
+def get_frequency_unit_label(frequency_units):
+    """ Get a label for units frequency_units to be used in plots and
+    output files. """
 
-    # If frequencyUnits is one of the units supported by
-    # ConvertFrequencyUnits(), FrequencyUnitLabels should have a label for it.
+    if frequency_units is None:
+        return DEFAULT_FREQUENCY_UNITS
+    
+    k = frequency_units.lower()
 
-    # undefined name 'frequencyUnits' because I changed the argumnent?
-    # no longer need key?
-    key = frequencyUnits.lower()
-
-    # changed 'if frequencyUnits' to 'if key'.
-    if key is None:
-        # should DefaultFrequencyunits be DefaultFrequencyUnits as above?
-        # Also used in Plotting.py
-        return DefaultFrequencyUnits
-    elif key in FrequencyUnitLabels:
-        return FrequencyUnitLabels[key]
+    if k in FREQUENCY_UNIT_LABELS:
+        return FREQUENCY_UNIT_LABELS[k]
     else:
-        return frequencyunits
+        return frequency_units

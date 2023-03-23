@@ -9,10 +9,10 @@ from argparse import ArgumentParser
 
 import numpy as np
 
-from SpectroscoPy.Interfaces.Misc import readxyz
-from SpectroscoPy.Interfaces.VASP import writeposcar
+from spectroscopy.interfaces.misc import read_xyz
+from spectroscopy.interfaces.vasp_interface import write_poscar
 
-from SpectroscoPy.Utilities import cartesiantofractionalcoordinates
+from spectroscopy.utilities import cartesian_to_fractional_coordinates
 
 
 # ----
@@ -22,76 +22,59 @@ from SpectroscoPy.Utilities import cartesiantofractionalcoordinates
 if __name__ == "__main__":
     # Parse command-line arguments.
 
-    parser = ArgumentParser("Convert an XYZ-format molecular structure to a \
-                            VASP 5 POSCAR file"
-                            )
+    parser = ArgumentParser(
+        "Convert an XYZ-format molecular structure to a VASP 5 POSCAR "
+        "file")
 
     parser.add_argument(
-        "XYZFile",
-        metavar="<xyz_file>",
-        type=str,
-        help="XYZ-format file to convert"
-        )
+        "XYZFile", metavar="<xyz_file>", type=str,
+        help="XYZ-format file to convert")
 
     parser.add_argument(
         "-o", "--output",
-        metavar="<poscar_file>",
-        type=str, dest="POSCARFile",
-        default="POSCAR.vasp",
-        help="Output POSCAR file"
-        )
+        metavar="<poscar_file>", type=str, dest="POSCARFile",
+        default="POSCAR.vasp", help="Output POSCAR file")
 
     parser.add_argument(
         "--padding",
-        metavar="<box_padding>",
-        type=float, dest="Padding",
-        default=15.0,
-        help="Padding between periodic images (default: 15 A)"
-        )
+        metavar="<box_padding>", type=float, dest="Padding", default=15.0,
+        help="Padding between periodic images (default: 15 A)")
 
     parser.add_argument(
         "--title",
-        metavar="<title>",
-        type=str, dest="TitleLine",
-        default=None,
-        help="Override the title line (line 1) of the POSCAR file \
-        (default: read from XYZ file)"
-        )
+        metavar="<title>", type=str, dest="TitleLine", default=None,
+        help="Override the system (line 1) in the POSCAR file "
+             "(default: title line from the XYZ file)")
 
     args = parser.parse_args()
 
     # Read XYZ file.
 
-    titleLine, atomicSymbols, atomPositions = readxyz(args.XYZFile)
+    title_line, atomic_symbols, atom_positions = read_xyz(args.XYZFile)
 
     # Find minimum and maximum x, y and z coordinates and work out the 
     # lattice vectors using the supplied padding.
 
-    minPos = np.min(atomPositions, axis=0)
-    maxPos = np.max(atomPositions, axis=0)
+    min_pos = np.min(atom_positions, axis=0)
+    max_pos = np.max(atom_positions, axis=0)
 
-    latticeVectors = np.diag(
-        (maxPos - minPos) + args.Padding
-        )
+    lattice_vectors = np.diag((max_pos - min_pos) + args.Padding)
 
     # Adjust positions to place the atom at the centre of the cell.
 
-    translationVector = (-1.0 * minPos) + args.Padding / 2.0
+    trans = (args.Padding / 2.0) - min_pos
 
-    atomPositions = [
-        position + translationVector for position in atomPositions
-        ]
+    atom_positions = [pos + trans for pos in atom_positions]
 
     # Convert positions from cartesian to fractional coordinates.
 
-    atomPositions = cartesiantofractionalcoordinates(atomPositions,
-                                                     latticeVectors
-                                                     )
+    atom_positions = cartesian_to_fractional_coordinates(
+        atom_positions, lattice_vectors)
 
     # Write output file.
 
-    writeposcar(
-        (latticeVectors, atomicSymbols, atomPositions),
-        args.POSCARFile,
-        titleline=args.TitleLine if args.TitleLine is not None else titleLine
-        )
+    system_name = args.TitleLine if args.TitleLine is not None else title_line
+
+    write_poscar(
+        (lattice_vectors, atomic_symbols, atom_positions), args.POSCARFile,
+        system_name=system_name)

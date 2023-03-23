@@ -7,12 +7,12 @@
 
 from argparse import ArgumentParser
 
-from SpectroscoPy.Utilities import eigenvectors_to_eigendisplacements
+from spectroscopy.utilities import eigenvectors_to_eigendisplacements
 
-from SpectroscoPy.Interfaces.VASP import parseoutcar
+from spectroscopy.interfaces.vasp_interface import parse_outcar
 
-from SpectroscoPy.CLI.Parser import update_parser, post_process_args
-from SpectroscoPy.CLI.Runtime import runmode_ir
+from spectroscopy.cli.parser import update_parser, post_process_args
+from spectroscopy.cli.runtime import run_mode_ir
 
 
 # ----
@@ -23,9 +23,8 @@ if __name__ == "__main__":
     # Parse command-line arguments.
 
     parser = ArgumentParser(
-        description="Simulate IR spectra from VASP phonon-frequency and \
-        Born-charge calculations"
-        )
+        description="Simulate IR spectra from VASP phonon-frequency "
+        "and Born-charge calculations")
 
     # Add input-files argument group.
 
@@ -33,20 +32,16 @@ if __name__ == "__main__":
 
     group.add_argument(
         "--outcar_freq",
-        metavar="<file_path>",
-        type=str, dest="OUTCARFreqPath",
+        metavar="<file_path>", type=str, dest="OUTCARFreqPath",
         default="OUTCAR",
-        help="OUTCAR file to read frequencies and eigenvectors from \
-        (default: OUTCAR)"
-        )
+        help="OUTCAR file to read frequencies and eigenvectors from "
+             "(default: OUTCAR)")
 
     group.add_argument(
         "--outcar_born",
-        metavar="<file_path>",
-        type=str, dest="OUTCARBornPath",
+        metavar="<file_path>",  type=str, dest="OUTCARBornPath",
         default="OUTCAR",
-        help="OUTCAR file to read Born charges from (default: OUTCAR)"
-        )
+        help="OUTCAR file to read Born charges from (default: OUTCAR)")
 
     # Add standard arguments groups.
 
@@ -60,36 +55,31 @@ if __name__ == "__main__":
 
     # Read input files.
 
-    outcarData = None
+    outcar_data = None
 
     if args.OUTCARFreqPath == args.OUTCARBornPath:
-        outcarData = parseoutcar(
-            args.OUTCARFreqPath, extractlist=['atomic_masses',
-                                              'phonon_modes', 'born_charges']
-            )
+        outcarData = parse_outcar(
+            args.OUTCARFreqPath, extract_list=[
+                'atomic_masses', 'phonon_modes', 'born_charges'])
     else:
-        outcarData = parseoutcar(
-            args.OUTCARFreqPath, extractlist=['atomic_masses',
-                                              'phonon_modes']
-            )
+        outcar_data = parse_outcar(
+            args.OUTCARFreqPath, extract_list=[
+                'atomic_masses', 'phonon_modes'])
 
-        outcarData2 = parseoutcar(
-            args.OUTCARBornPath, extractlist=['born_charges']
-            )
+        outcar_data_2 = parse_outcar(
+            args.OUTCARBornPath, extract_list=['born_charges'])
 
-        outcarData['born_charges'] = outcarData2['born_charges']
+        outcar_data['born_charges'] = outcar_data_2['born_charges']
 
     # Convert eigenvectors to eigendisplacements.
 
-    frequencySets, eigenvectors = outcarData['phonon_modes']
+    frequency_sets, eigenvectors = outcar_data['phonon_modes']
 
     eigendisplacements = eigenvectors_to_eigendisplacements(
-        eigenvectors, outcarData['atomic_masses']
-        )
+        eigenvectors, outcar_data['atomic_masses'])
 
-    # Pass the input data to runmode_ir() for processing.
+    # Pass the input data to run_mode_ir() for processing.
 
-    runmode_ir(
-        frequencySets[2], 'inv_cm', eigendisplacements,
-        outcarData['born_charges'], args
-        )
+    run_mode_ir(
+        frequency_sets[2], 'inv_cm', eigendisplacements,
+        outcar_data['born_charges'], args)

@@ -1,4 +1,4 @@
-# SpectroscoPy/Utilities.py
+# spectroscopy/utilities.py
 
 
 # ---------
@@ -14,60 +14,69 @@
 
 import numpy as np
 
-from SpectroscoPy import Constants
+from spectroscopy import constants
 
 
 # ---------------
 # Unit Conversion
 # ---------------
 
-def convertfrequencyunits(frequencies, unitsfrom, unitsto):
-    """
-    Convert frequencies in unitsfrom to unitsto.
-    Supported values of unitsfrom/unitsto are: 'thz', 'inv_cm', 'mev' and 'um'.
+def convert_frequency_units(frequencies, units_from, units_to):
+    """ Convert frequencies in units_from to units_to.
+    Supported values of units_from/units_to are: 'thz', 'inv_cm', 'mev'
+    and 'um'.
     """
 
     # No point in doing any work if we don't have to...
 
-    if unitsfrom == unitsto:
+    if units_from == units_to:
         return frequencies
 
     # First convert frequencies to THz...
 
-    if unitsfrom != 'thz':
-        if unitsfrom == 'inv_cm':
-            frequencies = [frequency / Constants.THzToInvCm for frequency in
-                           frequencies
-                           ]
-        elif unitsfrom == 'mev':
-            frequencies = [frequency / Constants.THzToMeV for frequency in
-                           frequencies
-                           ]
-        elif unitsfrom == 'um':
-            frequencies = [1.0 / (frequency * Constants.THzToInvUm) for
-                           frequency in frequencies
-                           ]
+    if units_from != 'thz':
+        if units_from == 'inv_cm':
+            frequencies = [
+                frequency / constants.THZ_TO_INV_CM
+                    for frequency in frequencies
+                ]
+        elif units_from == 'mev':
+            frequencies = [
+                frequency / constants.THZ_TO_MEV 
+                    for frequency in frequencies
+                ]
+        elif units_from == 'um':
+            frequencies = [
+                1.0 / (frequency * constants.THZ_TO_INV_UM)
+                    for frequency in frequencies
+                ]
         else:
-            raise Exception("Error: Unsupported units '{0}'.".format(
-                unitsfrom))
+            raise Exception(
+                "Error: Unsupported units '{0}'.".format(units_from)
+                )
 
     # ... and now convert to the desired unit.
 
-    if unitsto != 'thz':
-        if unitsto == 'inv_cm':
-            frequencies = [frequency * Constants.THzToInvCm for frequency in
-                           frequencies
-                           ]
-        elif unitsto == 'mev':
-            frequencies = [frequency * Constants.THzToMeV for frequency in
-                           frequencies
-                           ]
-        elif unitsto == 'um':
-            frequencies = [1.0 / (frequency * Constants.THzToInvUm) for
-                           frequency in frequencies
-                           ]
+    if units_to != 'thz':
+        if units_to == 'inv_cm':
+            frequencies = [
+                frequency * constants.THZ_TO_INV_CM
+                    for frequency in frequencies
+                ]
+        elif units_to == 'mev':
+            frequencies = [
+                frequency * constants.THZ_TO_MEV
+                    for frequency in frequencies
+                ]
+        elif units_to == 'um':
+            frequencies = [
+                1.0 / (frequency * constants.THZ_TO_INV_UM)
+                    for frequency in frequencies
+                ]
         else:
-            raise Exception("Error: Unsupported units '{0}'.".format(unitsto))
+            raise Exception(
+                "Error: Unsupported units '{0}'.".format(units_to)
+                )
 
     return frequencies
 
@@ -76,69 +85,66 @@ def convertfrequencyunits(frequencies, unitsfrom, unitsto):
 # Structure Handling
 # ------------------
 
-def calculatecellvolume(latticevectors):
-    """ Calculate the cell volume from a set of lattice vectors by computing
-    the scalar triple product. """
+def calculate_cell_volume(lattice_vectors):
+    """ Calculate the cell volume from a set of lattice vectors by
+    computing the scalar triple product. """
 
-    dim1, dim2 = np.shape(latticevectors)
+    dim_1, dim_2 = np.shape(lattice_vectors)
 
-    if dim1 != 3 or dim2 != 3:
+    if dim_1 != 3 or dim_2 != 3:
         raise Exception("Error: Lattice vectors must be a 3x3 matrix.")
 
-    v1, v2, v3 = latticevectors
+    v_1, v_2, v_3 = lattice_vectors
 
-    return np.dot(v1, np.cross(v2, v3))
+    return np.dot(v_1, np.cross(v_2, v_3))
 
 
-def cartesiantofractionalcoordinates(positions, latticevectors):
-    """
-    Convert positions from Cartesian to fractional coordinates.
+def cartesian_to_fractional_coordinates(positions, lattice_vectors):
+    """ Convert positions from Cartesian to fractional coordinates.
 
     Arguments:
         positions -- a list of N three-component vectors in Cartesian
-        coordinates.
-        latticeVectors -- must be convertible to a 3x3 NumPy matrix.
+            coordinates.
+        lattice_vectors -- must be convertible to a 3x3 NumPy matrix.
     """
 
-    dim1, dim2 = np.shape(latticevectors)
+    dim_1, dim_2 = np.shape(lattice_vectors)
 
-    if dim1 != 3 or dim2 != 3:
-        raise Exception("Error: latticeVectors must be a 3x3 matrix.")
+    if dim_1 != 3 or dim_2 != 3:
+        raise Exception("Error: lattice_vectors must be a 3x3 matrix.")
 
-    # The transformation matrix from cartesian to fractional coordinates is
-    # the inverse of a matrix built from the lattice vectors.
+    # The transformation matrix from cartesian to fractional coordinates
+    # is the inverse of a matrix built from the lattice vectors.
 
-    transformationmatrix = np.linalg.inv(latticevectors)
+    trans_mat = np.linalg.inv(lattice_vectors)
 
-    # If the positions are not three-component vectors, np.dot() raises a
-    # readable error message.
+    # If the positions are not three-component vectors, np.dot() raises
+    # a readable error message.
 
     return [
-        np.dot(position, transformationmatrix) % 1.0
-        for position in positions
+        np.dot(pos, trans_mat) % 1.0
+            for pos in positions
         ]
 
-
-def fractionaltocartesiancoordinates(positions, latticevectors):
-    """
-    Convert positions from fractional to Cartesian coordinates.
+def fractional_to_cartesian_coordinates(positions, lattice_vectors):
+    """ Convert positions from fractional to Cartesian coordinates.
 
     Arguments:
         positions -- a list of N three-component vectors in Cartesian
-        coordinates.
-        latticeVectors -- must be convertible to a 3x3 NumPy matrix.
+            coordinates.
+        lattice_vectors -- must be convertible to a 3x3 NumPy matrix.
     """
 
-    dim1, dim2 = np.shape(latticevectors)
+    dim_1, dim_2 = np.shape(lattice_vectors)
 
-    if dim1 != 3 or dim2 != 3:
-        raise Exception("Error: latticeVectors must be a 3x3 matrix.")
+    if dim_1 != 3 or dim_2 != 3:
+        raise Exception("Error: lattice_vectors must be a 3x3 matrix.")
 
-    v1, v2, v3 = latticevectors[0], latticevectors[1], latticevectors[2]
+    v_1, v_2, v_3 = lattice_vectors[0], lattice_vectors[1], lattice_vectors[2]
 
     return [
-        np.multiply(f1, v1) + np.multiply(f2, v2) + np.multiply(f3, v3)
-        for f1, f2, f3 in positions
+        np.multiply(f_1, v_1) + np.multiply(f_2, v_2) + np.multiply(f_3, v_3)
+            for f_1, f_2, f_3 in positions
         ]
 
 
@@ -146,43 +152,32 @@ def fractionaltocartesiancoordinates(positions, latticevectors):
 # Eigenvector handling
 # --------------------
 
-def eigenvectors_to_eigendisplacements(eigenvectors, atomicmasses):
-    """
-    Return the eigenvectors after division of each component by sqrt(mass).
+def eigenvectors_to_eigendisplacements(eigenvectors, atomic_masses):
+    """ Return the eigenvectors after division of each component by
+    sqrt(mass).
 
     Arguments:
         eigenvectors -- eigenvectors as 3N x N three-component vectors.
-        atomicMasses -- set of N atomic masses.
+        atomic_masses -- set of N atomic masses.
     """
 
-    nummodes, numatoms, eigdim3 = len(eigenvectors), len(eigenvectors[0]), \
-        len(eigenvectors[0][0])
+    num_modes, num_atoms = None, None
 
-    if nummodes != 3 * numatoms or eigdim3 != 3:
-        raise Exception("Error: eigenvectors should be a 3N x N x 3 matrix.")
+    error = False
 
-    massesdim1 = len(atomicmasses)
+    if np.ndim(eigenvectors) == 3:
+        num_modes, num_atoms, eig_dim_3 = np.shape(eigenvectors)
 
-    if massesdim1 != numatoms:
-        raise Exception("Error: The number of supplied atomic masses is "
-                        "inconsistent with the number of displacements in the "
-                        "eigenvectors."
-                        )
+        if num_modes != 3 * num_atoms or eig_dim_3 != 3:
+            raise Exception(
+                "Error: eigenvectors should be a 3N x N x 3 matrix.")
 
-    sqrtmasses = np.sqrt(atomicmasses)
+    if len(atomic_masses) != num_atoms:
+        raise Exception(
+            "Error: The number of supplied atomic masses is "
+            "inconsistent with the number of displacements in the "
+            "eigenvectors.")
 
-    eigendisplacements = np.zeros(
-        (nummodes, numatoms, 3), dtype=np.float64
-        )
+    sqrt_masses = np.sqrt(atomic_masses)
 
-    for i in range(0, nummodes):
-        # This should avoid requiring external code to supply eigenvectors as
-        # NumPy arrays.
-
-        eigenvector = eigenvectors[i]
-
-        for j in range(0, numatoms):
-            eigendisplacements[i, j, :] = np.divide(eigenvector[j],
-                                                    sqrtmasses[j])
-
-    return eigendisplacements
+    return np.divide(eigenvectors, sqrt_masses[np.newaxis, :, np.newaxis])

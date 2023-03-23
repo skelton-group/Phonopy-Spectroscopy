@@ -1,4 +1,4 @@
-# SpectroscoPy/Plotting.py
+# spectroscopy/plotting.py
 
 
 # ---------
@@ -7,6 +7,7 @@
 
 """ Routines for plotting spectra with Matplotlib. """
 
+
 # -------
 # Imports
 # -------
@@ -14,7 +15,8 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from SpectroscoPy import Constants
+from spectroscopy import constants
+
 
 # ---------
 # Constants
@@ -22,117 +24,134 @@ from SpectroscoPy import Constants
 
 """ Font size for plot text. """
 
-FontSize = 8
+FONT_SIZE = 8
 
 """ Linewidth for lines, axes, etc. """
 
-Linewidth = 0.5
+LINEWIDTH = 0.5
 
 """ Line colours for different plot types. """
 
-LineColours = {
+LINE_COLOURS = {
     'ir': 'r', 'raman': 'b'
-}
+    }
 
 """ y-axis labels for different plot types. """
 
-YAxisLabels = {
+Y_AXIS_LABELS = {
     'ir': r"$I_{\mathrm{IR}}$",
     'raman': r"$I_{\mathrm{Raman}}$"
-}
+    }
 
 
 # ---------
 # Functions
 # ---------
 
-def initialisematplotlib():
+def initialise_matplotlib():
     """ Boilerplate initialisation code for setting sensible Matplotlib
     defaults. """
 
-    mpl.rc('font', **{'family': 'serif', 'size': FontSize, 'serif':
-                      'Times New Roman'}
-           )
-    mpl.rc('mathtext', **{'fontset': 'custom', 'rm': 'Times New Roman', 'it':
-                          'Times New Roman:italic', 'bf': 'Times New '
-                                                          'Roman:bold'}
-           )
+    mpl.rc(
+        'font', **{'family': 'serif',
+                   'size': FONT_SIZE,
+                   'serif': 'Times New Roman'}
+        )
+    
+    mpl.rc(
+        'mathtext', **{'fontset': 'custom',
+                       'rm': 'Times New Roman',
+                       'it': 'Times New Roman:italic',
+                       'bf': 'Times New Roman:bold'}
+        )
 
-    mpl.rc('axes', **{'labelsize': FontSize, 'linewidth': Linewidth})
-    mpl.rc('lines', **{'linewidth': Linewidth})
+    mpl.rc(
+        'axes', **{'labelsize': FONT_SIZE,
+                   'linewidth': LINEWIDTH}
+        )
+    
+    mpl.rc('lines', **{'linewidth': LINEWIDTH})
 
-    tickparams = {'major.width': Linewidth, 'minor.width': Linewidth,
-                  'direction': 'in'
-                  }
+    tickparams = {
+        'major.width': LINEWIDTH,
+        'minor.width': LINEWIDTH,
+        'direction': 'in'
+        }
 
     mpl.rc('xtick', **tickparams)
     mpl.rc('ytick', **tickparams)
 
 
-def plotspectrum(spectrum, filepath, frequencyunits=None, plottype=None):
-    """
-    Plot a simulated spectrum.
+def plot_spectrum(
+        spectrum, file_path,
+        frequency_units=None, plot_type=None
+        ):
+    """ Plot a simulated spectrum.
 
     Arguments:
-        spectrum -- a tuple of (frequencies, intensities, intensities_norm)
-        data.
-        filePath -- path to save plot to.
+        spectrum -- a tuple of
+            (frequencies, intensities, intensities_norm) data.
+        file_path -- path to save plot to.
 
     Keyword arguments:
-        frequencyUnits -- frequency units (default:
-        Constants.DefaultFrequencyUnits).
-        plotType -- adapts plot for specific type of spectra (supported
-        values are 'ir' and 'raman').
+        frequency_units -- frequency units (default:
+        constants.DEFAULT_FREQUENCY_UNITS).
+        plot_type -- adapts plot for specific type of spectra (supported
+            values are 'ir' and 'raman').
 
     Notes:
         This routine plots the normalised spectrum, and expects that
         intensities_norm is in the range [0, 1].
     """
 
-    spectrumx, spectrumy, spectrumynorm = spectrum
+    spectrum_x, spectrum_y, spectrum_y_norm = spectrum
 
-    numdatapoints = len(spectrumx)
+    num_data_points = len(spectrum_x)
 
-    if len(spectrumy) != numdatapoints or len(spectrumynorm) != numdatapoints:
-        raise Exception("Error: The number of frequency and intensity points "
-                        "in spectra are inconsistent."
-                        )
+    if (len(spectrum_y) != num_data_points
+            or len(spectrum_y_norm) != num_data_points):
+        raise Exception(
+            "Error: The number of frequency and intensity points in "
+            "spectra are inconsistent.")
 
-    if frequencyunits is None:
-        frequencyunits = Constants.DefaultFrequencyUnits
+    if frequency_units is None:
+        frequency_units = constants.DEFAULT_FREQUENCY_UNITS
 
-    # Set default y-axis labels and line colours, and override if specified
-    # for the supplied plotType.
+    # Set default y-axis labels and line colours, and override if
+    # specified for the supplied plotType.
 
-    yaxislabel = "Intensity"
+    y_axis_label = "Intensity"
 
-    if plottype in YAxisLabels:
-        yaxislabel = YAxisLabels[plottype]
+    if plot_type in Y_AXIS_LABELS:
+        y_axis_label = Y_AXIS_LABELS[plot_type]
 
-    linecolour = 'k'
+    line_colour = 'k'
 
-    if plottype in LineColours:
-        linecolour = LineColours[plottype]
+    if plot_type in LINE_COLOURS:
+        line_colour = LINE_COLOURS[plot_type]
 
     # Initialise Matplotlib.
 
-    initialisematplotlib()
+    initialise_matplotlib()
 
     # Generate and save a plot.
 
-    plt.figure(figsize=(8.6 / 2.54, 6.0 / 2.54))
+    plt.figure(
+        figsize=(8.6 / 2.54, 6.0 / 2.54)
+        )
 
-    plt.plot(spectrumx, spectrumynorm, color=linecolour)
+    plt.plot(
+        spectrum_x, spectrum_y_norm,
+        color=line_colour
+        )
 
     plt.xlabel(
-        r"$\nu$ [{0}]".format(Constants.getfrequencyunitlabel(frequencyunits))
-    )
+        r"$\nu$ [{0}]".format(
+            constants.get_frequency_unit_label(frequency_units)))
 
-    plt.ylabel(
-        r"{0} [AU]".format(yaxislabel)
-    )
+    plt.ylabel(r"{0} [AU]".format(y_axis_label))
 
-    plt.xlim(min(spectrumx), max(spectrumx))
+    plt.xlim(min(spectrum_x), max(spectrum_x))
     plt.ylim(0.0, 1.2)
 
     # For newer versions of Matplotlib (!).
@@ -140,10 +159,10 @@ def plotspectrum(spectrum, filepath, frequencyunits=None, plottype=None):
     axes = plt.gca()
 
     axes.tick_params(
-        direction='in', top=True, bottom=True, left=True, right=True
-    )
+        direction='in', top=True, bottom=True, left=True, right=True)
 
     plt.tight_layout()
 
-    plt.savefig(filepath, format='png', dpi=300)
+    plt.savefig(file_path, format='png', dpi=300)
+    
     plt.close()

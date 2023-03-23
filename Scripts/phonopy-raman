@@ -7,23 +7,18 @@
 
 from argparse import ArgumentParser
 
-from SpectroscoPy.Utilities import eigenvectors_to_eigendisplacements
+from spectroscopy.utilities import eigenvectors_to_eigendisplacements
 
-from SpectroscoPy.CLI.IOHelper import (writestructuresraman,
-                                       read_dielectric_tensors
-                                       )
+from spectroscopy.cli.io_helper import (
+    write_structures_raman, read_dielectric_tensors)
 
-from SpectroscoPy.CLI.Parser import update_parser, post_process_args
+from spectroscopy.cli.parser import update_parser, post_process_args
 
-from SpectroscoPy.CLI.Phonopy import (phonopy_update_parser,
-                                      phonopy_loaddata_core,
-                                      phonopy_loaddata_optional
-                                      )
+from spectroscopy.cli.phonopy_helper import (
+    phonopy_update_parser, phonopy_load_core, phonopy_load_optional)
                                     
-from SpectroscoPy.CLI.Runtime import (runmode_raman_disp,
-                                      runmode_raman_read,
-                                      runmode_raman_postproc
-                                      )
+from spectroscopy.cli.runtime import (
+    run_mode_raman_disp, run_mode_raman_read, run_mode_raman_postproc)
 
 
 # ----
@@ -34,9 +29,8 @@ if __name__ == "__main__":
     # Parse command-line arguments.
 
     parser = ArgumentParser(
-        description="Simulate Raman spectra starting from a \
-        Phonopy calculation"
-        )
+        description="Simulate Raman spectra starting from a Phonopy "
+                    "calculation")
 
     # Add standard Phonopy argument groups.
 
@@ -44,7 +38,7 @@ if __name__ == "__main__":
 
     # Add standard arguments groups.
 
-    update_parser(parser, 'raman', supportedfeatures=['ir_reps'])
+    update_parser(parser, 'raman', supported_features=['irreps'])
 
     # Parse and process arguments.
 
@@ -61,55 +55,48 @@ if __name__ == "__main__":
     if args.RunMode == 'raman_disp':
         # Read input data.
 
-        inputData = phonopy_loaddata_core(
-            args, extractlist=['structure', 'atomic_masses', 'phonon_modes']
-            )
+        input_data = phonopy_load_core(
+            args, extract_list=['structure', 'atomic_masses', 'phonon_modes'])
 
-        structure = inputData['structure']
+        structure = input_data['structure']
 
-        frequencies, eigenvectors = inputData['phonon_modes']
+        frequencies, eigenvectors = input_data['phonon_modes']
 
         # Convert eigenvectors to eigendisplacements.
 
         eigendisplacements = eigenvectors_to_eigendisplacements(
-            eigenvectors, inputData['atomic_masses']
-            )
+            eigenvectors, input_data['atomic_masses'])
 
-    # If post-processing, read the ir. rep. data and/or linewidths if required.
+    # If post-processing, read the ir. rep. data and/or linewidths if
+    # required.
 
-    linewidths, irRepData = None, None
+    line_widths, irrep_data = None, None
 
     if args.RunMode == 'raman_postproc':
-        linewidths, irRepData = phonopy_loaddata_optional(args)
+        linewidths, irrep_data = phonopy_load_optional(args)
 
     # Hand over to one of the RunMode_Raman_*() routines.
 
     if args.RunMode is None:
-        raise Exception("Error: Please specify a run mode with one of the \
-                        -d/--create_disp, -r/--read or -p/--post_process \
-                        options."
-                        )
+        raise Exception(
+            "Error: Please specify a run mode with one of the "
+            "-d/--create_disp, -r/--read or -p/--post_process options.")
 
     elif args.RunMode == 'raman_disp':
-        dispSetsList = runmode_raman_disp(
-            structure, frequencies, 'thz', eigendisplacements, args
-            )
+        disp_sets = run_mode_raman_disp(
+            structure, frequencies, 'thz', eigendisplacements, args)
 
-        writestructuresraman(
-            dispSetsList, fileformat='vasp_poscar',
-            outputprefix=args.OutputPrefix
-            )
+        write_structures_raman(
+            disp_sets, file_format='vasp_poscar',
+            output_prefix=args.OutputPrefix)
 
     elif args.RunMode == 'raman_read':
-        epsTensors = read_dielectric_tensors(
-            args.RamanInputFiles, fileformat='vasp_outcar'
+        eps_tensors = read_dielectric_tensors(
+            args.RamanInputFiles, file_format='vasp_outcar'
             )
 
-        runmode_raman_read(
-            epsTensors, args
-            )
+        run_mode_raman_read(eps_tensors, args)
 
     elif args.RunMode == 'raman_postproc':
-        runmode_raman_postproc(
-            args, linewidths=linewidths, irrepdata=irRepData
-            )
+        run_mode_raman_postproc(
+            args, linewidths=linewidths, irrep_data=irrep_data)

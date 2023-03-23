@@ -1,1 +1,1 @@
-# SpectroscoPy/__init__.py
+# spectroscopy/__init__.py

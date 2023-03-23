@@ -1,1 +1,1 @@
-# SpectroscoPy/Interfaces/__init__.py
+# spectroscopy/interfaces/__init__.py

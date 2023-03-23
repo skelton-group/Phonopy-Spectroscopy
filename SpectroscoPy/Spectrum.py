@@ -1,4 +1,4 @@
-# SpectroscoPy/Spectrum.py
+# spectroscopy/spectrum.py
 
 
 # ---------
@@ -21,21 +21,16 @@ import numpy as np
 # Constants
 # ---------
 
-""" To ensure the maximum is included in grids, np.arange() is called as 
-np.arange(min, max + RangeStepMultiplier * step, step). """
+""" A "safe" multiplier of the linewidth (e.g. sigma for Gaussian and
+gamma for Lorentzian functions) for padding grids used to evaluate peak
+functions. """
 
-RangeStepMultiplier = 1.0e-5
-
-""" A "safe" multiplier of the linewidth (e.g. sigma for Gaussian and gamma 
-for Lorentzian functions) for padding grids used to evaluate peak functions. 
-"""
-
-SpectrumPaddingMultiplier = 5.0
+SPECTRUM_PADDING_MULTIPLIER = 5.0
 
 """ Minimum number of points for automatically determining spectrum 
 resolutions. """
 
-SpectrumResolutionMinPoints = 1000
+SPECTRUM_RESOLUTION_MIN_POINTS = 1000
 
 
 # ---------
@@ -43,201 +38,213 @@ SpectrumResolutionMinPoints = 1000
 # ---------
 
 def gaussian(x, i, mu, sigma):
-    """ Return G(x) = (i / (sigma * sqrt(2 * pi))) * exp(-1 * (x - mu) ** 2
-    / (2 * sigma ** 2)). """
+    """ Return G(x) = (i / (sigma * sqrt(2 * pi))) *
+    exp(-1 * (x - mu) ** 2 / (2 * sigma ** 2)). """
 
     # Definition of the Gaussian function with unit area taken from
     # http://mathworld.wolfram.com/GaussianFunction.html.
 
-    return (i / (sigma * math.sqrt(2.0 * math.pi))) \
-        * np.exp(-1.0 * (x - mu) ** 2 / (2 * sigma ** 2))
+    return ((i / (sigma * math.sqrt(2.0 * math.pi)))
+            * np.exp(-1.0 * (x - mu) ** 2 / (2 * sigma ** 2)))
 
-
-def lorentzian(x, i, x0, gamma):
-    """ Return L(x) = (i / pi) * ((0.5 * gamma) / ((x - x_0) ** 2)
-    + (0.5 * gamma) ** 2). """
+def lorentzian(x, i, x_0, gamma):
+    """ Return L(x) = (i / pi) *
+    ((0.5 * gamma) / ((x - x_0) ** 2) + (0.5 * gamma) ** 2). """
 
     # Definition of the Lorentzian function with unit area taken from
     # http://mathworld.wolfram.com/LorentzianFunction.html.
 
-    return (i / math.pi) * ((0.5 * gamma) / ((x - x0) ** 2 + (0.5 * gamma)
-                                             ** 2))
+    return ((i / math.pi)
+            * ((0.5 * gamma) / ((x - x_0) ** 2 + (0.5 * gamma) ** 2)))
 
+def simulate_spectrum(
+        frequencies, intensities, linewidths,
+        spectrum_range=None, spectrum_resolution=None,
+        instrument_broadening_width=None,
+        instrument_broadening_shape='gaussian'
+        ):
 
-def simulatespectrum(
-    frequencies, intensities, linewidths,
-    spectrumrange=None, spectrumresolution=None,
-    instrumentbroadening=None, instrumentbroadeningshape='gaussian'
-):
-
-    """
-    Given a set of mode frequencies and intensities plus a nominal linewidth or
-     set of linewidths, simulate a spectrum.
-    Optionally, apply an instrument broadening by convolving with a fixed-width
-     Gaussian or Lorentzian function.
+    """ Given a set of mode frequencies and intensities plus a nominal
+    linewidth or set of linewidths, simulate a spectrum.
+    
+    Optionally, apply an instrument broadening by convolving with a
+    fixed-width Gaussian or Lorentzian function.
 
     Arguments:
         frequencies -- mode frequencies.
         intensities -- mode spectroscopic intensities.
-        linewidths -- nominal mode linewidth or list of mode linewidths, taken
-        to be the full-width at half-maxima (FWHM) of Lorentzian peak profiles.
+        linewidths -- nominal mode linewidth or list of mode linewidths,
+            taken to be the full-width at half-maxima (FWHM) of
+            Lorentzian peak profiles.
 
     Keyword arguments:
-        spectrumRange -- range of frequencies over which to simulate the
-        spectrum (defaults to approx. min(frequencies)
-        - SpectrumPaddingMultiplier * max(linewidths) -> max(frequencies)
-        + SpectrumPaddingMultiplier * max(linewidths)).
-        spectrumResolution -- frequency resolution of the spectrum (default:
-        adjust to give at least SpectrumResolutionMinPoints data points, or a
-        minimum resolution of 1, whichever is larger).
-        instrumentBroadening -- instrument broadening width (default: no
-        instrument broadening).
-        instrumentBroadeningShape -- shape of instrument broadening ('gaussian'
-        or 'lorentzian'; default: 'gaussian').
+        spectrum_range -- range of frequencies over which to simulate
+            the spectrum (defaults to approx.
+            min(frequencies) - SPECTRUM_PADDING_MULTIPLIER * max(linewidths) ->
+            max(frequencies) + SPECTRUM_PADDING_MULTIPLIER * max(linewidths)).
+        spectrum_resolution -- frequency resolution of the spectrum
+            (default: adjust to give at least
+            SPECTRUM_RESOLUTION_MIN_POINTS data points, or a minimum
+            resolution of 1, whichever is larger).
+        instrument_broadening_width -- instrument broadening width
+            (default: no instrument broadening).
+        instrument_broadening_shape -- shape of instrument broadening
+            ('gaussian' or 'lorentzian'; default: 'gaussian').
 
     Return value:
-        A tuple of (spectrumX, spectrumY, spectrumYNorm) data.
+        A tuple of (spectrum_x, spectrum_y, spectrum_y_norm) data.
 
     Notes:
-        If a min and max are specified with spectrumRange, they may be modified
-        to "align" with the resolution (i.e. so that the frequency axis starts
-        and finished on an integer multiple of the resolution).
+        If a min and max are specified with spectrum_range, they may be
+        modified to "align" with the resolution (i.e. so that the
+        frequency axis starts and finishes on an integer multiple of the
+        resolution).
     """
 
-    nummodes = len(frequencies)
+    num_modes = len(frequencies)
 
-    if len(intensities) != nummodes:
-        raise Exception("Error: The lengths of frequencies and intensities "
-                        "are inconsistent."
-                        )
+    if len(intensities) != num_modes:
+        raise Exception(
+            "Error: The lengths of frequencies and intensities "
+            "are inconsistent.")
 
-    try:
-        # Assume linewidths is a scalar linewidth and repeat it to a list.
-
-        linewidth = float(linewidths)
-        linewidths = [linewidth] * nummodes
-    except TypeError:
-        # If linewidths is a list or multi-element NumPy array, casting to a
-        # float will raise a TypeError.
-
-        if len(linewidths) != nummodes:
-            raise Exception("Error: The lengths of frequencies and linewidths "
-                            "are inconsistent."
-                            )
+    if np.isscalar(linewidths):
+        linewidths = [float(linewidths)] * num_modes
+    else:
+        if len(linewidths) != num_modes:
+            raise Exception(
+                "Error: The lengths of frequencies and linewidths "
+                "are inconsistent.")
 
     # Set a minimum and maximum.
 
-    spectrummin, spectrummax = None, None
+    spectrum_min, spectrum_max = None, None
 
-    if spectrumrange is None:
-        maxlinewidth = max(linewidths)
+    if spectrum_range is not None:
+        spectrum_min, spectrum_max = spectrum_range
+    else:
+        max_linewidth = max(linewidths)
 
-        if nummodes == 1 and maxlinewidth == 0.0:
-            raise Exception("Error: Cannot determine a spectrum range "
-                            "automatically - please specify manually using "
-                            "the spectrumRange argument."
-                            )
+        if num_modes == 1 and max_linewidth == 0.0:
+            raise Exception(
+                "Error: Cannot determine a spectrum range "
+                "automatically - please specify manually using the "
+                "spectrum_range argument.")
 
         # +/- 5 sigma/gamma should be sufficient for this.
 
-        spectrummin = min(frequencies) - SpectrumPaddingMultiplier \
-            * maxlinewidth
-        spectrummax = max(frequencies) + SpectrumPaddingMultiplier \
-            * maxlinewidth
-    else:
-        spectrummin, spectrummax = spectrumrange
+        spectrum_min = (
+            min(frequencies)
+            - SPECTRUM_PADDING_MULTIPLIER * max_linewidth)
+        
+        spectrum_max = (
+            max(frequencies)
+            + SPECTRUM_PADDING_MULTIPLIER * max_linewidth)
 
-        if spectrummin == spectrummax:
-            raise Exception("Error: The min and max specified in "
-                            "spectrumRange are the same."
-                            )
+        if spectrum_min == spectrum_max:
+            raise Exception(
+                "Error: The min and max specified in spectrum_range "
+                "are the same.")
 
-        if spectrummax < spectrummin:
-            spectrummax, spectrummin = spectrummin, spectrummax
+        if spectrum_max < spectrum_min:
+            spectrum_max, spectrum_min = spectrum_min, spectrum_max
 
     # Set a resolution if required.
 
-    if spectrumresolution is None:
-        nominalresolution = math.pow(
-            10.0, math.floor(math.log10(math.ceil(spectrummax - spectrummin)
-                                        / SpectrumResolutionMinPoints))
-            )
+    if spectrum_resolution is None:
+        power = math.log10(
+            math.ceil(spectrum_max - spectrum_min)
+            / SPECTRUM_RESOLUTION_MIN_POINTS)
+        
+        nominal_resolution = math.pow(10.0, math.floor(power))
+        
+        spectrum_resolution = min(nominal_resolution, 1.0)
 
-        spectrumresolution = min(nominalresolution, 1.0)
+    # If the spectrum range is being automatically determined, make sure
+    # it is "aligned" with the resolution.
 
-    # If the spectrum range is being automatically determined, make sure it is
-    # "aligned" with the resolution.
+    if spectrum_range is None:
+        spectrum_min = (
+            spectrum_resolution
+            * math.floor(spectrum_min / spectrum_resolution))
+        
+        spectrum_max = (
+            spectrum_resolution
+            * math.ceil(spectrum_max / spectrum_resolution))
 
-    if spectrumrange is None:
-        spectrummin = spectrumresolution * math.floor(spectrummin /
-                                                      spectrumresolution)
-        spectrummax = spectrumresolution * math.ceil(spectrummax /
-                                                     spectrumresolution)
+    # If applying instrument broadening, calculate the convolution
+    # kernel. Also expand the range of the spectrum so the the
+    # convolution kernel does not produce boundary effects inside the
+    # selected region.
 
-    # If applying instrument broadening, calculate the convolution kernel.
-    # Also expand the range of the spectrum so the the convolution kernel
-    # does not produce boundary effects inside the selected region.
+    conv_num_points, conv_kernel = None, None
 
-    convnumpoints, convkernel = None, None
+    if instrument_broadening_width is not None:
+        # Calculating the convolution kernel to +/- 5 sigma/gamma should
+        # be sufficient. According to
+        # https://en.wikipedia.org/wiki/Gaussian_blur, +/- 3 sigma is
+        # considered enough for Gaussian blurring kernels.
 
-    if instrumentbroadening is not None:
-        # Calculating the convolution kernel to +/- 5 sigma/gamma should be
-        # sufficient.
-        # According to https://en.wikipedia.org/wiki/Gaussian_blur, +/- 3
-        # sigma is considered enough for Gaussian blurring kernels.
+        conv_num_points = int(
+            math.ceil(
+                SPECTRUM_PADDING_MULTIPLIER
+                * instrument_broadening_width
+                / spectrum_resolution))
 
-        convnumpoints = int(
-            math.ceil(SpectrumPaddingMultiplier * instrumentbroadening
-                      / spectrumresolution)
-            )
+        conv_x = np.arange(
+            -1.0 * conv_num_points * spectrum_resolution,
+            conv_num_points + spectrum_resolution / 10.0,
+            spectrum_resolution)
 
-        convx = np.arange(
-            -1.0 * convnumpoints * spectrumresolution, (convnumpoints +
-                                                        1.0e-5) *
-            spectrumresolution, spectrumresolution
-            )
-
-        if instrumentbroadeningshape == 'gaussian':
-            convkernel = gaussian(convx, 1.0, 0.0, instrumentbroadening)
-        elif instrumentBroadeningShape == 'lorentzian':
-            convkernel = lorentzian(convx, 1.0, 0.0, instrumentbroadening)
+        if instrument_broadening_shape == 'gaussian':
+            conv_kernel = gaussian(
+                conv_x, 1.0, 0.0, instrument_broadening_width)
+        elif instrument_broadening_shape == 'lorentzian':
+            conv_kernel = lorentzian(
+                conv_x, 1.0, 0.0, instrument_broadening_width)
         else:
-            raise Exception("Error: Unrecognised instrumentBroadeningShape "
-                            "'{0}'.".format(instrumentbroadeningshape))
+            raise Exception(
+                "Error: Unrecognised instrumentBroadeningShape '{0}'."
+                .format(instrument_broadening_shape))
 
-        convkernel /= convkernel.sum()
+        conv_kernel /= conv_kernel.sum()
 
-        spectrummin = spectrummin - convnumpoints * spectrumresolution
-        spectrummax = spectrummax + convnumpoints * spectrumresolution
+        spectrum_min -= conv_num_points * spectrum_resolution
+        spectrum_max += conv_num_points * spectrum_resolution
 
     # Simulate spectrum.
 
-    spectrumx = np.arange(spectrummin, spectrummax + 1.0e-5 *
-                          spectrumresolution, spectrumresolution,
-                          dtype=np.float64)
-    spectrumy = np.zeros_like(spectrumx, dtype=np.float64)
+    spectrum_x = np.arange(
+        spectrum_min, spectrum_max + spectrum_resolution / 10.0,
+        spectrum_resolution, dtype=np.float64)
+    
+    spectrum_y = np.zeros_like(spectrum_x, dtype=np.float64)
 
-    for frequency, intensity, linewidth in zip(frequencies, intensities,
-                                               linewidths):
-        spectrumy += lorentzian(spectrumx, intensity, frequency, linewidth)
+    for frequency, intensity, linewidth in zip(
+            frequencies, intensities, linewidths
+            ):
+        spectrum_y += lorentzian(
+            spectrum_x, intensity, frequency, linewidth)
 
     # Apply instrument broadening if required.
 
-    if convKernel is not None:
-        # mode = 'valid' will cause np.convolve() to trim the first and last
-        # convNumPoints data points from the spectrum.
+    if conv_kernel is not None:
+        # mode = 'valid' will cause np.convolve() to trim the first and
+        # last conv_num_points data points from the spectrum.
 
-        spectrumx = spectrumx[convnumpoints:-convnumpoints]
-        spectrumy = np.convolve(spectrumy, convkernel, mode='valid')
+        spectrum_x = spectrum_x[conv_num_points:-conv_num_points]
+        spectrum_y = np.convolve(spectrum_y, conv_kernel, mode='valid')
 
         # Just in case my maths went wrong somewhere...
 
-        assert len(spectrumx) == len(spectrumy)
+        assert len(spectrum_x) == len(spectrum_y)
 
     # Normalise spectrum.
 
-    spectrumynorm = spectrumy / math.fabs(spectrumy.max())
+    spectrum_y_norm = spectrum_y / math.fabs(spectrum_y.max())
 
     # Return simulated spectrum.
 
-    return spectrumx, spectrumy, spectrumynorm
+    return (
+        spectrum_x, spectrum_y, spectrum_y_norm
+        )
