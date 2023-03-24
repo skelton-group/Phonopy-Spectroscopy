@@ -199,7 +199,7 @@ def rotation_matrix_xy(theta):
 
     raise NotImplementedError()
 
-def rotate_matrix_from_vectors(v_1, v_2):
+def rotation_matrix_from_vectors(v_1, v_2):
     """ Given a pair of 3D vectors v_1 and v_2, return the 3D rotation
     matrix that rotates v_1 to v_2. """
 
