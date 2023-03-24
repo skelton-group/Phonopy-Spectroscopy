@@ -239,7 +239,9 @@ def read_irreps_yaml(file_path=r"irreps.yaml"):
         raise Exception(
             "Error: Irreps. are required for the Gamma point modes.")
 
-    point_group = input_yaml['point_group']
+    # Integer point group symbols are parsed as integers.
+
+    point_group = str(input_yaml['point_group'])
 
     irrep_labels, band_indices = [], []
 

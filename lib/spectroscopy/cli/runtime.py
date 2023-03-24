@@ -177,7 +177,7 @@ def run_mode_raman_disp(
             if active_irreps is not None:
                 for symbol, band_indices in irrep_data:
                     if symbol not in active_irreps:
-                        exclude_indices.append(band_indices)
+                        exclude_indices.extend(band_indices)
 
                 band_list_str = " ,".join(
                     "{0}".format(index + 1 for index in exclude_indices[3:]))

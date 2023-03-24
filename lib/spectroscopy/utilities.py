@@ -229,7 +229,8 @@ def rotate_tensors(rotation_matrix, tensors):
     
     if not tensors_ok:
         raise Exception(
-            "tensors must be a 3x3 matrix or set of 3x3 matrices.")
+            "Error: tensors must be a 3x3 matrix or set of 3x3 "
+            "matrices.")
     
     if n_dim == 2:
         tensors = [tensors]

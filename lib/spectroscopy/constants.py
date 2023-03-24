@@ -96,9 +96,13 @@ _ACTIVE_IRREPS = {
 
 def get_active_irreps(point_group, spectrum_type):
     """ Given a point group, returns a list of irrep symbols that may be
-    active for the given spectrum_type.
+    active for the given spectrum_type (supported values are 'ir' and
+    'raman').
     """
     
+    point_group = point_group.lower()
+    spectrum_type = spectrum_type.lower()
+
     if point_group not in _ACTIVE_IRREPS:
         warnings.warn(
             "No activity data for point_group '{0}'.".format(point_group),
@@ -108,15 +112,9 @@ def get_active_irreps(point_group, spectrum_type):
     
     elif spectrum_type in ['ir', 'raman']:
         return [
-            symbol for symbol in _ACTIVE_IRREPS[point_group]
-                if symbol[spectrum_type]
+            symbol for symbol in _ACTIVE_IRREPS[point_group][spectrum_type]
             ]
     
     else:
-        # Assume all irreps can be active for unknown spectrum_types.
-
-        warnings.warn(
-            "Unknown spectrum_type '{0}' -> assuming all irreps can be "
-            "active.".format(spectrum_type), RuntimeWarning)
-
-        return [symbol for symbol in _ACTIVE_IRREPS[point_group]]
+        raise Exception(
+            "Error: Unknown spectrum_type '{0}'.".format(spectrum_type))
