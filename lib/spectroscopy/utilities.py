@@ -204,3 +204,41 @@ def rotation_matrix_from_vectors(v_1, v_2):
     matrix that rotates v_1 to v_2. """
 
     raise NotImplementedError()
+
+def rotate_tensors(rotation_matrix, tensors):
+    """ Rotate a 3x3 tensor or list of tensors by the supplied
+    3D rotation matrix.
+    
+    Notes:
+        tensors may be a single tensor or list of tensors. If a single
+        tensor is supplied, a single tensor will be returned; if a list
+        is supplied, then a list will be returned.
+    """
+
+    tensors_ok = True
+
+    n_dim = np.ndim(tensors)
+
+    if n_dim < 2 or n_dim > 3:
+        tensors_ok = False
+    else:
+        dim_1, dim_2 = np.shape(tensors)[-2:]
+
+        if dim_1 != 3 or dim_2 != 3:
+            tensors_ok = False
+    
+    if not tensors_ok:
+        raise Exception(
+            "tensors must be a 3x3 matrix or set of 3x3 matrices.")
+    
+    if n_dim == 2:
+        tensors = [tensors]
+
+    # TODO: Generate a new list of rotated tensors.
+
+    raise NotImplementedError()
+
+    if len(tensors) == 1:
+        return tensors[0]
+    else:
+        return tensors
