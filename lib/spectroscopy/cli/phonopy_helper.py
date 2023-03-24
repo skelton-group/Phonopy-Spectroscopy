@@ -25,6 +25,8 @@ from spectroscopy.interfaces.phonopy_interface import (
 
 from spectroscopy.interfaces.vasp_interface import read_poscar
 
+from spectroscopy.cli.parser import update_parser
+
 
 # ------------------------------
 # Command-Line Argument Handling
@@ -94,6 +96,11 @@ def phonopy_update_parser(parser, spectrum_type):
         metavar="<temperature>",
         type=float, dest="LinewidthTemperature", default=300,
         help="Temperature to read linewidths at (default: 300 K)")
+    
+    # Hand over to the "general" update_paraer() routine to add other
+    # arguments.
+
+    update_parser(parser, spectrum_type=spectrum_type)
 
 
 # ------------
@@ -104,7 +111,7 @@ def phonopy_load_core(args, extract_list):
     """ Reads input files specified in the parsed command-line arguments
     args and loads items specified in extract_list.
 
-    exctractList may contain the following keys:
+    exctract_list may contain the following keys:
         'phonon_modes' -- phonon frequencies (in THz, rad. THz, inv. cm
             and meV) and eigenvectors.
         'structure' -- structure specified as a tuple of
@@ -306,17 +313,36 @@ def phonopy_load_core(args, extract_list):
 
 def phonopy_load_optional(args):
     """ Reads and returns optional irreducible representation and
-    linewidth data if the relevant arguments are set in the supplied
-    command-line arguments.
+    linewidth data.
 
     Return value:
-        A tuple of (linewidths, irrep_data) containing the linewidths
-        and/or irreducible representations.
-        If the associated optional parameters are not set in args,
-        either or both will be set to None.
+        A dictionary containing some or all of the following keys:
+            'point_group' : point group of the structure.
+            'irrep_data' : list of (irrep_symbol, band_indices) tuples
+                assigning irreps to modes.
+            'linewidths' : list of mode linewidths.
     """
 
     print_spacer = False
+
+    # Read irrep data if available.
+
+    irrep_data = None
+
+    if os.path.isfile(args.IrrepsYAML):
+        try:
+            point_group, irrep_data = read_irreps_yaml(args.IrrepsYAML)
+
+            print(
+                "Irreducible representations read from \"{0}\""
+                .format(args.IrrepsYAML))
+        except:
+            print(
+                "WARNING: Failed to read irreducible representations "
+                "from \"{0}\". Irrep-related functionality will not be "
+                "available.".format(args.IrrepsYAML))
+        
+        print_spacer = True
 
     # Read linewidths if required.
 
@@ -337,20 +363,7 @@ def phonopy_load_optional(args):
             .format(args.LinewidthHDF5, args.LinewidthTemperature))
         
         print_spacer = True
-
-    # Read ir. rep. data if required.
-
-    irrep_data = None
-
-    if args.Irreps:
-        irrep_data = read_irreps_yaml(args.IrrepsYAML)
-
-        print(
-            "Irreducible representations read from \"{0}\""
-            .format(args.IrrepsYAML))
-        
-        print_spacer = True
-
+            
     # Spacer after status messages if required.
 
     if print_spacer:
@@ -358,4 +371,13 @@ def phonopy_load_optional(args):
 
     # Return data.
 
-    return linewidths, irrep_data
+    output_data = {}
+
+    if point_group is not None and irrep_data is not None:
+        output_data['point_group'] = point_group
+        output_data['irrep_data'] = irrep_data
+    
+    if linewidths is not None:
+        output_data['linewidths'] = linewidths
+
+    return output_data

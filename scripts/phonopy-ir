@@ -29,14 +29,10 @@ if __name__ == "__main__":
     parser = ArgumentParser(
         description="Simulate IR spectra from Phonopy calculations")
 
-    # Add standard Phonopy argument groups.
+    # Add argument groups.
 
     phonopy_update_parser(parser, 'ir')
-
-    # Add standard arguments groups.
-
-    update_parser(parser, 'ir', supported_features=['irreps'])
-
+    
     # Parse and process arguments.
 
     args = parser.parse_args()
@@ -52,6 +48,14 @@ if __name__ == "__main__":
     atomic_masses = input_data['atomic_masses']
     frequencies, eigenvectors = input_data['phonon_modes']
 
+    input_data = phonopy_load_optional(args)
+
+    irrep_data = (input_data['irrep_data'] 
+        if 'irrep_data' in input_data else None)
+    
+    linewidths = (input_data['linewidths'] 
+        if 'linewidths' in input_data else None)
+
     # Convert eigenvectors to eigendisplacements.
 
     eigendisplacements = eigenvectors_to_eigendisplacements(
@@ -61,11 +65,7 @@ if __name__ == "__main__":
 
     bec_tensors = read_born(structure, file_path=args.BORNFile)
 
-    # Read ir. rep. data and/or linewidths, if required.
-
-    linewidths, irrep_data = phonopy_load_optional(args)
-
-    # Hand over to the RunMode_IR() routine.
+    # Hand over to the run_mode_ir() routine.
 
     run_mode_ir(
         frequencies, 'thz', eigendisplacements, bec_tensors, args,

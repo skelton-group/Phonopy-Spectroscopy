@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
             structure = (lattice_vectors, atomic_symbols, atom_positions)
 
-        # Read phoon frequencies and eigenvectors from OUTCAR file.
+        # Read phonon frequencies and eigenvectors from OUTCAR file.
 
         frequencies, eigendisplacements = None, None
 

@@ -23,9 +23,9 @@ import yaml
 # from https://pyyaml.org/wiki/PyYAMLDocumentation.
 
 try:
-    from yaml import CLoader as Loader, CDumper as Dumper
+    from yaml import CLoader as Loader
 except ImportError:
-    from yaml import Loader, Dumper
+    from yaml import Loader
 
 import numpy as np
 
@@ -227,7 +227,7 @@ def read_irreps_yaml(file_path=r"irreps.yaml"):
     input_yaml = None
 
     with open(file_path, 'r') as input_reader:
-        input_yaml = yaml.load(input_reader)
+        input_yaml = yaml.load(input_reader, Loader=Loader)
 
     # Check the irreps are given for the Gamma point modes.
 
@@ -239,6 +239,8 @@ def read_irreps_yaml(file_path=r"irreps.yaml"):
         raise Exception(
             "Error: Irreps. are required for the Gamma point modes.")
 
+    point_group = input_yaml['point_group']
+
     irrep_labels, band_indices = [], []
 
     for mode in input_yaml['normal_modes']:
@@ -249,7 +251,7 @@ def read_irreps_yaml(file_path=r"irreps.yaml"):
 
         band_indices.append([index - 1 for index in mode['band_indices']])
 
-    return [item for item in zip(irrep_labels, band_indices)]
+    return (point_group, [item for item in zip(irrep_labels, band_indices)])
 
 
 # ----------

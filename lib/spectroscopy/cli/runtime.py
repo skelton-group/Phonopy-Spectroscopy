@@ -30,7 +30,7 @@ from spectroscopy.yaml_export import save_raman_tensors
 
 from spectroscopy.plotting import plot_spectrum
 
-from spectroscopy.constants import get_frequency_unit_label
+from spectroscopy.constants import get_active_irreps
 
 from spectroscopy.utilities import (
     calculate_cell_volume, convert_frequency_units)
@@ -119,7 +119,7 @@ def run_mode_ir(
 
 def run_mode_raman_disp(
         structure, frequencies, frequency_units, eigendisplacements,
-        args):
+        point_group, irrep_data, args):
     """ Prepare and return a sequence of displaced structures for a
     Raman activity calculation. Metadata about the displacements
     performed is written to "[<output_prefix>_]Raman.yaml".
@@ -128,8 +128,10 @@ def run_mode_raman_disp(
         structure -- structure to displace as a tuple of
             (lattice_vectors, atomic_symbols, atom_positions_frac).
         frequencies -- Gamma-point mode frequencies.
-        frequencyUnits -- units of mode frequencies.
+        frequency_units -- units of mode frequencies.
         eigendisplacements -- Gamma-point eigendisplacements.
+        point_group -- (optional) point group of the structure.
+        irrep_data -- (optional) irreducible representations of the modes.
         args -- parsed command-line arguments with the RamanStep,
             RamanStepType, RamanBandIndices and, optionally,
             OutputPrefix attributes.
@@ -162,8 +164,29 @@ def run_mode_raman_disp(
 
         print(
             "INFO: Automatically excluding bands {0}, {1}, {2} from "
-            "displacement set (to override use --raman-bands)."
+            "displacement set as these appear to be acoustic modes "
+            "(to override use --raman-bands)."
             .format(*[index + 1 for index in exclude_indices]))
+        
+        # If irrep data is supplied, exclude modes with irreps that
+        # are not Raman active.
+
+        if point_group is not None and irrep_data is not None:
+            active_irreps = get_active_irreps(point_group, 'raman')
+
+            if active_irreps is not None:
+                for symbol, band_indices in irrep_data:
+                    if symbol not in active_irreps:
+                        exclude_indices.append(band_indices)
+
+                band_list_str = " ,".join(
+                    "{0}".format(index + 1 for index in exclude_indices[3:]))
+
+                print(
+                    "INFO: Automatically excluding band(s) {0} from "
+                    "displacement set as these appear to be Raman "
+                    "inactive (to override use --raman-bands)."
+                    .format(band_list_str))
 
         band_indices = [
             i for i in range(0, num_modes)
@@ -376,6 +399,13 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
         raise Exception(
             "Error: Unexpected distance units '{0}' read from Raman "
             "dataset file \"{1}\".".format(distance_units, dataset_file))
+    
+    if eps_tensor_sets is None:
+        raise Exception(
+            "Error: No dielectric tensors found in Raman dataset file "
+            "\"{0}\" - the code needs to be run with the -r option to "
+            "read this data before post-processing with -p."
+            .format(dataset_file))
 
     # Calculate Raman activity tensors and averaged scalar intensities.
 
@@ -495,11 +525,6 @@ def run_mode_output(
             raise Exception(
                 "Error: Negative mode linewidths are unphysical (!?).")
 
-    if args.Irreps and irrep_data is None:
-        raise Exception(
-            "Error: If the Irreps argument is set, irrep. data must be "
-            "available.")
-
     # Convert frequency units if required.
 
     frequency_units_convert = args.Units
@@ -559,7 +584,7 @@ def run_mode_output(
 
     file_name = "{0}-PeakTable.{1}".format(output_prefix, file_format)
 
-    if args.Irreps:
+    if irrep_data is not None:
         pt_frequencies, pt_intensities, pt_irrep_symbols, pt_linewidths = \
             group_for_peak_table(
                 frequencies, intensities, irrep_data, linewidths=linewidths)

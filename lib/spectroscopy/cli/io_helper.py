@@ -16,7 +16,7 @@ formats supported by the Interfaces module. """
 # Imports
 # -------
 
-from spectroscopy.interfaces.vasp import write_poscar, parse_outcar
+from spectroscopy.interfaces.vasp_interface import write_poscar, parse_outcar
 
 
 # ----------------------

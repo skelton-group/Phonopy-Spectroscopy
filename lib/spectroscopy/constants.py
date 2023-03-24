@@ -8,6 +8,13 @@
 """ Defines constants used by other modules. """
 
 
+# -------
+# Imports
+# -------
+
+import warnings
+
+
 # ----------
 # Tolerances
 # ----------
@@ -57,7 +64,7 @@ DEFAULT_INTENSITY_UNITS = "AU"
 
 """ TeX labels for various supported frequency units. """
 
-FREQUENCY_UNIT_LABELS = {
+_FREQUENCY_UNIT_LABELS = {
     'thz': "THz",
     'inv_cm': "cm$^{-1}$",
     'mev': "meV",
@@ -74,7 +81,42 @@ def get_frequency_unit_label(frequency_units):
     
     k = frequency_units.lower()
 
-    if k in FREQUENCY_UNIT_LABELS:
-        return FREQUENCY_UNIT_LABELS[k]
+    if k in _FREQUENCY_UNIT_LABELS:
+        return _FREQUENCY_UNIT_LABELS[k]
     else:
         return frequency_units
+
+
+# ------------
+# Group Theory
+# ------------
+
+_ACTIVE_IRREPS = {
+    }
+
+def get_active_irreps(point_group, spectrum_type):
+    """ Given a point group, returns a list of irrep symbols that may be
+    active for the given spectrum_type.
+    """
+    
+    if point_group not in _ACTIVE_IRREPS:
+        warnings.warn(
+            "No activity data for point_group '{0}'.".format(point_group),
+            RuntimeWarning)
+        
+        return None
+    
+    elif spectrum_type in ['ir', 'raman']:
+        return [
+            symbol for symbol in _ACTIVE_IRREPS[point_group]
+                if symbol[spectrum_type]
+            ]
+    
+    else:
+        # Assume all irreps can be active for unknown spectrum_types.
+
+        warnings.warn(
+            "Unknown spectrum_type '{0}' -> assuming all irreps can be "
+            "active.".format(spectrum_type), RuntimeWarning)
+
+        return [symbol for symbol in _ACTIVE_IRREPS[point_group]]

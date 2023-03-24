@@ -60,7 +60,6 @@ def read_raman_dataset(file_path):
         the file. (The order of the elements matches the arguments
         passed to write_raman_dataset()).
     """
-
     # Read and parse data set.
 
     dataset = None

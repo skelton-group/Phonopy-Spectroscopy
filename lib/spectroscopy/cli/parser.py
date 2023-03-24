@@ -12,21 +12,10 @@
 # Functions
 # ---------
 
-def update_parser(parser, spectrum_type, supported_features=[]):
+def update_parser(parser, spectrum_type):
     """ Updates parser with groups of arguments for the supplied
-    spectrum_type, read by the run_* methods in the runtime module.
+    spectrum_type, read by the run_* methods in the runtime module."""
 
-    The supported_features parameter specifies a list of optional
-    features supported by the CLI, which may include the following:
-    
-    'irreps' : the CLI can provide mode irreducible representations
-        for building the peak table.
-    """
-
-    supported_features = [
-        feature.lower() for feature in supported_features
-        ]
-    
     # If spectrum_type is 'raman', add Raman-specific arguments.
 
     if spectrum_type == 'raman':
@@ -69,7 +58,7 @@ def update_parser(parser, spectrum_type, supported_features=[]):
             help="Band indices to generate displacements for (1-N, "
                  "default: all except acoustic modes)")
 
-    # Add frequency units group.
+    # Add units group.
 
     group = parser.add_argument_group("Units")
 
@@ -79,19 +68,6 @@ def update_parser(parser, spectrum_type, supported_features=[]):
         type=str, dest="Units",  default='inv_cm',
         help="Units for simulated spectrum ('thz', 'inv_cm', 'mev' or "
              "'um'; default: 'inv_cm')")
-
-    # If the CLI supports irreducible representations, add an
-    # "irreducible representations" argument group.
-
-    parser.set_defaults(Irreps=False)
-
-    if 'irreps' in supported_features:
-        group = parser.add_argument_group("Irreducible representations")
-
-        group.add_argument(
-            "--irreps",
-            action='store_true', dest='Irreps',
-            help="Read mode irreducible representations")
 
     # Add spectrum-simulation parameters.
 
