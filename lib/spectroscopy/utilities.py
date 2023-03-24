@@ -147,6 +147,12 @@ def fractional_to_cartesian_coordinates(positions, lattice_vectors):
             for f_1, f_2, f_3 in positions
         ]
 
+def hkl_to_real_space_normal(hkl, lattice_vectors):
+    """ Given a vector of (h, k, l) integers specifying a plane, return
+    the real-space vector normal to the plane. """
+
+    raise NotImplementedError()
+
 
 # --------------------
 # Eigenvector handling
@@ -181,3 +187,20 @@ def eigenvectors_to_eigendisplacements(eigenvectors, atomic_masses):
     sqrt_masses = np.sqrt(atomic_masses)
 
     return np.divide(eigenvectors, sqrt_masses[np.newaxis, :, np.newaxis])
+
+
+# ----
+# Misc
+# ----
+
+def rotation_matrix_xy(theta):
+    """ Given an angle theta, return the rotation matrix for a 2D
+    rotation about theta in the xy plane. """
+
+    raise NotImplementedError()
+
+def rotate_matrix_from_vectors(v_1, v_2):
+    """ Given a pair of 3D vectors v_1 and v_2, return the 3D rotation
+    matrix that rotates v_1 to v_2. """
+
+    raise NotImplementedError()
