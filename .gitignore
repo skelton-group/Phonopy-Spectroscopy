@@ -1,8 +1,8 @@
 # Python cache files.
 
-SpectroscoPy/*.pyc
-SpectroscoPy/__pycache__/
+lib/spectroscopy/*.pyc
+lib/spectroscopy/__pycache__/
 
-SpectroscoPy/*/*.pyc
-SpectroscoPy/*/__pycache__/
+lib/spectroscopy/*/*.pyc
+lib/spectroscoPy/*/__pycache__/
 
