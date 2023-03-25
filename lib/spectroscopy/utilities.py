@@ -13,9 +13,9 @@
 # -------
 
 import numpy as np
-from numpy.linalg import norm, inv
 
-from spectroscopy import constants
+from spectroscopy.constants import (
+    ZERO_TOLERANCE, THZ_TO_INV_CM, THZ_TO_MEV, THZ_TO_INV_UM)
 
 
 # ---------------
@@ -37,47 +37,27 @@ def convert_frequency_units(frequencies, units_from, units_to):
 
     if units_from != 'thz':
         if units_from == 'inv_cm':
-            frequencies = [
-                frequency / constants.THZ_TO_INV_CM
-                for frequency in frequencies
-                ]
+            frequencies = [f / THZ_TO_INV_CM for f in frequencies]
         elif units_from == 'mev':
-            frequencies = [
-                frequency / constants.THZ_TO_MEV 
-                for frequency in frequencies
-                ]
+            frequencies = [f / THZ_TO_MEV for f in frequencies]
         elif units_from == 'um':
-            frequencies = [
-                1.0 / (frequency * constants.THZ_TO_INV_UM)
-                for frequency in frequencies
-                ]
+            frequencies = [1.0 / (f * THZ_TO_INV_UM) for f in frequencies]
         else:
             raise Exception(
-                "Error: Unsupported units '{0}'.".format(units_from)
-                )
+                "Error: Unsupported units '{0}'.".format(units_from))
 
     # ... and now convert to the desired unit.
 
     if units_to != 'thz':
         if units_to == 'inv_cm':
-            frequencies = [
-                frequency * constants.THZ_TO_INV_CM
-                for frequency in frequencies
-                ]
+            frequencies = [f * THZ_TO_INV_CM for f in frequencies]
         elif units_to == 'mev':
-            frequencies = [
-                frequency * constants.THZ_TO_MEV
-                for frequency in frequencies
-                ]
+            frequencies = [f * THZ_TO_MEV for f in frequencies]
         elif units_to == 'um':
-            frequencies = [
-                1.0 / (frequency * constants.THZ_TO_INV_UM)
-                for frequency in frequencies
-                ]
+            frequencies = [1.0 / (f * THZ_TO_INV_UM) for f in frequencies]
         else:
             raise Exception(
-                "Error: Unsupported units '{0}'.".format(units_to)
-                )
+                "Error: Unsupported units '{0}'.".format(units_to))
 
     return frequencies
 
@@ -98,7 +78,6 @@ def calculate_cell_volume(lattice_vectors):
     v_1, v_2, v_3 = lattice_vectors
 
     return np.dot(v_1, np.cross(v_2, v_3))
-
 
 def cartesian_to_fractional_coordinates(positions, lattice_vectors):
     """ Convert positions from Cartesian to fractional coordinates.
@@ -122,11 +101,7 @@ def cartesian_to_fractional_coordinates(positions, lattice_vectors):
     # If the positions are not three-component vectors, np.dot() raises
     # a readable error message.
 
-    return [
-        np.dot(pos, trans_mat) % 1.0
-        for pos in positions
-        ]
-
+    return [np.dot(pos, trans_mat) % 1.0 for pos in positions]
 
 def fractional_to_cartesian_coordinates(positions, lattice_vectors):
     """ Convert positions from fractional to Cartesian coordinates.
@@ -146,76 +121,46 @@ def fractional_to_cartesian_coordinates(positions, lattice_vectors):
 
     return [
         np.multiply(f_1, v_1) + np.multiply(f_2, v_2) + np.multiply(f_3, v_3)
-        for f_1, f_2, f_3 in positions
+            for f_1, f_2, f_3 in positions
         ]
-
-
-def flatten(l):
-    """ Flatten a list containing nested lists as elements.
-    """
-    
-    result = [] 
-    
-    # for each list in an nested list, append each element within a sublist.
-    
-    for neslist in l: 
-        for i in neslist: 
-            result.append(i) 
-    
-    return result
-
 
 def hkl_to_real_space_normal(hkl, lattice_vectors):
     """ Given a vector of (h, k, l) integers specifying a plane, return
     the real-space vector normal to the plane.
     
     Arguments:
-        hkl --a 3x1 NumPy array.
+        hkl -- three integers specifying the Miller indices of a
+            surface.
         lattixe_vectors -- must be convertible to a 3x3 NumPy matrix.
         """
     
-    a1 = lattice_vectors[0, :]
-    a2 = lattice_vectors[1, :]
-    a3 = lattice_vectors[2, :]
+    h, k, l = hkl
+    a_1, a_2, a_3 = lattice_vectors
     
-    h, k, l = hkl[0], hkl[1], hkl[2]
+    a, b, c = np.linalg.norm(lattice_vectors, axis = 1)
     
-    a = norm(a1)
-    b = norm(a2)
-    c = norm(a3)
-    
-    # generate the reciprocal lattice vector.
-    
-    a2a3 = np.cross(a2, a3)
-    V = np.dot(a1, a2a3)
-    a3a1 = np.cross(a3, a1)
-    a1a2 = np.cross(a1, a2)
+    # Generate reciprocal lattice vectors.
 
-    b1 = a2a3 / V
-    b2 = a3a1 / V
-    b3 = a1a2 / V
+    v = calculate_cell_volume(lattice_vectors)
 
-    G = (h*b1) + (k*b2) + (l*b3)
+    b_1 = np.cross(a_2, a_3) / v
+    b_2 = np.cross(a_3, a_1) / v
+    b_3 = np.cross(a_1, a_2) / v
+
+    g = h * b_1 + k * b_2 + l * b_3
     
-    # convert reciprocal lattice vector into real space.
+    # Metric tensors.
     
-    recip_metric = np.matrix([[np.dot(b1, b1), np.dot(b1, b2), np.dot(b1, b3)],
-                              [np.dot(b2, b1), np.dot(b2, b2), np.dot(b2, b3)],
-                              [np.dot(b3, b1), np.dot(b3, b2), np.dot(b3, b3)]]
-                             )
+    recip_metric = np.array(
+        [[np.dot(b_1, b_1), np.dot(b_1, b_2), np.dot(b_1, b_3)],
+         [np.dot(b_2, b_1), np.dot(b_2, b_2), np.dot(b_2, b_3)],
+         [np.dot(b_3, b_1), np.dot(b_3, b_2), np.dot(b_3, b_3)]])
     
-    real_metric = inv(recip_metric)
+    f_1, f_2, f_3 = np.dot(recip_metric, hkl)
+
+    normal = f_1 * a_1 + f_2 * a_2 + f_3 * a_3
     
-    component = np.dot(recip_metric, hkl)
-    component = np.array(flatten(component.tolist()))
-    
-    temp = (component[0] * a1) + (component[1] * a2) + (component[2] * a3)
-    normal = temp / norm(temp)
-    
-    const = 2 / (3 * np.square(a))
-    primitive_norm = normal / const
-    
-    return normal
+    return normal / np.linalg.norm(normal)
 
 
 # --------------------
@@ -258,60 +203,52 @@ def eigenvectors_to_eigendisplacements(eigenvectors, atomic_masses):
 # ----
 
 def rotation_matrix_xy(theta):
-    """ Given an angle theta, return the rotation matrix for a 2D
-    rotation about theta in the xy plane. """
+    """ Given an angle theta in degrees, return the rotation matrix for
+    a 2D rotation about theta in the xy plane. """
     
-    cth = np.cos(theta)
-    sth = np.sin(theta)
-    
-    z_rot = np.matrix([[cth, -sth, 0],
-                       [sth, cth, 0],
-                       [0, 0, 1]]
-                      )
-    
-    return z_rot
+    theta_rad = np.pi * theta / 180.0
 
+    cos_theta = np.cos(theta_rad)
+    sin_theta = np.sin(theta_rad)
+    
+    return np.array(
+        [[cos_theta, -sin_theta, 0.0], [sin_theta, cos_theta, 0.0],
+        [0.0, 0.0, 1.0]], dtype = np.float64)
 
 def rotation_matrix_from_vectors(a, b):
     """ Given a pair of 3D vectors a and b, return the 3D rotation
     matrix that rotates a into b. """
     
-    # obtain the axis of rotation normal to the ab plane and the angle of
-    # rotation.
+    # Obtain the axis of rotation normal to the ab plane and the angle
+    # of rotation.
     
-    v1 = a / norm(a)
-    v2 = b / norm(b)
-    x = np.cross(v1, v2)
-    k = x / (norm(v1) * norm(v2))
+    a = np.array(a, dtype = np.float64) / np.linalg.norm(a)
+    b = np.array(b, dtype = np.float64) / np.linalg.norm(b)
     
-    c = np.dot(v1, v2)
-    s = norm(x)
+    c = np.cross(a, b)
     
-    # obtain the skew-symmetric cross product matrix and find the rotation
-    # matrix using Rodrigues' formula.
+    cos_theta = np.dot(a, b)
+    sin_theta = np.linalg.norm(c)
     
-    K = np.matrix([[0, -k[2], k[1]],
-                   [k[2], 0, -k[0]],
-                   [-k[1], k[0], 0]]
-                  )
+    # Generate the skew-symmetric cross product matrix and find the
+    # rotation matrix using Rodrigues' formula.
     
-    size = len(v1)
-    I = np.identity(size)
+    k = np.array(
+        [[0, -c[2], c[1]], [c[2], 0, -c[0]], [-c[1], c[0], 0]],
+        dtype = np.float64)
     
-    # check if the vectors are parallel or orthogonal to each other.
+    i = np.identity(3)
     
-    min = 1.0e-10
+    # The rotation matrix depends on whether the vectors are parallel
+    # or orthogonal.
     
-    if np.abs(c - 1.0) < min:
-        R = I
-    elif np.abs(c + 1.0) < min:
-        R = -I
+    if np.abs(cos_theta - 1.0) < ZERO_TOLERANCE:
+        return i
+    elif np.abs(cos_theta + 1.0) < ZERO_TOLERANCE:
+        return -i
     else:
-        temp = (1 - c) / np.square(s)
-        R = I + K + ((K @ K) * temp)
-    
-    return R
-
+        temp = (1 - cos_theta) / (sin_theta ** 2)
+        return i + k + temp * np.matmul(k, k)
 
 def rotate_tensors(rotation_matrix, tensors):
     """ Rotate a 3x3 tensor or list of tensors by the supplied
@@ -343,13 +280,14 @@ def rotate_tensors(rotation_matrix, tensors):
     if n_dim == 2:
         tensors = [tensors]
     
-    rotated_tensors = []
+    inv_rotation_matrix = np.linalg.inv(rotation_matrix)
     
-    for tensor in tensors:
-        temp = rotation_matrix * tensor * inv(rotation_matrix)
-        rotated_tensors.append(temp)
+    tensors = [
+        np.matmul(rotation_matrix, np.matmul(tensor, rotation_matrix))
+            for tensor in tensors
+        ]
 
-    if len(tensors) == 1:
+    if n_dim == 2:
         return tensors[0]
     else:
         return tensors

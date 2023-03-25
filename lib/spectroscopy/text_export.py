@@ -152,8 +152,7 @@ def write_data_dat(data_rows, file_path):
 # -----------
 
 def group_for_peak_table(
-        frequencies, intensities, irrep_data,
-        linewidths=None
+        frequencies, intensities, irrep_data, linewidths=None
         ):
     """ Average mode frequencies, intensities and linewidths (if
     supplied) into groups defined by the (symbol, band_indices) tuples
@@ -186,8 +185,8 @@ def group_for_peak_table(
         for index in band_indices:
             if index in included_indices:
                 raise Exception(
-                    "Error: Band index {0} assigned to multiple ir. "
-                    "rep. groups.".format(index))
+                    "Error: Band index {0} assigned to multiple irrep "
+                    "groups.".format(index))
 
             if index < 0 or index >= num_modes:
                 raise Exception(

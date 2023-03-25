@@ -246,7 +246,11 @@ def read_irreps_yaml(file_path=r"irreps.yaml"):
     irrep_labels, band_indices = [], []
 
     for mode in input_yaml['normal_modes']:
-        irrep_labels.append(mode['ir_label'])
+        # Unassigned irreps are assigned as (text) "None".
+        
+        symbol = mode['ir_label']
+
+        irrep_labels.append(symbol if symbol.lower() != "none" else None)
 
         # Band indices in the irreps.yaml files start from one -> adjust
         # to zero-based.

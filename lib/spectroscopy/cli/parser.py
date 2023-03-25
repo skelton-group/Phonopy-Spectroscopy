@@ -8,6 +8,17 @@
 """ Implements standardised argparse aruguments for the Runtime module. """
 
 
+# -------
+# Imports
+# -------
+
+import math
+
+import numpy as np
+
+from spectroscopy.utilities import rotation_matrix_xy
+
+
 # ---------
 # Functions
 # ---------
@@ -81,7 +92,7 @@ def update_parser(parser, spectrum_type):
 
     group.add_argument(
         "--spectrum-range",
-        metavar="(<min>, <max>)", type=str, dest="SpectrumRange", default=None,
+        metavar="<min> <max>", type=str, dest="SpectrumRange", default=None,
         help="Frequency range of simulated spectrum (default: "
              "automatically determined)")
 
@@ -105,6 +116,46 @@ def update_parser(parser, spectrum_type):
         help="Instrument broadening shape ('gaussian' or 'lorentzian'; "
              "default: 'gaussian')")
 
+    # If spectrum_type is 'raman', add additional parameters for
+    # polarised Raman.
+
+    if spectrum_type == 'raman':
+        group = parser.add_argument_group("Polarised Raman")
+
+        group.add_argument(
+            "--surface",
+            metavar="<h> <k> <l>", type=str, dest="SurfaceHKL", default=None,
+            help="Miller indices of the crystal surface to rotate to the z "
+                "axis of the instrument frame.")
+        
+        group.add_argument(
+            "--theta", metavar="<theta> [<theta_2>]",
+            type=str, dest="Theta", default=None,
+            help="Optionally, specify a rotation angle or (min, max) pair "
+                "of angles in the xy plane of the instrument frame (i.e. "
+                "about the z axis (default: 0 -> 360 deg)")
+        
+        group.add_argument(
+            "--theta-step",
+            metavar="<step>", type=float, dest="ThetaStep", default=None,
+            help="If specifying a range of theta using the --theta "
+                "argument, specify a step within this range (default: "
+                "1 deg or 101 points, whichever is smaller)")
+        
+        group.add_argument(
+            "--incident-pol",
+            metavar="<pol>", type = str, dest="IncidentPol", default='x',
+            help="Polarisation of incident light (possible values: 'x', "
+                "'y', an (x, y) vector, or a (x, y, z) vector; default: "
+                "'x'")
+
+        group.add_argument(
+            "--scattered-pol", metavar="<pol>",
+            type = str, dest="ScatteredPol", default='none',
+            help="Polarisation of scattered light (possible values: "
+                "'none', 'parallel', 'cross', 'x', 'y', an (x, y) vector, "
+                "or a (x, y, z) vector; default: 'none')")
+
     # Add data-output parameters.
 
     group = parser.add_argument_group("Data output")
@@ -120,6 +171,43 @@ def update_parser(parser, spectrum_type):
         help="Format for plain-text output files ('dat' or 'csv'; "
              "default: 'dat')")
 
+def _parse_polarisation_string(polarisation_str):
+    """ Parse a polarisation specifier into a normalised vector.
+
+    polarisation_str can be one of 'x' or 'y' or two or three values
+    specifying a two- or three-componetn vector.
+    """
+
+    vals = polarisation_str.strip().split()
+
+    if len(vals) == 1:
+        val = vals[0].lower()
+
+        if val == 'x':
+            return np.array([1.0, 0.0, 0.0], dtype = np.float64)
+        
+        if val == 'y':
+            return np.array([0.0, 1.0, 0.0], dtype = np.float64)
+        
+        raise Exception(
+            "Error: Invalid polarisation specifier '{0}'.".format(val))
+    else:
+        v_1, v_2, v_3 = None, None, None
+
+        if len(vals) == 2:
+            v_1, v_2 = vals
+            v_3 = 0.0
+        elif len(vals) == 3:
+            v_1, v_2, v_3 = vals
+        else:
+            raise Exception(
+                "Error: Polarisations must be specified as two- or "
+                "three-component vectors.")
+        
+        v = np.array(
+            [float(v_1), float(v_2), float(v_3)], dtype = np.float64)
+        
+        return v / np.linalg.norm(v)
 
 def post_process_args(args, spectrum_type):
     """ Post-process arguments added by UpdateParser() after
@@ -143,3 +231,57 @@ def post_process_args(args, spectrum_type):
 
         spectrum_min, spectrum_max = args.SpectrumRange.strip().split()
         args.SpectrumRange = (float(spectrum_min), float(spectrum_max))
+
+    if args.SurfaceHKL is not None:
+        h, k, l = args.SurfaceHKL.strip().split()
+        args.SurfaceHKL = (int(h), int(k), int(l))
+    
+    if args.Theta is not None:
+        vals = args.Theta.strip().split()
+
+        if len(vals) == 0 or len(vals) > 2:
+            raise Exception(
+                "Error: If supplied, --theta must specify one or two "
+                "angles")
+        
+        args.Theta = tuple(float(val) for val in vals)
+    else:
+        args.Theta = (0.0, 360.0)
+    
+    if len(args.Theta) == 2:
+        theta_1, theta_2 = args.Theta
+        
+        if args.ThetaStep is not None:
+            if int(math.floor((theta_2 - theta_1) / args.ThetaStep)) < 1:
+                raise Exception(
+                    "If supplied, --theta-step must produce more than one "
+                    "value between the range specified by --theta.")
+        else:
+            args.ThetaStep = min(1.0, (theta_2 - theta_1) / 100.0)
+
+    # Parse incident/scattering polarisation vectors.
+
+    i_pol = _parse_polarisation_string(args.IncidentPol)
+
+    args.IncidentPol = i_pol
+
+    s_pol = args.ScatteredPol.strip().lower()
+
+    if s_pol == 'none':
+        # Normalised vector v_x = v_y to treat all in-plane elements
+        # of the Raman tensor with equal weighting.
+
+        args.ScatteredPol = (
+            np.array([1.0, 1.0, 0.0], dtype = np.float64) / math.sqrt(2.0))
+    
+    elif s_pol == 'parallel':
+        args.ScatteredPol = i_pol
+    
+    elif s_pol == 'cross':
+        # Detection in cross polarisation corresponds to a 90 degree
+        # rotation of the incident light polarisation.
+        
+        args.ScatteredPol = np.dot(rotation_matrix_xy(90.0), i_pol)
+    
+    else:
+        args.ScatteredPol = _parse_polarisation_string(args.IncidentPol)

@@ -14,6 +14,7 @@
 
 import math
 import os
+import warnings
 
 from spectroscopy.ir import calculate_ir_intensity
 
@@ -30,7 +31,7 @@ from spectroscopy.yaml_export import save_raman_tensors
 
 from spectroscopy.plotting import plot_spectrum
 
-from spectroscopy.constants import get_active_irreps
+from spectroscopy.constants import get_irrep_activities
 
 from spectroscopy.utilities import (
     calculate_cell_volume, convert_frequency_units)
@@ -94,7 +95,7 @@ def run_mode_ir(
         eigendisplacements -- Gamma-point eigendisplacements.
         bec_tensors -- Born effective-charge tensors.
 
-    All other arguments are passed through to the run_mode_output()
+    All other arguments are passed through to the output_spectrum()
     function.
     """
 
@@ -107,7 +108,7 @@ def run_mode_ir(
 
     # Hand over to the RunMode_Output() routine.
 
-    run_mode_output(
+    _output_spectrum(
         'ir', frequencies, frequency_units, ir_intensities,
         _IR_INTENSITY_UNITS, args, linewidths=linewidths,
         irrep_data=irrep_data)
@@ -172,21 +173,39 @@ def run_mode_raman_disp(
         # are not Raman active.
 
         if point_group is not None and irrep_data is not None:
-            active_irreps = get_active_irreps(point_group, 'raman')
+            irrep_activities = get_irrep_activities(point_group, 'raman')
 
-            if active_irreps is not None:
+            if irrep_activities is not None:
+                active_irreps, inactive_irreps = irrep_activities
+
                 for symbol, band_indices in irrep_data:
-                    if symbol not in active_irreps:
-                        exclude_indices.extend(band_indices)
+                    if symbol is not None:
+                        if symbol in inactive_irreps:
+                            exclude_indices.extend(band_indices)
+                        elif symbol not in active_irreps:
+                            # This is (hopefully!) mostly for debugging
+                            # purposes...
 
-                band_list_str = " ,".join(
-                    "{0}".format(index + 1 for index in exclude_indices[3:]))
+                            warnings.warn(
+                                "Unknown irrep '{0}' for point group '{1}'."
+                                .format(symbol, point_group), RuntimeWarning)
 
-                print(
-                    "INFO: Automatically excluding band(s) {0} from "
-                    "displacement set as these appear to be Raman "
-                    "inactive (to override use --raman-bands)."
-                    .format(band_list_str))
+                if len(exclude_indices) > 3:
+                    band_list_str = ", ".join(
+                        "{0}".format(index + 1)
+                            for index in exclude_indices[3:])
+
+                    print(
+                        "INFO: Automatically excluding band(s) {0} from "
+                        "displacement set as these appear to be Raman "
+                        "inactive (to override use --raman-bands)."
+                        .format(band_list_str))
+            else:
+                # ... as is this.
+
+                warnings.warn(
+                    "Unknown point group '{0}'.".format(point_group),
+                    RuntimeWarning)
 
         band_indices = [
             i for i in range(0, num_modes)
@@ -350,21 +369,22 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
     """ Post process a data set prepared for a Raman calculation.
 
     A data set containing frequencies, displacement steps and dielectric
-    tensors is read from "[<output_prefix>_]Raman.yaml". The Raman
+    tensors is read from an intermediate dataset file, and the Raman
     activity tensors are calculated from the derivatives of the static
-    dielectric tensor with respect to the normal-mode coordinates and
-    written to "[<output_prefix>_]RamanActivity.yaml". The activity
-    tensors are averaged to obtai scalar intensities that are then used
-    to plot a spectrum.
+    dielectric tensor with respect to the normal-mode coordinates.
+    
+    Depending on args, the activity tensors are orientationally averaged
+    to obtain a powder spectrum, or are combined with user-input
+    parameters for a polarised Raman calculation.
 
     Arguments:
         args -- parsed command-line arguments with the optional
-            OutputPrefix attribute, plus settings to be passed to the
-            RunMode_Output() routine.
+            OutputPrefix attribute, plus settings to be passed to
+            "downstream" routines.
 
     Keyword arguments:
-        linewidths -- linewidths used to simulate the spectrum.
-        irrep_data -- irreps used to group modes in the peak table.
+        linewidths -- mode linewidths used to simulate the spectrum.
+        irrep_data -- irreps used to group modes.
     """
     # Work out the name of the intermediate YAML file and check the file
     # exists.
@@ -407,18 +427,15 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
             "read this data before post-processing with -p."
             .format(dataset_file))
 
-    # Calculate Raman activity tensors and averaged scalar intensities.
+    # Calculate Raman activity tensors and write to file.
 
-    raman_tensors, raman_intensities = [], []
+    raman_tensors = []
 
     for disp_steps, eps_tensors in zip(disp_step_sets, eps_tensor_sets):
         raman_tensor = calculate_raman_activity_tensor(
             eps_tensors, disp_steps, cell_volume, 'finite_difference')
 
         raman_tensors.append(raman_tensor)
-
-        raman_intensities.append(
-            scalar_average_raman_activity_tensor(raman_tensor))
 
     # Write out Raman tensors.
 
@@ -450,9 +467,9 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
             linewidths[index] for index in band_indices
             ]
 
-    # If ir. rep. data is supplied, we need to: (1) re-map the sets of
-    # band indices to account for modes that have been discarded; and
-    # (2) remove sets of data for which all modes have been discarded.
+    # If irrep data is supplied, we need to: (1) re-map the sets of band
+    # indices to account for modes that have been discarded; and (2)
+    # remove sets of data for which all modes have been discarded.
 
     index_mapping = {
         index: i for i, index in enumerate(band_indices)
@@ -473,20 +490,72 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
 
         irrep_data = irrep_data_new
 
-    # Hand over to run_mode_output() routine with the scalar Raman
+    # Depending on args, hand over to another _raman_* routines to
+    # process the Raman tensors.
+
+    if args.SurfaceHKL is not None:
+        _raman_postproc_pol(
+            frequencies, frequency_units, raman_tensors, linewidths,
+            irrep_data, args)
+    else:
+        _raman_postproc_scalar(
+            frequencies, frequency_units, raman_tensors, linewidths,
+            irrep_data, args)
+
+def _raman_postproc_scalar(
+        frequencies, frequency_units, raman_tensors, linewidths,
+        irrep_data, args
+        ):
+    """ Post process the Raman activity tensors generated by
+    run_mode_raman_postproc() to generate an orientationally-averaged
+    (powder) spectrum.
+
+    Main arguments:
+        raman_tensors -- Raman activity tensors.
+    
+    All other arguments are passed through to the output_spectrum()
+    function.
+    """
+    # Calculate orientationally-averaged Raman intensities.
+
+    raman_intensities = [
+        scalar_average_raman_activity_tensor(t)
+            for t in raman_tensors
+        ]
+
+    # Hand over to output_spectrum() routine with the scalar Raman
     # intensities.
 
-    run_mode_output(
+    _output_spectrum(
         'raman', frequencies, frequency_units, raman_intensities,
         _RAMAN_INTENSITY_UNITS, args, linewidths=linewidths,
         irrep_data=irrep_data)
+
+def _raman_postproc_pol(
+        frequencies, frequency_units, raman_tensors, linewidths,
+        irrep_data, args
+        ):
+    """ Post process the Raman activity tensors generated by
+    _run_mode_raman_postproc() to perform a polarised Raman simulation.
+
+    Main arguments:
+        raman_tensors -- Raman activity tensors.
+        args -- parsed command-line argumetns including parameters
+            for polarised Raman simulation.
+    
+    All other arguments are passed through to the output_spectrum()
+    function.
+    """
+
+    raise NotImplementedError(
+        "Error: The polarised Raman implementation is not yet complete.")
 
 
 # -----------
 # Data Output
 # -----------
 
-def run_mode_output(
+def _output_spectrum(
         spectrum_type, frequencies, frequency_units, intensities,
         intensity_units, args, linewidths=None, irrep_data=None
         ):
@@ -665,7 +734,7 @@ def run_mode_output(
 
     # Save spectrum.
 
-    file_name = "{0}-Spectrum.{1}".format(outputprefix, file_format)
+    file_name = "{0}-Spectrum.{1}".format(output_prefix, file_format)
 
     save_spectrum(
         spectrum, file_name, frequency_units=args.Units,

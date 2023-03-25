@@ -91,117 +91,177 @@ def get_frequency_unit_label(frequency_units):
 # Group Theory
 # ------------
 
-_ACTIVE_IRREPS = {
-    '1': {},
-    '-1': {'IR': ["Au"],
-           'Raman': ["Ag"]
+_IRREP_ACTIVITIES = {
+    # Point group C_1.
+    '1': {'all': ["A"]},
+    # Point group C_i.
+    '-1': {'ir': ["Au"],
+           'raman': ["Ag"],
+           'all': ["Ag", "Au"]},
+    # Point group C_2.
+    '2': {'ir': ["A", "B"],
+          'raman': ["A", "B"],
+          'all': ["A", "B"]},
+    # Point group C_s.
+    'm': {'ir': ["A'", "A''"],
+          'raman': ["A'", "A''"],
+          'all': ["A'", "A''"]
+          },
+    # Point group C_2h.
+    '2/m': {'ir': ["Au", "Bu"],
+            'raman': ["Ag", "Bg"],
+            'all': ["Ag", "Au", "Bg", "Bu"]
+            },
+    # Point group D_2.
+    '222': {'ir': ["B1", "B2", "B3"],
+            'raman': ["A", "B1", "B2", "B3"],
+            'all': ["A", "B1", "B2", "B3"]
+            },
+    # Point group C_2v.
+    'mm2': {'ir': ["A1", "B1", "B2"],
+            'raman': ["A1", "A2", "B1", "B2"],
+            'all': ["A1", "A2", "B1", "B2"]
+            },
+    # Point group D_2h.
+    'mmm': {'ir': ["B1u", "B2u", "B3u"],
+            'raman': ["Ag", "B1g", "B2g", "B3g"],
+            'all': ["Ag", "Au", "B1g", "B1u", "B2g", "B2u", "B3g", "B3u"]
+            },
+    # Point group C_4.
+    '4': {'ir': ["A", "E"],
+          'raman': ["A", "B", "E"],
+          'all': ["A", "B", "E"]
+          },
+    # Point group S_4.
+    '-4': {'ir': ["B", "E"],
+           'raman': ["A", "B", "E"],
+           'all': ["A", "B", "E"]
            },
-    '2': {'IR': ["A", "B"],
-          'Raman': ["A", "B"]
-          },
-    'm': {'IR': ["A'", "A''"],
-          'Raman': ["A'", "A''"]
-          },
-    '2/m': {'IR': ["Au", "Bu"],
-            'Raman': ["Ag", "Bg"]
+    # Point group C_4h.
+    '4/m': {'ir': ["Au", "Eu"],
+            'raman': ["Ag", "Bg", "Eg"],
+            'all': ["Ag", "Au", "Bg", "Bu", "Eg", "Eu"]
             },
-    '222': {'IR': ["B1", "B2", "B3"],
-            'Raman': ["A", "B1", "B2", "B3"]
+    # Point group D_4.
+    '422': {'ir': ["A2", "E"],
+            'raman': ["A1", "B1", "B2", "E"],
+            'all': ["A1", "A2", "B1", "B2", "E"]
             },
-    'mm2': {'IR': ["A1", "B1", "B2"],
-            'Raman': ["A1", "A2", "B1", "B2"]
+    # Point group C_4v.
+    '4mm': {'ir': ["A1", "E"],
+            'raman': ["A1", "B1", "B2", "E"],
+            'all': ["A1", "A2", "B1", "B2", "E"]
             },
-    'mmm': {'IR': ["B1u", "B2u", "B3u"],
-            'Raman': ["Ag", "B1g", "B2g", "B3g"]
-            },
-        
-    '4': {'IR': ["A", "1E", "2E"],
-          'Raman': ["A", "B", "1E", "2E"]
-          },
-    '-4': {'IR': ["B", "1E", "2E"],
-           'Raman': ["A", "B", "1E", "2E"]
-           },
-    '4/m': {'IR': ["Au", "1Eu", "2Eu"],
-            'Raman': ["Ag", "Bg", "1Eg", "2Eg"]
-            },
-    '422': {'IR': ["A2", "E"],
-            'Raman': ["A1", "B1", "B2", "E"]
-            },
-    '4mm': {'IR': ["A1", "E"],
-            'Raman': ["A1", "B1", "B2", "E"]
-            },
-    '-42m': {'IR': ["B2", "E"],
-             'Raman': ["A1", "B1", "B2", "E"]
+    # Point group D_2d.
+    '-42m': {'ir': ["B2", "E"],
+             'raman': ["A1", "B1", "B2", "E"],
+             'all': ["A1", "A2", "B1", "B2", "E"]
              },
-    '4/mmm': {'IR': ["A2u", "E"],
-              'Raman': ["A1g", "B1g", "B2g", "Eg"]
+    # Point group D_4h.
+    '4/mmm': {'ir': ["A2u", "Eu"],
+              'raman': ["A1g", "B1g", "B2g", "Eg"],
+              'all': ["A1g", "A1u", "A2g", "A2u", "B1g", "B1u", "B2g", "B2u",
+                      "Eg", "Eu"]
               },
-    '3': {'IR': ["A", "1E", "2E"],
-          'Raman': ["A", "1E", "2E"]
+    # Point group C_3.
+    '3': {'ir': ["A", "E"],
+          'raman': ["A", "E"],
+          'all': ["A", "E"]
           },
-    
-    '-3': {'IR': ["Au", "1Eu", "2Eu"],
-           'Raman': ["Ag", "1Eg", "2Eg"]
+    # Point group C_3i.
+    '-3': {'ir': ["Au", "Eu"],
+           'raman': ["Ag", "Eg"],
+           'all': ["Ag", "Au", "Eg", "Eu"]
            },
-    '32': {'IR': ["A2", "E"],
-           'Raman': ["A1", "E"]
+    # Point group D_3.
+    '32': {'ir': ["A2", "E"],
+           'raman': ["A1", "E"],
+           'all': ["A1", "A2", "E"]
            },
-    '3m': {'IR': ["A1", "E"],
-           'Raman': ["A1", "E"]
+    # Point group C_3v.
+    '3m': {'ir': ["A1", "E"],
+           'raman': ["A1", "E"],
+           'all': ["A1", "A2", "E"]
            },
-    '-3m': {'IR': ["A2u", "Eu"],
-            'Raman': ["A1g", "Eg"]
+    # Point group D_3d.
+    '-3m': {'ir': ["A2u", "Eu"],
+            'raman': ["A1g", "Eg"],
+            'all': ["A1g", "A1u", "A2g", "A2u", "Eg", "Eu"]
             },
-    '6': {'IR': ["A", "2E1", "1E1"],
-          'Raman': ["A", "1E2", "2E2", "2E1", "1E1"]
+    # Point group C_6.
+    '6': {'ir': ["A", "E1"],
+          'raman': ["A", "E1", "E2"],
+          'all': ["A", "B", "E1", "E2"]
           },
-    '-6': {'IR': ["A''", "2E'", "1E'"],
-           'Raman': ["A'", "2E'", "1E'", "2E''", "1E''"]
+    # Point group C_3h.
+    '-6': {'ir': ["A''", "E'"],
+           'raman': ["A'", "E'", "E''"],
+           'all': ["A'", "A''", "E'", "E''"]
            },
-    '6/m': {'IR': ["Au", "2E1u", "1E1u"],
-            'Raman': ["Ag", "1E2g", "2E2g", "2E1g", "1E1g"]
+    # Point group C_6h.
+    '6/m': {'ir': ["Au", "E1u"],
+            'raman': ["Ag", "E1g", "E2g"],
+            'all': ["Ag", "Au", "Bg", "Bu", "E1g", "E1u", "E2g", "E2u"]
             },
-    '622': {'IR': ["A2", "E1"],
-            'Raman': ["A1", "E2", "E1"]
+    # Point group D_6.
+    '622': {'ir': ["A2", "E1"],
+            'raman': ["A1", "E1", "E2"],
+            'all': ["A1", "A2", "B1", "B2", "E1", "E2"]
             },
-        
-    '6mm': {'IR': ["A1", "E1"],
-            'Raman': ["A1", "E2", "E1"]
+    # Point group C_6v.
+    '6mm': {'ir': ["A1", "E1"],
+            'raman': ["A1", "E1", "E2"],
+            'all': ["A1", "A2", "B1", "B2", "E1", "E2"]
             },
-    '-6m2': {'IR': ["A''2", "E'"],
-             'Raman': ["A'1", "E'", "E''"]
+    # Point group D_3h.
+    '-6m2': {'ir': ["A2''", "E'"],
+             'raman': ["A1'", "E'", "E''"],
+             'all': ["A1'", "A1''", "A2'", "A2''", "E'", "E''"]
              },
-    '6/mmm': {'IR': ["A2u", "E1u"],
-              'Raman': ["A1g", "E2g", "E1g"]
+    # Point group D_6h.
+    '6/mmm': {'ir': ["A2u", "E1u"],
+              'raman': ["A1g", "E1g", "E2g"],
+              'all': ["A1g", "A1u", "A2g", "A2u", "B1g", "B1u", "B2g", "B2u",
+                      "E1g", "E1u", "E2g", "E2u"]
               },
-    '23':  {'IR': ["T"],
-            'Raman': ["A", "1E", "2E", "T"]
+    # Point group T.
+    '23':  {'ir': ["T"],
+            'raman': ["A", "E", "T"],
+            'all': ["A", "E", "T"]
             },
-    'm-3': {'IR': ["Tu"],
-            'Raman': ["Ag", "1Eg", "2Eg", "Tg"]
+    # Point group T_h.
+    'm-3': {'ir': ["Tu"],
+            'raman': ["Ag", "Eg", "Tg"],
+            'all': ["Ag", "Au", "Eg", "Eu", "Tg", "Tu"]
             },
-    '432': {'IR': ["T1"],
-            'Raman': ["A1", "E", "T2"]
+    # Point group O.
+    '432': {'ir': ["T1"],
+            'raman': ["A1", "E", "T2"],
+            'all': ["A1", "A2", "E", "T1", "T2"]
             },
-    '-43m': {'IR': ["T2"],
-             'Raman': ["A1", "E", "T2"]
+    # Point group T_d.
+    '-43m': {'ir': ["T2"],
+             'raman': ["A1", "E", "T2"],
+             'all': ["A1", "A2", "E", "T1", "T2"]
              },
-    'm-3m': {'IR': ["T1u"],
-             'Raman': ["A1g", "Eg", "T2g"]
+    # Point group O_h.
+    'm-3m': {'ir': ["T1u"],
+             'raman': ["A1g", "Eg", "T2g"],
+             'all': ["A1g", "A1u", "A2g", "A2u", "Eg", "Eu", "T1g", "T2g",
+                     "T1u", "T2u"]
              }
     }
 
-
-def get_active_irreps(point_group, spectrum_type):
-    """ Given a point group, returns a list of irrep symbols that may be
-    active for the given spectrum_type (supported values are 'ir' and
-    'raman').
+def get_irrep_activities(point_group, spectrum_type):
+    """ Given a point group, returns a pair of lists containing the
+    active and inactive irreps for a given spectrum_type (supported
+    values are 'ir' and 'raman').
     """
     
     point_group = point_group.lower()
     spectrum_type = spectrum_type.lower()
 
-    if point_group not in _ACTIVE_IRREPS:
+    if point_group not in _IRREP_ACTIVITIES:
         warnings.warn(
             "No activity data for point_group '{0}'.".format(point_group),
             RuntimeWarning)
@@ -209,9 +269,16 @@ def get_active_irreps(point_group, spectrum_type):
         return None
     
     elif spectrum_type in ['ir', 'raman']:
-        return [
-            symbol for symbol in _ACTIVE_IRREPS[point_group][spectrum_type]
+        active_irreps = [
+            symbol for symbol in _IRREP_ACTIVITIES[point_group][spectrum_type]
             ]
+        
+        inactive_irreps = [
+            symbol for symbol in _IRREP_ACTIVITIES[point_group]['all']
+                if symbol not in active_irreps
+            ]
+        
+        return (active_irreps, inactive_irreps)
     
     else:
         raise Exception(
