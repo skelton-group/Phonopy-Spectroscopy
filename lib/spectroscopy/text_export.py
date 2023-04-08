@@ -18,7 +18,7 @@ import warnings
 
 import numpy as np
 
-from spectroscopy import constants
+from spectroscopy.utilities import numpy_check_shape
 
 
 # ---------
@@ -239,82 +239,118 @@ def group_for_peak_table(
         )
 
 def save_peak_table(
-        frequencies, intensities, file_path,
-        irrep_symbols=None, linewidths=None,
-        frequency_units=constants.DEFAULT_FREQUENCY_UNITS,
-        intensity_units=constants.DEFAULT_INTENSITY_UNITS, file_format='dat'
-        ):
+        frequencies, intensities_or_intensity_sets, frequency_unit_label,
+        intensity_unit_label, file_path, intensity_set_labels=None,
+        irrep_symbols=None, linewidths=None, file_format='dat'):
     """ Save a set of peak parameters (peak table) to a plain-text file.
 
     Arguments:
         frequencies -- list of mode frequencies.
-        intensities -- list of band intensities.
-        file_path -- path to output file.
+        intensities_or_intensity_sets -- a single set of band
+            intensities, or a list of sets of band intensities.
+        frequency_unit_label, intensity_unit_label -- text labels for
+            the units of the frequencies/linewidths and intensities.
+        file_path -- file to save to.
 
     Keyword arguments:
+        intensity_set_labels -- if set, provides a label for each set
+            of intensities to be used as column headers in the file.
         irrep_symbols -- (optional) list of irreducible representation
             symbols (irreps).
         linewidths -- (optional) list of mode linewidths.
-        frequency_units -- units of frequencies and linewidths, if
-            supplied (default: constants.DEFAULT_FREQUENCY_UNITS).
-        intensity_units -- units of spectral intensity (default:
-            constants.DEFAULT_INTENSITY_UNITS).
         file_format -- file format to export to ('csv' or 'dat';
             default 'dat').
     """
 
+    dim = np.ndim(intensities_or_intensity_sets)
+
+    if dim > 2:
+        raise Exception(
+            "intensities_or_intensity_sets must be either a single set "
+            "of intensities (1D) or list of sets of intensities (2D).")
+
     num_modes = len(frequencies)
 
-    if intensities is None or len(intensities) != num_modes:
+    if dim == 1:
+        intensities_or_intensity_sets = [intensities_or_intensity_sets]
+
+    for intensities in intensities_or_intensity_sets:
+        if len(intensities) != num_modes:
+            raise Exception(
+                "The number of intensities in one or more sets of band "
+                "intensities are inconsistent with the number of "
+                "band frequencies.")
+
+    if (intensity_set_labels is not None
+        and len(intensity_set_labels) != len(intensities_or_intensity_sets)):
         raise Exception(
-            "Error: intensities cannot be None and must be the same "
-            "length as frequencies.")
+            "If supplied, intensity_set_labels must provide a label "
+            "for each set of intensities.")
 
     if irrep_symbols is not None and len(irrep_symbols) != num_modes:
         raise Exception(
-            "Error: If supplied, irrep_symbols must be the same length "
-            "as frequencies.")
+            "If supplied, irrep_symbols must be the same length as "
+            "frequencies.")
     
     if linewidths is not None and len(linewidths) != num_modes:
         raise Exception(
-            "Error: If supplied, linewidths must be the same length as"
+            "If supplied, linewidths must be the same length as "
             "frequencies.")
-
-    if frequency_units is None:
-        frequency_units = constants.DEFAULT_FREQUENCY_UNITS
-
-    if intensity_units is None:
-        intensity_units = constants.DEFAULT_INTENSITY_UNITS
 
     # Compile data rows.
 
-    header_row = [
-        "v [{0}]".format(constants.get_frequency_unit_label(frequency_units))
-        ]
+    data_rows = []
 
-    if irrep_symbols is not None:
-        header_row = header_row + ["Ir. Rep."]
+    if intensity_set_labels is not None:
+        header_row_1 = [""]
 
-    header_row = header_row + ["I [{0}]".format(intensity_units)]
+        if irrep_symbols is not None:
+            header_row_1.append("")
+        
+        header_row_1.append("I [{0}]".format(intensity_unit_label))
+        header_row_1.extend([""] * (len(intensities_or_intensity_sets) - 1))
 
-    if linewidths is not None:
-        header_row = header_row + [
-            r"\Gamma [{0}]".format(
-                constants.get_frequency_unit_label(frequency_units)
-                )
+        if linewidths is not None:
+            header_row_1.append("")
+
+        data_rows.append(header_row_1)
+
+        header_row_2 = ["v [{0}]".format(frequency_unit_label)]
+
+        if irrep_symbols is not None:
+            header_row_2 = header_row_2 + ["Ir. Rep."]
+        
+        header_row_2.extend(intensity_set_labels)
+        header_row_2.append(r"\Gamma [{0}]".format(frequency_unit_label))
+
+        data_rows.append(header_row_2)
+    else:
+        header_row = [
+            "v [{0}]".format(frequency_unit_label)
             ]
+
+        if irrep_symbols is not None:
+            header_row = header_row + ["Ir. Rep."]
+
+        header_row = header_row + ["I [{0}]".format(intensity_unit_label)]
+
+        if linewidths is not None:
+            header_row = header_row + [
+                r"\Gamma [{0}]".format(frequency_unit_label)]
+        
+        data_rows.append(header_row)
 
     data_items = [frequencies]
 
     if irrep_symbols is not None:
         data_items.append(irrep_symbols)
 
-    data_items.append(intensities)
+    data_items.extend(intensities_or_intensity_sets)
 
     if linewidths is not None:
         data_items.append(linewidths)
 
-    data_rows = [header_row] + [datarow for datarow in zip(*data_items)]
+    data_rows.extend(data_row for data_row in zip(*data_items))
 
     # Write output file.
 
@@ -325,48 +361,106 @@ def save_peak_table(
 # Simulated Spectra
 # -----------------
 
-def save_spectrum(
-        spectrum, file_path,
-        frequency_units=None, intensity_units=None, file_format='dat'
+def save_scalar_spectrum_or_spectra(
+        frequencies, intensities_or_intensity_sets, frequency_unit_label,
+        intensity_unit_label, file_path, intensity_set_labels=None,
+        file_format='dat'
         ):
-    """ Save a simulated spectrum to a plain-text file.
+    """ Save a set of simulated spectra to a plain-text file.
 
     Arguments:
-        spectrum -- a tuple of
-            (frequencies, intensities, intensities_norm) data sets.
-        file_path -- path to output file.
+        frequencies -- spectral frequencies.
+        intensities_or_intensities_sets -- a single set of spectral
+            intensities, or a list of sets of intensities.
+        frequency_unit_label, intensity_unit_label -- text labels for
+            the units of the frequencies/linewidths and intensities.
+        file_path -- file to save to.
 
     Keyword arguments:
-        frequency_units -- units of the frequency axis (defaults to
-            constants.DEFAULT_FREQUENCY_UNITS).
-        intensity_units -- units of the intensity axis (defaults to
-            constants.DEFAULT_INTENSITY_UNITS).
+        intensity_set_labels -- if set, provides a label for each set
+            of intensities to be used as column headers in the file.
         file_format -- file format to export to ('csv' or 'dat';
             default: 'dat').
     """
 
-    spectrum_x, spectrum_y, spectrum_y_norm = spectrum
+    dim = np.ndim(intensities_or_intensity_sets)
 
-    num_data_points = len(spectrum_x)
-
-    if (len(spectrum_y) != num_data_points
-            or len(spectrum_y_norm) != num_data_points):
+    if dim > 2:
         raise Exception(
-            "Error: The number of frequency and intensity points in "
-            "spectra are inconsistent.")
+            "intensities_or_intensity_sets must be either a single set "
+            "of intensities (1D) or list of sets of intensities (2D).")
+
+    num_data_points = len(frequencies)
+
+    if dim == 1:
+        intensities_or_intensity_sets = [intensities_or_intensity_sets]
+
+    for intensities in intensities_or_intensity_sets:
+        if len(intensities) != num_data_points:
+            raise Exception(
+                "The number of data points in one or more sets of "
+                "intensities are inconsistent with the number of "
+                "data points in frequencies.")
+
+    if (intensity_set_labels is not None
+        and len(intensity_set_labels) != len(intensities_or_intensity_sets)):
+        raise Exception(
+            "If specified, intensity_set_labels must provide a label "
+            "for each set of intensities.")
 
     # Compile data rows.
 
-    header_row = [
-        "v [{0}]".format(constants.get_frequency_unit_label(frequency_units)),
-        "I(v) [{0}]".format(intensity_units), "I_Norm(v) [AU]"
-        ]
+    data_rows = []
 
-    data_rows = [header_row]
+    if intensity_set_labels is not None:
+        data_rows.append(
+            ["", "I(v) [{0}]".format(intensity_unit_label)]
+            + [""] * (len(intensities_or_intensity_sets) - 1))
+        
+        data_rows.append(
+            ["v [{0}]".format(frequency_unit_label)]
+            + [label for label in intensity_set_labels])
+    else:
+        data_rows.append([
+            "v [{0}]".format(frequency_unit_label),
+            "I(v) [{0}]".format(intensity_unit_label)])
 
-    for data_row in zip(*spectrum):
+    for data_row in zip(frequencies, *intensities_or_intensity_sets):
         data_rows.append(data_row)
 
     # Write output file.
 
+    write_data(data_rows, file_path, file_format)
+
+def save_raman_intensity_theta(
+        theta_vals, intensity_sets, theta_unit_label, intensity_unit_label,
+        file_path, file_format='dat'):
+    """ Save a set of calculated Raman intensities as a function of
+    polarisation angle theta.
+
+    Arguments:
+        theta_vals -- values of theta.
+        intensity_sets -- calculated band intensnties as a function of
+            theta.
+        theta_unit_label, intensity_unit_label -- text labels for
+            the units of theta and intensities.
+        file_path -- file to save to.
+
+    Keyword arguments:
+        file_format -- file format to export to ('csv' or 'dat';
+            default: 'dat').
+    """
+    
+    header_row_1 = (["", "I(v) [{0}]".format(intensity_unit_label)]
+                   + [""] * (len(intensity_sets) - 1))
+    
+    header_row_2 = (
+        [r"\theta [{0}]".format(theta_unit_label)]
+        + ["Mode {0}".format(i + 1) for i in range(len(intensity_sets[0]))])
+
+    data_rows = [header_row_1, header_row_2]
+
+    for theta, intensity_set in zip(theta_vals, intensity_sets):
+        data_rows.append([theta] + [i for i in intensity_set])
+    
     write_data(data_rows, file_path, file_format)

@@ -12,54 +12,12 @@
 # Imports
 # -------
 
+import warnings
+
 import numpy as np
 
 from spectroscopy.constants import (
     ZERO_TOLERANCE, THZ_TO_INV_CM, THZ_TO_MEV, THZ_TO_INV_UM)
-
-
-# ---------------
-# Unit Conversion
-# ---------------
-
-def convert_frequency_units(frequencies, units_from, units_to):
-    """ Convert frequencies in units_from to units_to.
-    Supported values of units_from/units_to are: 'thz', 'inv_cm', 'mev'
-    and 'um'.
-    """
-
-    # No point in doing any work if we don't have to...
-
-    if units_from == units_to:
-        return frequencies
-
-    # First convert frequencies to THz...
-
-    if units_from != 'thz':
-        if units_from == 'inv_cm':
-            frequencies = [f / THZ_TO_INV_CM for f in frequencies]
-        elif units_from == 'mev':
-            frequencies = [f / THZ_TO_MEV for f in frequencies]
-        elif units_from == 'um':
-            frequencies = [1.0 / (f * THZ_TO_INV_UM) for f in frequencies]
-        else:
-            raise Exception(
-                "Error: Unsupported units '{0}'.".format(units_from))
-
-    # ... and now convert to the desired unit.
-
-    if units_to != 'thz':
-        if units_to == 'inv_cm':
-            frequencies = [f * THZ_TO_INV_CM for f in frequencies]
-        elif units_to == 'mev':
-            frequencies = [f * THZ_TO_MEV for f in frequencies]
-        elif units_to == 'um':
-            frequencies = [1.0 / (f * THZ_TO_INV_UM) for f in frequencies]
-        else:
-            raise Exception(
-                "Error: Unsupported units '{0}'.".format(units_to))
-
-    return frequencies
 
 
 # ------------------
@@ -158,7 +116,9 @@ def hkl_to_real_space_normal(hkl, lattice_vectors):
     
     f_1, f_2, f_3 = np.dot(recip_metric, hkl)
 
-    normal = f_1 * a_1 + f_2 * a_2 + f_3 * a_3
+    normal = (np.multiply(f_1, a_1)
+              + np.multiply(f_2, a_2)
+              + np.multiply(f_3, a_3))
     
     return normal / np.linalg.norm(normal)
 
@@ -291,3 +251,51 @@ def rotate_tensors(rotation_matrix, tensors):
         return tensors[0]
     else:
         return tensors
+
+
+# ---------------------
+# NumPy Helper Routines
+# ---------------------
+
+def numpy_check_shape(a, expected_shape):
+    """ Verifies that the array-like object a has the shape specified by
+    the tuple of integers expected_shape.
+    """
+
+    if np.ndim(a) != len(expected_shape):
+        return False
+    
+    shape = np.shape(a)
+
+    for s, e_s in zip(shape, expected_shape):
+        if s != e_s:
+            return False
+    
+    return True
+
+def numpy_create_or_copy(a):
+    """ If a is a NumPy, return a copy; otherwise, create and return
+    a new NumPy array. """
+
+    b = np.asarray(a)
+    
+    if b is a:
+        return b.copy()
+    else:
+        return b
+
+def numpy_as_readonly(a):
+    """ Returns a view of the NumPy array a with the writeable flag set
+    to False. """
+
+    b = np.asarray(a)
+
+    if not b is a:
+        warnings.warn(
+            "a was converted to a NumPy array before returning a "
+            "readonly view", UserWarning)
+    
+    v = b.view()
+    v.flags.writeable = False
+
+    return v

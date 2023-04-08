@@ -12,10 +12,13 @@
 # Imports
 # -------
 
+import math
+
+import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from spectroscopy import constants
+from matplotlib.cm import hsv
 
 
 # ---------
@@ -29,19 +32,6 @@ FONT_SIZE = 8
 """ Linewidth for lines, axes, etc. """
 
 LINEWIDTH = 0.5
-
-""" Line colours for different plot types. """
-
-LINE_COLOURS = {
-    'ir': 'r', 'raman': 'b'
-    }
-
-""" y-axis labels for different plot types. """
-
-Y_AXIS_LABELS = {
-    'ir': r"$I_{\mathrm{IR}}$",
-    'raman': r"$I_{\mathrm{Raman}}$"
-    }
 
 
 # ---------
@@ -82,53 +72,82 @@ def initialise_matplotlib():
     mpl.rc('ytick', **tickparams)
 
 
-def plot_spectrum(
-        spectrum, file_path,
-        frequency_units=None, plot_type=None
-        ):
+def plot_scalar_spectrum_or_spectra(
+        frequencies, intensities_or_intensity_sets, frequency_unit_label,
+        intensity_unit_label, file_path, normalise=False, legend_labels=None,
+        line_colour_or_colours=None):
     """ Plot a simulated spectrum.
 
     Arguments:
-        spectrum -- a tuple of
-            (frequencies, intensities, intensities_norm) data.
-        file_path -- path to save plot to.
-
+        frequencies -- spectral frequencies.
+        intensities_or_intensities_sets -- a single set of spectral
+            intensities, or a list of sets of intensities.
+        frequency_unit_label, intensity_unit_label -- labels for the
+            frequency and intensity units.
+        file_path -- output file.
+    
     Keyword arguments:
-        frequency_units -- frequency units (default:
-        constants.DEFAULT_FREQUENCY_UNITS).
-        plot_type -- adapts plot for specific type of spectra (supported
-            values are 'ir' and 'raman').
-
-    Notes:
-        This routine plots the normalised spectrum, and expects that
-        intensities_norm is in the range [0, 1].
+        normalise -- if set, normalise the intensities before plotting
+            (default: False).
+        legend_labels -- optional legend labels (one per set of intensities).
+        line_colour_or_line_colours -- optional line colour(s) to plot with
+            (one per set of intensities).
     """
 
-    spectrum_x, spectrum_y, spectrum_y_norm = spectrum
+    dim = np.ndim(intensities_or_intensity_sets)
 
-    num_data_points = len(spectrum_x)
-
-    if (len(spectrum_y) != num_data_points
-            or len(spectrum_y_norm) != num_data_points):
+    if dim > 2:
         raise Exception(
-            "Error: The number of frequency and intensity points in "
-            "spectra are inconsistent.")
+            "intensities_or_intensity_sets must be either a single set "
+            "of intensities (1D) or list of sets of intensities (2D).")
 
-    if frequency_units is None:
-        frequency_units = constants.DEFAULT_FREQUENCY_UNITS
+    num_data_points = len(frequencies)
 
-    # Set default y-axis labels and line colours, and override if
-    # specified for the supplied plotType.
+    if dim == 1:
+        intensities_or_intensity_sets = [intensities_or_intensity_sets]
 
-    y_axis_label = "Intensity"
+    for intensities in intensities_or_intensity_sets:
+        if len(intensities) != num_data_points:
+            raise Exception(
+                "The number of data points in one or more sets of "
+                "intensities are inconsistent with the number of "
+                "data points in frequencies.")
 
-    if plot_type in Y_AXIS_LABELS:
-        y_axis_label = Y_AXIS_LABELS[plot_type]
+    if (legend_labels is not None
+        and len(legend_labels) != len(intensities_or_intensity_sets)):
+        raise Exception(
+            "If supplied, legend_labels must provide a label for every "
+            "spectrum.")
 
-    line_colour = 'k'
+    if (line_colour_or_colours is not None
+        and len(line_colour_or_colours) != len(intensities_or_intensity_sets)):
+        raise Exception(
+            "If supplied, line_colour_or_colours must provide a label "
+            "for every spectrum.")
 
-    if plot_type in LINE_COLOURS:
-        line_colour = LINE_COLOURS[plot_type]
+    # Determine normalisation factor, if required.
+
+    norm = None
+
+    if normalise:
+        norm = np.max(intensities_or_intensity_sets)
+
+    # If not specified, automatically generate a gradient of line
+    # colours on the HSV scale.
+
+    if line_colour_or_colours is None:
+        start = 240.0 / 360.0
+
+        if len(intensities_or_intensity_sets) == 1:
+            line_colour_or_colours = [hsv(start % 1.0)]
+        else:
+        
+            increment = (150.0 / 360.0) / (len(intensities_or_intensity_sets) - 1)
+
+            line_colour_or_colours = [
+                hsv((start + i * increment) % 1.0)
+                    for i in range(len(intensities_or_intensity_sets))
+                ]
 
     # Initialise Matplotlib.
 
@@ -136,23 +155,39 @@ def plot_spectrum(
 
     # Generate and save a plot.
 
-    plt.figure(
-        figsize=(8.6 / 2.54, 6.0 / 2.54)
-        )
+    plt.figure(figsize=(8.6 / 2.54, 6.0 / 2.54))
 
-    plt.plot(
-        spectrum_x, spectrum_y_norm,
-        color=line_colour
-        )
+    for i, intensities in enumerate(intensities_or_intensity_sets):
+        label, line_colour = None, None
+        
+        if legend_labels is not None:
+            label = legend_labels[i]
+        
+        if line_colour_or_colours is not None:
+            line_colour = line_colour_or_colours[i]
+        
+        if norm is not None:
+            intensities = np.divide(intensities, norm)
 
-    plt.xlabel(
-        r"$\nu$ [{0}]".format(
-            constants.get_frequency_unit_label(frequency_units)))
+        plt.plot(
+            frequencies, intensities, label=label, color=line_colour)
 
-    plt.ylabel(r"{0} [AU]".format(y_axis_label))
+    plt.xlabel(r"$\nu$ [{0}]".format(frequency_unit_label))
+    
+    plt.ylabel(r"$I(\nu)$ [{0}]".format(
+        "AU" if normalise else intensity_unit_label))
 
-    plt.xlim(min(spectrum_x), max(spectrum_x))
-    plt.ylim(0.0, 1.2)
+    plt.xlim(min(frequencies), max(frequencies))
+
+    if normalise:
+        plt.ylim(0.0, 1.2)
+
+    # If legend labels are provided, add a legend.
+
+    if legend_labels is not None:
+        legend = plt.legend(loc='best', frameon=True)
+        legend.get_frame().set_edgecolor('k')
+        legend.get_frame().set_linewidth(0.5)
 
     # For newer versions of Matplotlib (!).
 
@@ -165,4 +200,72 @@ def plot_spectrum(
 
     plt.savefig(file_path, format='png', dpi=300)
     
+    plt.close()
+
+def plot_intensity_theta_polar(
+        theta_vals, intensities, file_path, plot_label=None):
+    """ Plot a set of intensities as a function of polarisation angle
+    theta (0 -> 360 degrees) as a polar plot.
+
+    Arguments:
+        theta_vals -- polarisation angles (degrees).
+        intensities -- band intensity as a function of theta.
+        file_path -- file path to save to.
+    
+    Keyword arguments:
+        plot_label -- optional label to be added to plot.
+    """
+
+    raise NotImplementedError(
+        "plot_intensity_theta_polar() has yet to be implemented.")
+
+def plot_2d_polarised_raman_spectrum(
+        frequencies, theta_vals, intensities, frequency_unit_label,
+        theta_unit_label, file_path, normalise=False):
+    """ Plot a "2D" polarised Raman spectrum as a function of frequency
+    and rotation angle theta.
+
+    Arguments:
+        frequencies -- spectrum frequencies (x-axis).
+        theta_vals -- values of theta (y-axis).
+        intensities -- a 2D array of intensities as a function of
+            freuqency and theta.
+        frequency_unit_label -- x-axis label.
+        theta_unit_label -- y-axis label.
+        file_path -- file to save to.
+    
+    Keyword arguments:
+        normalise -- if set, normalise the intensities before plotting
+            (default: False).
+    """
+
+    # Initialise Matplotlib.
+
+    initialise_matplotlib()
+
+    plt.figure(figsize=(8.6 / 2.54, 6.0 / 2.54))
+
+    # If required, normalise spectrum.
+
+    if normalise:
+        intensities = (np.asarray(intensities, dtype=np.float64)
+                       / np.max(intensities))
+
+    plt.pcolormesh(
+        frequencies, theta_vals, intensities, cmap='jet')
+
+    plt.xlabel(r"$\nu$ [{0}]".format(frequency_unit_label))
+    plt.ylabel(r"$\theta$ [{0}]".format(theta_unit_label))
+
+    plt.colorbar()
+
+    # This works well for theta from 0 -> 360, which is what this
+    # routine will generally be used to do.
+
+    plt.yticks(np.linspace(theta_vals[0], theta_vals[-1], 9))
+
+    plt.tight_layout()
+
+    plt.savefig(file_path, dpi=300)
+
     plt.close()

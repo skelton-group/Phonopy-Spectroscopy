@@ -13,6 +13,8 @@ calculations. """
 # Imports
 # -------
 
+import warnings
+
 import yaml
 
 # Try to use the C YAML Loader if possible; if not, fall back to the
@@ -24,6 +26,8 @@ except ImportError:
     from yaml import Loader
 
 import numpy as np
+
+from spectroscopy.utilities import calculate_cell_volume
 
 
 # ---------
@@ -46,7 +50,7 @@ _DEFAULT_DISTANCE_UNIT = "Unspecified"
 """ Default string written to intermediate YAML files when a unit is 
 unspecified. """
 
-_RAMAN_DATASET_DEFAULT_UNITS = "Unspecified"
+_RAMAN_DATASET_DEFAULT_UNIT = "Unspecified"
 
 
 def read_raman_dataset(file_path):
@@ -54,11 +58,17 @@ def read_raman_dataset(file_path):
     produced by write_raman_dataset().
 
     Return value:
-        A tuple of (cell_volume, volume_units, band_indices,
-        frequencies, frequency_units, disp_step_sets, step_units,
-        max_disps_sets, distance_units, eps_tensor_sets) data read from
-        the file. (The order of the elements matches the arguments
-        passed to write_raman_dataset()).
+        A tuple of (lattice_vectors, cell_volume, band_indices,
+        frequencies, disp_step_sets, max_disps_sets, eps_tensor_sets,
+        distance_unit, frequency_unit, step_unit) data read from
+        the file.
+    
+    Notes:
+        * The order of the elements in the return value matches the
+            arguments passed to write_raman_dataset() except for
+            cell_volume.
+        * For compatibility reasons, the lattice_vectors may be None,
+            in which case cell_volume should be set.
     """
     # Read and parse data set.
 
@@ -67,16 +77,27 @@ def read_raman_dataset(file_path):
     with open(file_path, 'r') as input_reader:
         dataset = yaml.load(input_reader, Loader=Loader)
 
-    # Validate.
-
+    # Validate keys.
+    
     for required_key in [
-            'frequency_units', 'step_units', 'distance_units',
-            'volume_units', 'cell_volume', 'displacement_sets'
+            'displacement_sets', 'distance_unit', 'frequency_unit', 'step_unit'
             ]:
         if required_key not in dataset:
-            raise Exception(
-                "Error: Missing key '{0}' in displacement dataset."
-                .format(required_key))
+            # For backwards compatibility.
+
+            error = True
+
+            if required_key.endswith('unit'):
+                old_key = required_key + 's'
+
+                if old_key in dataset:
+                    dataset[required_key] = dataset[old_key]
+                    error = False
+
+            if error:
+                raise Exception(
+                    "Error: Missing key '{0}' in displacement dataset."
+                    .format(required_key))
 
     if len(dataset['displacement_sets']) == 0:
         raise Exception(
@@ -126,6 +147,23 @@ def read_raman_dataset(file_path):
                             "the data set does not have the correct "
                             "dimension.")
 
+    # For compatibility with older versions of the code, allow
+    # the returned lattice_vectors to be None, and calculate the cell
+    # volume if the 'volume' key is not present in the YAML file.
+
+    lattice_vectors, cell_volume = None, None
+
+    if 'lattice_vectors' in dataset:
+        lattice_vectors = dataset['lattice_vectors']
+        cell_volume = calculate_cell_volume(lattice_vectors)
+    else:
+        if 'cell_volume' in dataset:
+            cell_volume = dataset['cell_volume']
+        else:
+            raise Exception(
+                "Error: Dataset must contain one of the "
+                "'lattice_vectors' or 'cell_volume' keys.")
+
     # Extract, reformat and return data.
 
     band_indices = []
@@ -156,27 +194,27 @@ def read_raman_dataset(file_path):
             eps_tensor_sets.append(eps_tensor_set)
 
     return (
-        dataset['cell_volume'], dataset['volume_units'],
-        band_indices, frequencies, dataset['frequency_units'],
-        disp_step_sets, dataset['step_units'], max_disps_sets,
-        dataset['distance_units'], eps_tensor_sets
+        lattice_vectors, cell_volume, band_indices, frequencies,
+        disp_step_sets, max_disps_sets, eps_tensor_sets,
+        dataset['distance_unit'], dataset['frequency_unit'],
+        dataset['step_unit']
         )
 
 def write_raman_dataset(
-        file_path, cell_volume, band_indices, frequencies,
-        disp_step_sets, max_disps_sets,  eps_tensor_sets=None,
-        volume_units = _RAMAN_DATASET_DEFAULT_UNITS,
-        frequency_units = _RAMAN_DATASET_DEFAULT_UNITS,
-        step_units = _RAMAN_DATASET_DEFAULT_UNITS,
-        distance_units = _RAMAN_DATASET_DEFAULT_UNITS
+        lattice_vectors, cell_volume, band_indices, frequencies,
+        disp_step_sets, max_disps_sets, file_path, eps_tensor_sets=None,
+        distance_unit = _RAMAN_DATASET_DEFAULT_UNIT,
+        frequency_unit = _RAMAN_DATASET_DEFAULT_UNIT,
+        step_unit = _RAMAN_DATASET_DEFAULT_UNIT
         ):
     """ Write band indices, frequencies, displacement data and,
     optionally, calculated dielectric tensors to a YAML-format file.
 
     Arguments:
-        file_path -- path to the output file.
-        cell_volume -- volume of the unit cell (stored for normalising
-            the Raman activity during post processing).
+        lattice_vectors -- lattice vectors (stored for polarised Raman
+            calculations during post processing).
+        cell_volume -- unit-cell volume (included for compatibilty and
+            will only be written when lattice_vectors is not set).
         band_indices -- indices of the bands (modes) for which data is
             to be output.
         frequencies -- mode frequencies.
@@ -184,33 +222,52 @@ def write_raman_dataset(
             mode in normal-mode coordinates.
         max_disps_dets -- sets of maximum Cartesian atomic displacements
             across all atoms for each displacement.
+        file_path -- path to the output file.
 
     Keyword arguments:
         eps_tensor_sets -- sets of 3x3 dielectric tensors calculated at
             each displacement.
-        volume_units -- units of the cell volume (default:
-            _RAMAN_DATASET_DEFAULT_UNITS)
-        frequency_units -- units of the frequencies (default:
-            _RAMAN_DATASET_DEFAULT_UNITS).
-        step_units -- units of the normal-mode coordinate (defaut:
-            _RAMAN_DATASET_DEFAULT_UNITS).
-        distance_units -- units of the maximum distance (default:
-            _RAMAN_DATASET_DEFAULT_UNITS).
+        distance_unit -- unit of distance (default:
+            _RAMAN_DATASET_DEFAULT_UNIT).
+        frequency_unit -- unit of frequency (default:
+            _RAMAN_DATASET_DEFAULT_UNIT).
+        step_unit -- unit of the normal-mode amplitude (defaut:
+            _RAMAN_DATASET_DEFAULT_UNIT).
     """
     
     with open(file_path, 'w') as output_writer:
         # Write units for physical quantities.
 
-        output_writer.write("frequency_units: {0}\n".format(frequency_units))
-        output_writer.write("step_units: {0}\n".format(step_units))
-        output_writer.write("distance_units: {0}\n".format(distance_units))
-        output_writer.write("volume_units: {0}\n".format(volume_units))
+        output_writer.write("distance_units: {0}\n".format(distance_unit))
+        output_writer.write("frequency_units: {0}\n".format(frequency_unit))
+        output_writer.write("step_units: {0}\n".format(step_unit))
 
         output_writer.write("\n")
 
-        # Write cell volume.
+        # Write lattice vectors or cell volume.
 
-        output_writer.write("cell_volume: {0: 12.4f}\n".format(cell_volume))
+        if lattice_vectors is not None:
+            output_writer.write("lattice_vectors:\n")
+
+            for v in lattice_vectors:
+                output_writer.write(
+                    "     - [ {0: 15.8f}, {1: 15.8f}, {2: 15.8f} ]\n".format(*v)
+                    )
+            
+            if cell_volume is not None:
+                warnings.warn(
+                    "When lattice vectors are specified the unit-cell "
+                    "volume is not written to the intermediate YAML "
+                    "files.", RuntimeWarning
+                    )
+        else:
+            if cell_volume is None:
+                raise Exception(
+                    "cell_volume must be specified when "
+                    "lattice_vectors is set to None.")
+            
+            output_writer.write("cell_volume: {0:.4f}\n".format(cell_volume))
+        
         output_writer.write("\n")
 
         # Write displacement data for each mode.
@@ -241,18 +298,18 @@ def write_raman_dataset(
                 output_writer.write("   - # Step {0}\n".format(j + 1))
                 
                 output_writer.write(
-                    "     displacement_step: {0: 12.8f}\n"
+                    "     displacement_step: {0:.8f}\n"
                     .format(disp_steps[j]))
 
                 output_writer.write(
-                    "     max_cartesian_displacement: {0: 12.8f}\n"
+                    "     max_cartesian_displacement: {0:.8f}\n"
                     .format(max_disps[j]))
 
                 if eps_tensors is not None:
                     output_writer.write("     epsilon_static:\n")
 
-                    for k in range(0, 3):
+                    for row in eps_tensors[j]:
                         output_writer.write(
-                            "     - [  {0: 15.8f},  {1: 15.8f},  {2: 15.8f}  "
-                            "]\n".format(*[item for item in eps_tensors[j][k]])
+                            "     - [ {0: 15.8f}, {1: 15.8f}, {2: 15.8f} ]\n"
+                            .format(*row)
                             )

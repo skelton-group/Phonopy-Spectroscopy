@@ -71,8 +71,8 @@ if __name__ == "__main__":
             eigenvectors, atomic_masses)
         
         disp_sets = run_mode_raman_disp(
-            structure, frequencies, 'thz', eigendisplacements,
-            point_group, irrep_data, args)
+            structure, frequencies, eigendisplacements, args,
+            point_group=point_group, irrep_data=irrep_data)
 
         write_structures_raman(
             disp_sets, file_format='vasp_poscar',

@@ -92,7 +92,7 @@ def simulate_spectrum(
             ('gaussian' or 'lorentzian'; default: 'gaussian').
 
     Return value:
-        A tuple of (spectrum_x, spectrum_y, spectrum_y_norm) data.
+        A tuple of (spectrum_x, spectrum_y) data.
 
     Notes:
         If a min and max are specified with spectrum_range, they may be
@@ -221,8 +221,7 @@ def simulate_spectrum(
     spectrum_y = np.zeros_like(spectrum_x, dtype=np.float64)
 
     for frequency, intensity, linewidth in zip(
-            frequencies, intensities, linewidths
-            ):
+            frequencies, intensities, linewidths):
         spectrum_y += lorentzian(
             spectrum_x, intensity, frequency, linewidth)
 
@@ -239,12 +238,6 @@ def simulate_spectrum(
 
         assert len(spectrum_x) == len(spectrum_y)
 
-    # Normalise spectrum.
+    # Return spectrum.
 
-    spectrum_y_norm = spectrum_y / math.fabs(spectrum_y.max())
-
-    # Return simulated spectrum.
-
-    return (
-        spectrum_x, spectrum_y, spectrum_y_norm
-        )
+    return (spectrum_x, spectrum_y)

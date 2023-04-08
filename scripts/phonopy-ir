@@ -68,6 +68,6 @@ if __name__ == "__main__":
     # Hand over to the run_mode_ir() routine.
 
     run_mode_ir(
-        frequencies, 'thz', eigendisplacements, bec_tensors, args,
+        frequencies, eigendisplacements, bec_tensors, args,
         linewidths=linewidths, irrep_data=irrep_data
         )

@@ -1,11 +1,35 @@
 # spectroscopy/cli/runtime.py
 
 
+# TODO: Sort out unit handling.
+# TODO:     3: Move code to "rebase" band indices to ireps to another
+# TODO:         module.
+# TODO:     4. If using "energy" units, convert at earliest opporrunity
+# TODO:         so that Raman tensors/peak tables are in requested
+# TODO:         units.
+# TODO:     5. For "wavelength" units, simulate spectrum in "energy"
+# TODO:         units then "clip" before output.
+
+
 # ---------
 # Docstring
 # ---------
 
-""" Implements standard runtime routines. """
+"""
+Implements standard runtime routines.
+
+Notes:
+    * The following input units are assumed...:
+        frequencies/linewidths -- THz.
+        distances and volumes -- Ang/Ang^3.
+        eigendisplacements -- sqrt(amu)^-1.
+        charges -- |e|.
+    * ... resulting in the following units for derived quantities:
+        normal-mode amplitudes -- sqrt(amu) * Ang
+        infrared intensities -- e^2 amu^-1
+        Raman activity tensors -- sqrt(amu) * Ang^2
+        Raman intensities -- Ang^4 amu^-1
+"""
 
 
 # -------
@@ -14,7 +38,8 @@
 
 import math
 import os
-import warnings
+
+import numpy as np
 
 from spectroscopy.ir import calculate_ir_intensity
 
@@ -25,16 +50,23 @@ from spectroscopy.raman import (
 from spectroscopy.spectrum import simulate_spectrum
 
 from spectroscopy.text_export import (
-    group_for_peak_table, save_peak_table, save_spectrum)
+    group_for_peak_table, save_peak_table, save_scalar_spectrum_or_spectra,
+    save_raman_intensity_theta)
 
 from spectroscopy.yaml_export import save_raman_tensors
 
-from spectroscopy.plotting import plot_spectrum
+from spectroscopy.plotting import (
+    plot_scalar_spectrum_or_spectra, plot_2d_polarised_raman_spectrum)
 
 from spectroscopy.constants import get_irrep_activities
 
+from spectroscopy.units import (
+    get_distance_unit_text_label, get_frequency_unit_text_label,
+    get_frequency_unit_plot_label, convert_frequency_units)
+
 from spectroscopy.utilities import (
-    calculate_cell_volume, convert_frequency_units)
+    hkl_to_real_space_normal, rotation_matrix_from_vectors, rotation_matrix_xy,
+    rotate_tensors)
 
 from spectroscopy.cli.intermediate_io import (
     read_raman_dataset, write_raman_dataset)
@@ -44,41 +76,34 @@ from spectroscopy.cli.intermediate_io import (
 # Constants
 # ---------
 
-""" Frequency units used for the peak table if the user requests a 
-wavelength unit for the simulated spectrum. """
+""" Unit label for normal-mode amplitudes for text output. """
 
-_DEFAULT_PEAK_TABLE_FREQUENCY_UNITS = 'inv_cm'
+_MODE_AMPLITUDE_UNITS_TEXT_LABEL = "sqrt(amu) * Ang"
 
+""" Unit label for IR intensities for text output. """
 
-""" Units of Raman displacement step (normal-mode coordinate) for
-plain-text intermediate YAML data sets. """
+_IR_INTENSITY_UNITS_TEXT_LABEL = "e^2 amu^-1"
 
-_RAMAN_STEP_UNITS = "sqrt(amu) * Ang"
+""" Unit label for IR intensities for plots. """
 
-""" Units of maximum displacement distance in Raman calculations for 
-plain-text intermediate YAML data sets. """
+_IR_INTENSITY_UNITS_PLOT_LABEL = "$e^{2}$ amu$^{-1}$"
 
-_RAMAN_DISTANCE_UNITS = "Ang"
+""" Unit label for (tensor) Raman activities for text output. """
 
-""" Units of the cell volume for plain-text intermediate YAML data
-sets. """
+_RAMAN_ACTIVITY_UNITS_TEXT_LABEL = "sqrt(amu) * Ang^2"
 
-_RAMAN_VOLUME_UNITS = "Ang ^ 3"
+""" Unit label for (scalar) Raman intensities for text output. """
 
+_RAMAN_INTENSITY_UNITS_TEXT_LABEL = r"Ang^4 amu^-1"
 
-""" Units of (tensor) Raman activity for plain-text YAML output
-file. """
+""" Unit label for (scalar) Raman intensities for plots. """
 
-_RAMAN_ACTIVITY_UNITS = "sqrt(amu) * Ang ^ 2"
+_RAMAN_INTENSITY_UNITS_PLOT_LABEL = r"$\mathrm{\AA}^{4}$ amu$^{-1}$"
 
+""" Fallback measurement units used when the user requests a wavelength
+unit and it does not make sense to use one. """
 
-""" Units of IR intensity for plots/text output files. """
-
-_IR_INTENSITY_UNITS = "$e^{2}$ amu$^{-1}$"
-
-""" Units of (scalar) Raman intensity for plots/text output files. """
-
-_RAMAN_INTENSITY_UNITS = r"$\AA^{4}$ amu$^{-1}$"
+_WAVELENGTH_FALLBACK_MEASUREMENT_UNITS = 'inv_cm'
 
 
 # ---------------
@@ -86,17 +111,23 @@ _RAMAN_INTENSITY_UNITS = r"$\AA^{4}$ amu$^{-1}$"
 # ---------------
 
 def run_mode_ir(
-        frequencies, frequency_units, eigendisplacements, bec_tensors,
-        args, linewidths=None, irrep_data=None
+        frequencies, eigendisplacements, bec_tensors, args,
+        linewidths=None, irrep_data=None
         ):
-    """ Calculates IR intensities for spectrum simulation.
+    """ Calculates IR intensities and passes data to _output_spectrum()
+    to generate and output peak table and simulated spectrum.
 
-    Main arguments:
+    Arguments:
+        frequencies -- Gamma-point mode frequencies.
         eigendisplacements -- Gamma-point eigendisplacements.
         bec_tensors -- Born effective-charge tensors.
-
-    All other arguments are passed through to the output_spectrum()
-    function.
+            assigning mode irreps.
+        args -- parsed command-line arguments with parameters
+            for _output_spectrum().
+    
+    Keyword arguments:
+        linewidths -- (optional) mode linewidths.
+        irrep_data -- (optional) list of (symbol, band_indices) tuples.
     """
 
     # Calculate IR intensities.
@@ -106,12 +137,11 @@ def run_mode_ir(
             for eigendisplacement in eigendisplacements
         ]
 
-    # Hand over to the RunMode_Output() routine.
+    # Hand over to the _output_scalar_spectrum() routine.
 
-    _output_spectrum(
-        'ir', frequencies, frequency_units, ir_intensities,
-        _IR_INTENSITY_UNITS, args, linewidths=linewidths,
-        irrep_data=irrep_data)
+    _output_scalar_spectrum_or_spectra(
+        'ir', frequencies, ir_intensities, args,
+        linewidths=linewidths, irrep_data=irrep_data)
 
 
 # ------------------
@@ -119,28 +149,28 @@ def run_mode_ir(
 # ------------------
 
 def run_mode_raman_disp(
-        structure, frequencies, frequency_units, eigendisplacements,
-        point_group, irrep_data, args):
+        structure, frequencies, eigendisplacements, args,
+        point_group = None, irrep_data = None):
     """ Prepare and return a sequence of displaced structures for a
-    Raman activity calculation. Metadata about the displacements
-    performed is written to "[<output_prefix>_]Raman.yaml".
+    Raman activity calculation, and write metadata to an intermediate
+    Raman.yaml file.
 
     Arguments:
-        structure -- structure to displace as a tuple of
-            (lattice_vectors, atomic_symbols, atom_positions_frac).
+        structure -- tuple of (lattice_vectors, atomic_symbols,
+            atom_positions_frac) specifying the structure.
         frequencies -- Gamma-point mode frequencies.
-        frequency_units -- units of mode frequencies.
         eigendisplacements -- Gamma-point eigendisplacements.
-        point_group -- (optional) point group of the structure.
-        irrep_data -- (optional) irreducible representations of the modes.
         args -- parsed command-line arguments with the RamanStep,
-            RamanStepType, RamanBandIndices and, optionally,
-            OutputPrefix attributes.
+            RamanStepType, RamanBandIndices and OutputPrefix
+            attributes.
+        point_group -- (optional) point group of the structure.
+        irrep_data -- (optional) irreducible representations of the
+            modes.
 
     Return value:
-        A list of tuples of (band_index, band_frequency, structures,
-        disp_steps, max_disps) data.
-        Band indices are zero-based.
+        A set of (band_index, band_frequency, structures, disp_steps,
+        max_disps) tuples containing the displaced structures for each
+        mode for the calling code to output.
     """
 
     num_modes = len(frequencies)
@@ -186,9 +216,10 @@ def run_mode_raman_disp(
                             # This is (hopefully!) mostly for debugging
                             # purposes...
 
-                            warnings.warn(
-                                "Unknown irrep '{0}' for point group '{1}'."
-                                .format(symbol, point_group), RuntimeWarning)
+                            print(
+                                "WARNING: Unknown irrep '{0}' for "
+                                "point group '{1}'."
+                                .format(symbol, point_group))
 
                 if len(exclude_indices) > 3:
                     band_list_str = ", ".join(
@@ -196,16 +227,16 @@ def run_mode_raman_disp(
                             for index in exclude_indices[3:])
 
                     print(
-                        "INFO: Automatically excluding band(s) {0} from "
-                        "displacement set as these appear to be Raman "
-                        "inactive (to override use --raman-bands)."
-                        .format(band_list_str))
+                        "INFO: Automatically excluding band(s) {0} "
+                        "from displacement set as these appear to be "
+                        "Raman inactive (to override use "
+                        "--raman-bands).".format(band_list_str))
             else:
                 # ... as is this.
 
-                warnings.warn(
-                    "Unknown point group '{0}'.".format(point_group),
-                    RuntimeWarning)
+                print(
+                    "WARNING: Unknown point group '{0}'."
+                    .format(point_group))
 
         band_indices = [
             i for i in range(0, num_modes)
@@ -235,7 +266,6 @@ def run_mode_raman_disp(
     # Write data set to a YAML file.
 
     lattice_vectors, _, _ = structure
-    cell_volume = calculate_cell_volume(lattice_vectors)
 
     frequencies, mode_disp_steps, mode_max_disps = [], [], []
 
@@ -252,10 +282,12 @@ def run_mode_raman_disp(
         file_name = "{0}_{1}".format(args.OutputPrefix, file_name)
 
     write_raman_dataset(
-        file_name, cell_volume, band_indices, frequencies,
-        mode_disp_steps, mode_max_disps, eps_tensor_sets=None,
-        volume_units=_RAMAN_VOLUME_UNITS, frequency_units=frequency_units,
-        step_units=_RAMAN_STEP_UNITS, distance_units=_RAMAN_DISTANCE_UNITS)
+        lattice_vectors, None, band_indices, frequencies,
+        mode_disp_steps, mode_max_disps, file_name, eps_tensor_sets=None,
+        distance_unit=get_distance_unit_text_label('ang'),
+        frequency_unit=get_frequency_unit_text_label('thz'),
+        step_unit=_MODE_AMPLITUDE_UNITS_TEXT_LABEL
+        )
 
     # Return the band indices, frequencies and displacement sets.
 
@@ -273,10 +305,8 @@ def run_mode_raman_read(eps_tensors, args):
     """ Collect dielectric tensors calculated for displaced structures
     prepared for a Raman calculation.
 
-    Metadata on the displaced structures is read from
-    "[<output_prefix>_]Raman.yaml". An updated file is then written
-    which contains the displacement metadata and calculated dielectric
-    tensors.
+    Metadata on the displaced structures is read from the intermediate
+    Raman.yaml file and updated with the calculated dielectric tensors.
 
     Arguments:
         eps_tensors -- list of dielectric tensors calculated for
@@ -301,33 +331,15 @@ def run_mode_raman_read(eps_tensors, args):
             "Error: Displacement data set file \"{0}\" not found."
             .format(dataset_file))
 
-    # Read displacement data set: tuple of (cell_volume, volume_units,
-    # band_indices, frequencies, frequency_units, disp_step_sets,
-    # step_units, max_disps_sets, distance_units, eps_tensor_sets).
+    # Read displacement data set from intermediate Raman.yaml file and
+    # verify hard-coded units.
 
-    cell_volume, volume_units, band_indices, frequencies, frequency_units, \
-        disp_step_sets, step_units, max_disps_sets, distance_units, _ \
+    lattice_vectors, cell_volume, band_indices, frequencies, disp_step_sets, \
+        max_disps_sets, _, distance_unit, frequency_unit, step_unit \
         = read_raman_dataset(dataset_file)
     
-    # Verify units.
-
-    if volume_units != _RAMAN_VOLUME_UNITS:
-        raise Exception(
-            "Error: Unexpected volume units '{0}' read from "
-            "displacement dataset file \"{1}\"."
-            .format(volume_units, dataset_file))
-
-    if step_units != _RAMAN_STEP_UNITS:
-        raise Exception(
-            "Error: Unexpected step units '{0}' read from "
-            "displacement dataset file \"{1}\"."
-            .format(step_units, dataset_file))
-
-    if distance_units != _RAMAN_DISTANCE_UNITS:
-        raise Exception(
-            "Error: Unexpected distance units '{0}' read from "
-            "displacement dataset file \"{1}\"."
-            .format(distance_units, dataset_file))
+    _raman_check_dataset_units(
+        distance_unit, frequency_unit, step_unit, dataset_file)
 
     # Check the expected number of dielectric tensors has been supplied.
 
@@ -360,31 +372,36 @@ def run_mode_raman_read(eps_tensors, args):
     # Write an updated data set containing the extracted dielectric
     # tensors.
 
+    # For backwards compatibility.
+
+    if lattice_vectors is not None:
+        cell_volume = None
+
     write_raman_dataset(
-        dataset_file, cell_volume, band_indices, frequencies,
-        disp_step_sets, max_disps_sets, eps_tensor_sets, volume_units,
-        frequency_units, step_units, distance_units)
+        lattice_vectors, cell_volume, band_indices, frequencies,
+        disp_step_sets, max_disps_sets, dataset_file, eps_tensor_sets,
+        distance_unit, frequency_unit, step_unit)
 
 def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
     """ Post process a data set prepared for a Raman calculation.
 
     A data set containing frequencies, displacement steps and dielectric
-    tensors is read from an intermediate dataset file, and the Raman
+    tensors is read from the intermediate Raman.yaml file, and the Raman
     activity tensors are calculated from the derivatives of the static
     dielectric tensor with respect to the normal-mode coordinates.
     
     Depending on args, the activity tensors are orientationally averaged
-    to obtain a powder spectrum, or are combined with user-input
+    to obtain a powder/gas spectrum, or are combined with user-input
     parameters for a polarised Raman calculation.
 
     Arguments:
         args -- parsed command-line arguments with the optional
-            OutputPrefix attribute, plus settings to be passed to
-            "downstream" routines.
+            OutputPrefix attribute and parameters to be passed to
+            the _raman_postproc_*() functions.
 
     Keyword arguments:
-        linewidths -- mode linewidths used to simulate the spectrum.
-        irrep_data -- irreps used to group modes.
+        linewidths -- (optional) mode linewidths.
+        irrep_data -- (optional) list of (symbol, band_indices) tuples.
     """
     # Work out the name of the intermediate YAML file and check the file
     # exists.
@@ -401,31 +418,12 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
 
     # Read in the Raman data set and verify hard-coded units.
 
-    cell_volume, volume_units, band_indices, frequencies, frequency_units, \
-        disp_step_sets, step_units, max_disps_sets, distance_units, \
-        eps_tensor_sets = read_raman_dataset(dataset_file)
+    lattice_vectors, cell_volume, band_indices, frequencies, disp_step_sets, \
+        _, eps_tensor_sets, distance_unit, frequency_unit, step_unit \
+        = read_raman_dataset(dataset_file)
 
-    if volume_units != _RAMAN_VOLUME_UNITS:
-        raise Exception(
-            "Error: Unexpected volume units '{0}' read from Raman "
-            "dataset file \"{1}\".".format(volume_units, dataset_file))
-
-    if step_units != _RAMAN_STEP_UNITS:
-        raise Exception(
-            "Error: Unexpected step units '{0}' read from Raman "
-            "dataset file \"{1}\".".format(step_units, dataset_file))
-
-    if distance_units != _RAMAN_DISTANCE_UNITS:
-        raise Exception(
-            "Error: Unexpected distance units '{0}' read from Raman "
-            "dataset file \"{1}\".".format(distance_units, dataset_file))
-    
-    if eps_tensor_sets is None:
-        raise Exception(
-            "Error: No dielectric tensors found in Raman dataset file "
-            "\"{0}\" - the code needs to be run with the -r option to "
-            "read this data before post-processing with -p."
-            .format(dataset_file))
+    _raman_check_dataset_units(
+        distance_unit, frequency_unit, step_unit, dataset_file)
 
     # Calculate Raman activity tensors and write to file.
 
@@ -437,43 +435,17 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
 
         raman_tensors.append(raman_tensor)
 
-    # Write out Raman tensors.
-
-    file_name = "Raman-Tensors.yaml"
-
-    if args.OutputPrefix is not None:
-        file_name = "{0}_{1}".format(args.OutputPrefix, file_name)
-
-    # Convert frequency units, if required.
-
-    frequencies_output = None
-
-    if frequency_units != args.Units:
-        frequencies_output = convert_frequency_units(
-            frequencies, frequency_units, args.Units)
-    else:
-        frequencies_output = frequencies
-
-    save_raman_tensors(
-        band_indices, frequencies_output, raman_tensors, file_name,
-        frequency_units=args.Units,
-        activity_units=_RAMAN_ACTIVITY_UNITS)
-
     # If linewidths are supplied, discard data for modes for which Raman
     # activities were not calculated.
 
     if linewidths is not None:
-        linewidths = [
-            linewidths[index] for index in band_indices
-            ]
+        linewidths = [linewidths[index] for index in band_indices]
 
     # If irrep data is supplied, we need to: (1) re-map the sets of band
     # indices to account for modes that have been discarded; and (2)
     # remove sets of data for which all modes have been discarded.
 
-    index_mapping = {
-        index: i for i, index in enumerate(band_indices)
-        }
+    index_mapping = {index: i for i, index in enumerate(band_indices)}
 
     if irrep_data is not None:
         irrep_data_new = []
@@ -495,17 +467,39 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
 
     if args.SurfaceHKL is not None:
         _raman_postproc_pol(
-            frequencies, frequency_units, raman_tensors, linewidths,
-            irrep_data, args)
+            band_indices, frequencies, raman_tensors, linewidths, irrep_data,
+            lattice_vectors, args)
     else:
         _raman_postproc_scalar(
-            frequencies, frequency_units, raman_tensors, linewidths,
-            irrep_data, args)
+            band_indices, frequencies, raman_tensors, linewidths, irrep_data,
+            args)
+
+def _raman_check_dataset_units(
+        distance_unit, frequency_unit, step_unit, file_path):
+    """ Validates units in the intermediate Raman.yaml file produced
+     and read by the run_mode_raman_* routines. """
+
+    if distance_unit != get_distance_unit_text_label('ang'):
+        raise Exception(
+            "Error: Unexpected distance unit '{0}' read from "
+            "displacement dataset file \"{1}\"."
+            .format(distance_unit, file_path))
+
+    if frequency_unit != get_frequency_unit_text_label('thz'):
+        raise Exception(
+            "Error: Unexpected frequency unit '{0}' read from "
+            "displacement dataset file \"{1}\"."
+            .format(frequency_unit, file_path))
+    
+    if step_unit != _MODE_AMPLITUDE_UNITS_TEXT_LABEL:
+        raise Exception(
+            "Error: Unexpected step unit '{0}' read from "
+            "displacement dataset file \"{1}\"."
+            .format(step_unit, file_path))
 
 def _raman_postproc_scalar(
-        frequencies, frequency_units, raman_tensors, linewidths,
-        irrep_data, args
-        ):
+        band_indices, frequencies, raman_tensors, linewidths,
+        irrep_data, args):
     """ Post process the Raman activity tensors generated by
     run_mode_raman_postproc() to generate an orientationally-averaged
     (powder) spectrum.
@@ -516,6 +510,17 @@ def _raman_postproc_scalar(
     All other arguments are passed through to the output_spectrum()
     function.
     """
+    # Write out Raman tensors.
+
+    file_name = "Raman-Tensors.yaml"
+
+    if args.OutputPrefix is not None:
+        file_name = "{0}_{1}".format(args.OutputPrefix, file_name)
+
+    save_raman_tensors(
+        band_indices, convert_frequency_units(frequencies, 'thz', args.Units),
+        raman_tensors, args.Units, _RAMAN_ACTIVITY_UNITS_TEXT_LABEL, file_name)
+
     # Calculate orientationally-averaged Raman intensities.
 
     raman_intensities = [
@@ -526,117 +531,187 @@ def _raman_postproc_scalar(
     # Hand over to output_spectrum() routine with the scalar Raman
     # intensities.
 
-    _output_spectrum(
-        'raman', frequencies, frequency_units, raman_intensities,
-        _RAMAN_INTENSITY_UNITS, args, linewidths=linewidths,
-        irrep_data=irrep_data)
+    _output_scalar_spectrum_or_spectra(
+        'raman', frequencies, raman_intensities, args,
+        linewidths=linewidths, irrep_data=irrep_data)
 
 def _raman_postproc_pol(
-        frequencies, frequency_units, raman_tensors, linewidths,
-        irrep_data, args
+        band_indices, frequencies, raman_tensors, linewidths, irrep_data,
+        lattice_vectors, args
         ):
     """ Post process the Raman activity tensors generated by
     _run_mode_raman_postproc() to perform a polarised Raman simulation.
 
     Main arguments:
         raman_tensors -- Raman activity tensors.
-        args -- parsed command-line argumetns including parameters
+        args -- parsed command-line arguments including parameters
             for polarised Raman simulation.
     
     All other arguments are passed through to the output_spectrum()
     function.
     """
 
-    raise NotImplementedError(
-        "Error: The polarised Raman implementation is not yet complete.")
+    if lattice_vectors is None:
+        raise Exception(
+            "Error: Polarised Raman calculations cannot be performed "
+            "using old-format Raman.yaml files - please regenerate the "
+            "Raman.yaml file by repeating the -d and -r steps (you "
+            "should _not_ need to re-run the first-principles "
+            "calculations again.")
 
+    # Calculate (real-space) surface normal for supplied (h, k, l) and
+    # rotation matrix to orient surface along the z direction.
+
+    surface_normal = hkl_to_real_space_normal(args.SurfaceHKL, lattice_vectors)
+    
+    surface_rot_matrix = rotation_matrix_from_vectors(
+        surface_normal, [0.0, 0.0, 1.0])
+
+    # Base file name for Raman tensors.
+
+    file_name_base = "Raman-Pol-Tensors-{0}{1}{2}".format(*args.SurfaceHKL)
+
+    if args.OutputPrefix is not None:
+        file_name_base = "{0}_{1}".format(args.OutputPrefix, file_name_base)
+
+    # Output the Raman tensors with the surface rotation applied.
+
+    surface_raman_tensors = rotate_tensors(surface_rot_matrix, raman_tensors)
+
+    file_name = "{0}.yaml".format(file_name_base)
+
+    save_raman_tensors(
+        band_indices,
+        convert_frequency_units(frequencies, 'thz', args.Units),
+        surface_raman_tensors, args.Units,
+        _RAMAN_ACTIVITY_UNITS_TEXT_LABEL, file_name,
+        surface_hkl = args.SurfaceHKL, surface_rotation = surface_rot_matrix)
+
+    # If the user has specified one or more theta, generate intensities
+    # and spectra for those; otherwise, generate for a full 360 deg
+    # rotation.
+
+    theta_vals = args.Theta
+
+    if theta_vals is None:
+        theta_vals = np.arange(
+            0.0, 360.0 + args.ThetaStep / 10.0, args.ThetaStep)
+
+    intensity_sets = []
+
+    for theta in theta_vals:
+        theta_rot_matrix = rotation_matrix_xy(theta)
+        combined_rot_matrix = np.dot(theta_rot_matrix, surface_rot_matrix)
+
+        theta_raman_tensors = rotate_tensors(
+            combined_rot_matrix, raman_tensors)
+        
+        # If this is a user-specified theta, output the Raman tensors.
+
+        if args.Theta is not None:
+            file_name = "{0}-{1:.1f}deg.yaml".format(file_name_base, theta)
+
+            save_raman_tensors(
+                band_indices,
+                convert_frequency_units(frequencies, 'thz', args.Units),
+                theta_raman_tensors, args.Units,
+                _RAMAN_ACTIVITY_UNITS_TEXT_LABEL, file_name,
+                surface_hkl = args.SurfaceHKL, theta = theta,
+                surface_rotation = surface_rot_matrix,
+                theta_rotation = theta_rot_matrix,
+                combined_rotation = combined_rot_matrix)
+
+        theta_intensities = [
+            np.dot(args.IncidentPol, np.dot(t, args.ScatteredPol)) ** 2
+                for t in theta_raman_tensors
+            ]
+
+        intensity_sets.append(theta_intensities)
+    
+    # Depending on whether or not the user specified theta values, hand
+    # over to one of the output routines.
+
+    if args.Theta is not None:
+        theta_text_labels = [
+            "theta = {0:.1f} deg".format(theta) for theta in theta_vals]
+        
+        theta_plot_labels = [
+            "{0:.1f} $^\circ$".format(theta) for theta in theta_vals]
+        
+        _output_scalar_spectrum_or_spectra(
+            'raman-pol', frequencies, intensity_sets, args, linewidths=linewidths,
+            irrep_data=irrep_data,intensity_set_text_labels=theta_text_labels,
+            intensity_set_plot_labels=theta_plot_labels)
+    else:
+        _output_2d_polarised_raman_spectrum(
+            frequencies, theta_vals, intensity_sets, args,
+            linewidths=linewidths, irrep_data=irrep_data)
 
 # -----------
 # Data Output
 # -----------
 
-def _output_spectrum(
-        spectrum_type, frequencies, frequency_units, intensities,
-        intensity_units, args, linewidths=None, irrep_data=None
+def _output_scalar_spectrum_or_spectra(
+        spectrum_type, frequencies, intensities_or_intensity_sets, args,
+        linewidths=None, irrep_data=None, intensity_set_text_labels=None,
+        intensity_set_plot_labels=None
         ):
-    """ Processes input data and arguments and saves a peak table and simulated
-    spectrum.
+    """ Processes input data and arguments and saves a peak table and
+    simulated single (scalar) spectrum.
 
     Arguments:
-        spectrum_type -- type of spectrum being output
-            ('ir' or 'raman').
+        spectrum_type -- type of spectrum being output ('ir', 'raman'
+            or 'raman-pol').
         frequencies -- mode frequencies.
-        frequency_units -- units of frequencies (must be one of the
-            units supported by the convert_frequency_units() function).
-        intensities -- band intensities.
-        intensity_units -- units of intensities.
+        intensities_or_intensity_sets -- band intensities or list of
+            sets of band intensities.
         args -- parsed command-line arguments with the options added by
-            the update_parser() method in the Parser module.
+            the update_parser() method in the parser module.
 
     Keyword arguments:
         linewidths -- per-mode linewidths.
         irrep_data -- set of (symbol, band_indices) tuples assigning
             irrep symbols to modes.
+        intensity_set_text_labels, intensity_set_plot_labels -- labels
+            for each intensity set to use in text output/plots.
     """
     # Most of the functions called from the other SpectroscoPy modules
     # have their own error-handling, and we defer to those where
     # possible to reduce "boilerplate" code.
 
-    num_modes = len(frequencies)
-
-    if len(intensities) != num_modes:
-        raise Exception(
-            "Error: The numbers of frequencies and intensities are "
-            "inconsistent.")
-
-    if linewidths is None:
-        if args.Linewidth < 0.0:
-            raise Exception(
-                "Error: Negative mode linewidths are unphysical (!?).")
-
-    # Convert frequency units if required.
-
-    frequency_units_convert = args.Units
-
-    if frequency_units_convert == 'um':
-        # Outputting spectra in wavelength units (e.g. um) is supported,
-        # but it does not make sense to output peak parameters like
-        # this (central frequencies and linewidths are energies). If the
-        # user requests a wavelength unit, we work in a default energy
-        # unit, output the peak table, simulate the spectrum, then
-        # convert just before output.
-
-        frequency_units_convert = _DEFAULT_PEAK_TABLE_FREQUENCY_UNITS
-
-        print(
-            "INFO: Peak table frequency units reset to '{0}'."
-            .format(frequency_units_convert))
-
-    frequencies = convert_frequency_units(
-        frequencies, frequency_units, frequency_units_convert)
+    frequencies = convert_frequency_units(frequencies, 'thz', args.Units)
 
     if linewidths is not None:
-        linewidths = convert_frequency_units(
-            linewidths, frequency_units, frequency_units_convert)
-    else:
-        # Convert user-supplied nominal linewidth (in inv. cm) to
-        # frequency units.
+        linewidths = convert_frequency_units(linewidths, 'thz', args.Units)
 
-        args.Linewidth, = convert_frequency_units(
-            [args.Linewidth], 'inv_cm', frequency_units_convert)
+    dim = np.ndim(intensities_or_intensity_sets)
 
-    frequency_units = frequency_units_convert
+    if dim == 1:
+        intensities_or_intensity_sets = [intensities_or_intensity_sets]
 
     file_format = args.DataFormat.lower()
 
-    # Set prefix for output files.
+    # Set variables based on plot type for output files.
 
-    outputprefix = None
+    output_prefix = None
+    intensity_unit_text_label = None
+    intensity_unit_plot_label = None
+    plot_line_colour_or_colours = None
 
     if spectrum_type == 'ir':
         output_prefix = "IR"
+        intensity_unit_text_label = _IR_INTENSITY_UNITS_TEXT_LABEL
+        intensity_unit_plot_label = _IR_INTENSITY_UNITS_PLOT_LABEL
+        plot_line_colour_or_colours = 'r'
     elif spectrum_type == 'raman':
         output_prefix = "Raman"
+        intensity_unit_text_label = _RAMAN_INTENSITY_UNITS_TEXT_LABEL
+        intensity_unit_plot_label = _RAMAN_INTENSITY_UNITS_PLOT_LABEL
+        plot_line_colour_or_colours = 'b'
+    elif spectrum_type == 'raman-pol':
+        output_prefix = "Raman-Pol"
+        intensity_unit_text_label = _RAMAN_INTENSITY_UNITS_TEXT_LABEL
+        intensity_unit_plot_label = _RAMAN_INTENSITY_UNITS_PLOT_LABEL
     else:
         # We _could_ work around this, but if it happens it's almost
         # certainly a programming error.
@@ -646,104 +721,181 @@ def _output_spectrum(
             "one of the command-line scripts this is probably a bug."
             .format(spectrum_type))
 
+    if len(intensities_or_intensity_sets) > 1:
+        pass # TODO
+
     if args.OutputPrefix is not None:
         output_prefix = "{0}_{1}".format(args.OutputPrefix, output_prefix)
 
-    # Save peak table.
+    # If irrep data is provided, group modes (this will sum the
+    # intensities of degenerate modes, so will not affect the spectrum).
 
     file_name = "{0}-PeakTable.{1}".format(output_prefix, file_format)
 
+    irrep_symbols = None
+
     if irrep_data is not None:
-        pt_frequencies, pt_intensities, pt_irrep_symbols, pt_linewidths = \
-            group_for_peak_table(
-                frequencies, intensities, irrep_data, linewidths=linewidths)
+        frequencies_new, linewidths_new = None, None
+        intensity_sets_new = []
 
-        save_peak_table(
-            pt_frequencies, pt_intensities, file_name,
-            irrep_symbols=pt_irrep_symbols, linewidths=pt_linewidths,
-            frequency_units=frequency_units, intensity_units=intensity_units,
-            file_format=file_format)
-    else:
-        save_peak_table(
-            frequencies, intensities, file_name,
-            linewidths=linewidths, frequency_units=frequency_units,
-            intensity_units=intensity_units, file_format=file_format)
+        for intensities in intensities_or_intensity_sets:
+            frequencies_new, intensities, irrep_symbols, linewidths_new = \
+                group_for_peak_table(
+                    frequencies, intensities, irrep_data, linewidths=linewidths)
+            
+            intensity_sets_new.append(intensities)
+        
+        frequencies, linewidths = frequencies_new, linewidths_new
+        intensities_or_intensity_sets = intensity_sets_new
 
-    # Simulate spectrum and convert units if required.
+    # Save peak table.
 
-    spectrum_range = args.SpectrumRange
+    save_peak_table(
+        frequencies, intensities_or_intensity_sets,
+        get_frequency_unit_text_label(args.Units), intensity_unit_text_label,
+        file_name, intensity_set_labels=intensity_set_text_labels,
+        irrep_symbols=irrep_symbols, linewidths=linewidths,
+        file_format=file_format)
 
-    if spectrum_range is not None and args.Units != frequency_units:
-        spectrum_min, spectrum_max = args.SpectrumRange
+    # Simulate spectrum.
 
-        if args.Units == 'um':
-            # If the user specifies a spectrum min and/or max <= 0 when
-            # using wavelength units, this will cause problems when
-            # converting units.
+    v, i_v_sets = None, []
 
-            if spectrum_min <= 0.0 or spectrum_max <= 0.0:
-                raise Exception(
-                    "Error: If a spectrum range is specified for "
-                    "wavelength units, both min and max must be > 0.")
-
-        spectrum_range = convert_frequency_units(
-            spectrum_range, args.Units, frequency_units)
-
-    spectrum = simulate_spectrum(
-        frequencies, intensities,
-        linewidths if linewidths is not None else args.Linewidth,
-        spectrum_range=spectrum_range,
-        spectrum_resolution=args.SpectrumResolution,
-        instrument_broadening_width=args.InstrumentBroadeningWidth,
-        instrument_broadening_shape=args.InstrumentBroadeningShape)
-
-    if args.Units != frequency_units:
-        spectrum_x, spectrum_y, spectrum_y_norm = spectrum
-
-        if args.Units == 'um':
-            # Reverse arrays.
-
-            spectrum_x = spectrum_x[::-1]
-            spectrum_y = spectrum_y[::-1]
-            spectrum_y_norm = spectrum_y_norm[::-1]
-
-            # Frequencies <= 0 cause problems when converting to
-            # wavelength units. Since wavelength units are not
-            # anticipated to be a routine use of this program, for now 
-            # we simply mask them out and print a warning message for
-            # the user.
-
-            mask = spectrum_x > 0.0
-
-            clip = not mask.all()
-
-            if clip:
-                spectrum_x = spectrum_x[mask]
-                spectrum_y = spectrum_y[mask]
-                spectrum_y_norm = spectrum_y_norm[mask]
-
-            spectrum_x = convert_frequency_units(
-                spectrum_x, frequency_units, args.Units)
-
-            if clip:
-                print(
-                    "INFO: Spectrum clipped to ({0:.2f}, {1:.2f})."
-                    .format(spectrum_x[0], spectrum_x[-1]))
-
-        spectrum = (spectrum_x, spectrum_y, spectrum_y_norm)
-
+    for intensities in intensities_or_intensity_sets:
+        v, i_v = simulate_spectrum(
+            frequencies, intensities,
+            linewidths if linewidths is not None else args.Linewidth,
+            spectrum_range=args.SpectrumRange,
+            spectrum_resolution=args.SpectrumResolution,
+            instrument_broadening_width=args.InstrumentBroadeningWidth,
+            instrument_broadening_shape=args.InstrumentBroadeningShape)
+        
+        i_v_sets.append(i_v)
+    
     # Save spectrum.
 
     file_name = "{0}-Spectrum.{1}".format(output_prefix, file_format)
 
-    save_spectrum(
-        spectrum, file_name, frequency_units=args.Units,
-        intensity_units=intensity_units, file_format=file_format)
+    save_scalar_spectrum_or_spectra(
+        v, i_v_sets, get_frequency_unit_text_label(args.Units),
+        intensity_unit_text_label, file_name,
+        intensity_set_labels=intensity_set_text_labels,
+        file_format=file_format)
 
     # Plot spectrum.
 
     file_name = "{0}-Spectrum.png".format(output_prefix)
 
-    plot_spectrum(
-        spectrum, file_name, frequency_units=args.Units,
-        plot_type=spectrum_type)
+    plot_scalar_spectrum_or_spectra(
+        v, i_v_sets, get_frequency_unit_plot_label(args.Units),
+        intensity_unit_plot_label, file_name, normalise=True,
+        legend_labels=intensity_set_plot_labels,
+        line_colour_or_colours=plot_line_colour_or_colours)
+
+def _output_2d_polarised_raman_spectrum(
+        frequencies, theta_vals, intensity_sets, args, linewidths=None,
+        irrep_data=None):
+    """ Processes a set of frequencies, intensities as a function of the
+    rotation angle theta and arguments and saves a polar plot for each
+    mode plus a 2D spectrum showing the intensity profile as a function
+    of frequency and theta.
+
+    Arguments:
+        frequencies -- mode frequencies.
+        theta_vals -- values of theta.
+        intensity_sets -- a set of band intensities for each value of
+            theta
+        args -- parsed command-line arguments with the options added by
+            the update_parser() method in the parser module.
+
+    Keyword arguments:
+        linewidths -- per-mode linewidths.
+        irrep_data -- set of (symbol, band_indices) tuples assigning
+            irrep symbols to modes.
+    """
+
+    # If irrep data is supplied, combine intensities.
+
+    irrep_symbols = None
+
+    if irrep_data is not None:
+        frequencies_new, linewidths_new = None, None
+        
+        for i, intensities in enumerate(intensity_sets):
+            frequencies_new, intensities, irrep_symbols, linewidths_new = \
+                group_for_peak_table(
+                    frequencies, intensities, irrep_data,
+                    linewidths=linewidths)
+            
+            intensity_sets[i] = intensities
+        
+        frequencies, linewidths = frequencies_new, linewidths_new
+
+    # Convert frequency units if required.
+
+    frequencies = convert_frequency_units(frequencies, 'thz', args.Units)
+
+    if linewidths is not None:
+        linewidths = convert_frequency_units(linewidths, 'thz', args.Units)
+
+    # Data format and prefix for output files.
+
+    file_format = args.DataFormat.lower()
+
+    output_prefix = "Raman-Pol"
+
+    if args.OutputPrefix is not None:
+        output_prefix = "{0}_{1}".format(args.OutputPrefix, output_prefix)
+
+    # Outut a polar plot for each mode.
+
+    file_name = "{0}-IntensityTheta.{1}".format(output_prefix, file_format)
+
+    save_raman_intensity_theta(
+        theta_vals, intensity_sets, "deg", _RAMAN_INTENSITY_UNITS_TEXT_LABEL,
+        file_name, file_format=file_format)
+
+    # TODO: Polar plots.
+
+    # Simulate (1D) spectrum for each set of intensities (i.e. each
+    # value of theta).
+
+    spectrum_x_ref, spectra_set = None, []
+    
+    for intensities in intensity_sets:
+        spectrum_x, spectrum_y = simulate_spectrum(
+            frequencies, intensities,
+            linewidths if linewidths is not None else args.Linewidth,
+            spectrum_range=args.SpectrumRange,
+            spectrum_resolution=args.SpectrumResolution,
+            instrument_broadening_width=args.InstrumentBroadeningWidth,
+            instrument_broadening_shape=args.InstrumentBroadeningShape)
+    
+        if spectrum_x_ref is not None:
+            if not (spectrum_x == spectrum_x_ref).all():
+                raise Exception(
+                    "Error: Inconsistent frequencies returned by "
+                    "simulate_spectrum() - this is a bug.")
+        else:
+            spectrum_x_ref = spectrum_x
+
+        spectra_set.append(spectrum_y)
+    
+    # Plot 2D spectrum.
+
+    file_name = "{0}-2DSpectrum.{1}".format(output_prefix, file_format)
+
+    spectra_labels = [
+        "theta = {0:.1f} deg".format(theta) for theta in theta_vals]
+
+    save_scalar_spectrum_or_spectra(
+        spectrum_x_ref, spectra_set, get_frequency_unit_text_label(args.Units),
+        _RAMAN_INTENSITY_UNITS_TEXT_LABEL, file_name,
+        intensity_set_labels=spectra_labels, file_format=file_format)
+
+    file_name = "{0}-2DSpectrum.png".format(output_prefix)
+
+    plot_2d_polarised_raman_spectrum(
+        spectrum_x_ref, theta_vals, spectra_set,
+        get_frequency_unit_plot_label(args.Units),  r"$^\circ$", file_name,
+        normalise=True)
