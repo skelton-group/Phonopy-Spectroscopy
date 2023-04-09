@@ -114,13 +114,14 @@ def plot_scalar_spectrum_or_spectra(
                 "data points in frequencies.")
 
     if (legend_labels is not None
-        and len(legend_labels) != len(intensities_or_intensity_sets)):
+            and len(legend_labels) != len(intensities_or_intensity_sets)):
         raise Exception(
             "If supplied, legend_labels must provide a label for every "
             "spectrum.")
 
     if (line_colour_or_colours is not None
-        and len(line_colour_or_colours) != len(intensities_or_intensity_sets)):
+            and len(line_colour_or_colours) != len(
+                intensities_or_intensity_sets)):
         raise Exception(
             "If supplied, line_colour_or_colours must provide a label "
             "for every spectrum.")
@@ -142,11 +143,12 @@ def plot_scalar_spectrum_or_spectra(
             line_colour_or_colours = [hsv(start % 1.0)]
         else:
         
-            increment = (150.0 / 360.0) / (len(intensities_or_intensity_sets) - 1)
+            increment = (150.0 / 360.0) / (len(
+                intensities_or_intensity_sets) - 1)
 
             line_colour_or_colours = [
                 hsv((start + i * increment) % 1.0)
-                    for i in range(len(intensities_or_intensity_sets))
+                for i in range(len(intensities_or_intensity_sets))
                 ]
 
     # Initialise Matplotlib.
@@ -202,6 +204,7 @@ def plot_scalar_spectrum_or_spectra(
     
     plt.close()
 
+
 def plot_intensity_theta_polar(
         theta_vals, intensities, file_path, plot_label=None):
     """ Plot a set of intensities as a function of polarisation angle
@@ -215,9 +218,25 @@ def plot_intensity_theta_polar(
     Keyword arguments:
         plot_label -- optional label to be added to plot.
     """
+    
+    # Initialise Matplotlib.
 
-    raise NotImplementedError(
-        "plot_intensity_theta_polar() has yet to be implemented.")
+    initialise_matplotlib()
+    
+    # Generate and save a polar plot.
+    
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+    ax.plot(theta_vals, intensities)
+    ax.set_rticks([])
+    
+    if plot_label is not None:
+        ax.set_title(plot_label, loc='center', va='bottom')
+        ax.grid(True)
+    
+    plt.savefig(file_path, format='png', dpi=300)
+    
+    plt.close()    
+
 
 def plot_2d_polarised_raman_spectrum(
         frequencies, theta_vals, intensities, frequency_unit_label,
