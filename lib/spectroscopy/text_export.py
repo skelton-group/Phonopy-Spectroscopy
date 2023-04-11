@@ -318,10 +318,12 @@ def save_peak_table(
         header_row_2 = ["v [{0}]".format(frequency_unit_label)]
 
         if irrep_symbols is not None:
-            header_row_2 = header_row_2 + ["Ir. Rep."]
+            header_row_2.append("Ir. Rep.")
         
         header_row_2.extend(intensity_set_labels)
-        header_row_2.append(r"\Gamma [{0}]".format(frequency_unit_label))
+
+        if linewidths is not None:
+            header_row_2.append(r"\Gamma [{0}]".format(frequency_unit_label))
 
         data_rows.append(header_row_2)
     else:

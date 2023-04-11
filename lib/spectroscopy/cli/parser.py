@@ -93,7 +93,7 @@ def update_parser(parser, spectrum_type):
 
     group.add_argument(
         "--linewidth",
-        metavar="<linewidth>", type=float, dest="Linewidth", default=0.5,
+        metavar="<linewidth>", type=float, dest="Linewidth", default=None,
         help="Uniform mode linewidth in --output-units (default: "
              "0.5 THz ~= 16.7 cm^-1 ~= 2.1 meV)")
 
@@ -220,7 +220,8 @@ def post_process_args(args, spectrum_type):
     
     # Convert linewidth to selected output units.
 
-    args.Linewidth = convert_frequency_units(args.Linewidth, 'thz', args.Units)
+    if args.Linewidth is None:
+        args.Linewidth = convert_frequency_units(0.5, 'thz', args.Units)
 
     if spectrum_type == 'raman':
         if args.RamanInputFiles is not None:

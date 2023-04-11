@@ -240,9 +240,14 @@ def plot_intensity_theta_polar(
     if norm > ZERO_TOLERANCE:
         intensities_norm = [val / norm for val in intensities]
 
-    ax.plot(
-        theta_rad, intensities_norm, label=plot_label, color='b',
-        marker='o', mec='b', mfc='none', ms=2.0, markeredgewidth=LINEWIDTH)
+    # If all the intensities are zero, ax.plot() draws a small circle
+    # close to the origin, which looks strange -> better not to plot
+    # anything.
+
+    if norm >= ZERO_TOLERANCE:
+        ax.plot(
+            theta_rad, intensities_norm, label=plot_label, color='b',
+            marker='o', mec='b', mfc='none', ms=2.0, markeredgewidth=LINEWIDTH)
 
     ax.set_rmax(1.2)
     ax.set_rticks([])
