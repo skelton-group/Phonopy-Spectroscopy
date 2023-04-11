@@ -19,6 +19,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 from matplotlib.cm import hsv
+from matplotlib.gridspec import GridSpec
+
+from spectroscopy.constants import ZERO_TOLERANCE
 
 
 # ---------
@@ -142,7 +145,6 @@ def plot_scalar_spectrum_or_spectra(
         if len(intensities_or_intensity_sets) == 1:
             line_colour_or_colours = [hsv(start % 1.0)]
         else:
-        
             increment = (150.0 / 360.0) / (len(
                 intensities_or_intensity_sets) - 1)
 
@@ -157,7 +159,7 @@ def plot_scalar_spectrum_or_spectra(
 
     # Generate and save a plot.
 
-    plt.figure(figsize=(8.6 / 2.54, 6.0 / 2.54))
+    plt.figure(figsize=(8.4 / 2.54, 6.5 / 2.54))
 
     for i, intensities in enumerate(intensities_or_intensity_sets):
         label, line_colour = None, None
@@ -204,7 +206,6 @@ def plot_scalar_spectrum_or_spectra(
     
     plt.close()
 
-
 def plot_intensity_theta_polar(
         theta_vals, intensities, file_path, plot_label=None):
     """ Plot a set of intensities as a function of polarisation angle
@@ -224,19 +225,45 @@ def plot_intensity_theta_polar(
     initialise_matplotlib()
     
     # Generate and save a polar plot.
+
+    fig, ax = plt.subplots(
+        figsize=(8.0 / 2.54, 7.0 / 2.54), subplot_kw={'projection': 'polar'})
     
-    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-    ax.plot(theta_vals, intensities)
+    # Angles need to be in radians.
+
+    theta_rad = [np.pi * val / 180.0 for val in theta_vals]
+
+    norm = np.max(intensities)
+
+    intensities_norm = intensities
+
+    if norm > ZERO_TOLERANCE:
+        intensities_norm = [val / norm for val in intensities]
+
+    ax.plot(
+        theta_rad, intensities_norm, label=plot_label, color='b',
+        marker='o', mec='b', mfc='none', ms=2.0, markeredgewidth=LINEWIDTH)
+
+    ax.set_rmax(1.2)
     ax.set_rticks([])
+
+    ax.set_theta_direction(-1)
+    ax.set_theta_zero_location('N')
     
     if plot_label is not None:
-        ax.set_title(plot_label, loc='center', va='bottom')
-        ax.grid(True)
+        ax.text(
+            0.05, 0.95, plot_label, ha='left', va='top',
+            transform=fig.transFigure,
+            bbox={'facecolor': 'none', 'edgecolor': 'k',
+                  'linewidth': LINEWIDTH})
+
+    ax.grid(color=(0.75, 0.75, 0.75), linewidth=LINEWIDTH)
     
+    plt.tight_layout()
+
     plt.savefig(file_path, format='png', dpi=300)
     
-    plt.close()    
-
+    plt.close()  
 
 def plot_2d_polarised_raman_spectrum(
         frequencies, theta_vals, intensities, frequency_unit_label,
@@ -262,7 +289,12 @@ def plot_2d_polarised_raman_spectrum(
 
     initialise_matplotlib()
 
-    plt.figure(figsize=(8.6 / 2.54, 6.0 / 2.54))
+    plt.figure(figsize=(8.6 / 2.54, 7.5 / 2.54))
+
+    grid_spec = GridSpec(6, 1)
+
+    cbar_axes = plt.subplot(grid_spec[0, :])
+    plot_axes = plt.subplot(grid_spec[1:, :])
 
     # If required, normalise spectrum.
 
@@ -270,18 +302,18 @@ def plot_2d_polarised_raman_spectrum(
         intensities = (np.asarray(intensities, dtype=np.float64)
                        / np.max(intensities))
 
-    plt.pcolormesh(
+    mappable = plot_axes.pcolormesh(
         frequencies, theta_vals, intensities, cmap='jet')
 
-    plt.xlabel(r"$\nu$ [{0}]".format(frequency_unit_label))
-    plt.ylabel(r"$\theta$ [{0}]".format(theta_unit_label))
+    plot_axes.set_xlabel(r"$\nu$ [{0}]".format(frequency_unit_label))
+    plot_axes.set_ylabel(r"$\theta$ [{0}]".format(theta_unit_label))
 
-    plt.colorbar()
+    plt.colorbar(mappable, cax=cbar_axes, orientation='horizontal')
 
     # This works well for theta from 0 -> 360, which is what this
     # routine will generally be used to do.
 
-    plt.yticks(np.linspace(theta_vals[0], theta_vals[-1], 9))
+    plot_axes.set_yticks(np.linspace(theta_vals[0], theta_vals[-1], 9))
 
     plt.tight_layout()
 

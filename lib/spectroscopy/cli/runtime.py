@@ -56,7 +56,8 @@ from spectroscopy.text_export import (
 from spectroscopy.yaml_export import save_raman_tensors
 
 from spectroscopy.plotting import (
-    plot_scalar_spectrum_or_spectra, plot_2d_polarised_raman_spectrum)
+    plot_scalar_spectrum_or_spectra, plot_intensity_theta_polar,
+    plot_2d_polarised_raman_spectrum)
 
 from spectroscopy.constants import get_irrep_activities
 
@@ -853,9 +854,22 @@ def _output_2d_polarised_raman_spectrum(
 
     save_raman_intensity_theta(
         theta_vals, intensity_sets, "deg", _RAMAN_INTENSITY_UNITS_TEXT_LABEL,
-        file_name, file_format=file_format)
+        file_name, irrep_symbols=irrep_symbols, file_format=file_format)
 
-    # TODO: Polar plots.
+    file_name_base = "{0}-IntensityTheta".format(output_prefix)
+
+    for i in range(len(intensity_sets[0])):
+        intensities = [intensities[i] for intensities in intensity_sets]
+        
+        file_name = "{0}-Mode{1:0>4}.png".format(file_name_base, i + 1)
+        
+        plot_label = "Mode {0}".format(i + 1)
+
+        if irrep_symbols is not None:
+            plot_label = "{0} ({1})".format(plot_label, irrep_symbols[i])
+
+        plot_intensity_theta_polar(
+            theta_vals, intensities, file_name, plot_label)
 
     # Simulate (1D) spectrum for each set of intensities (i.e. each
     # value of theta).
@@ -886,7 +900,7 @@ def _output_2d_polarised_raman_spectrum(
     file_name = "{0}-2DSpectrum.{1}".format(output_prefix, file_format)
 
     spectra_labels = [
-        "theta = {0:.1f} deg".format(theta) for theta in theta_vals]
+        r"\theta = {0:.1f} deg".format(theta) for theta in theta_vals]
 
     save_scalar_spectrum_or_spectra(
         spectrum_x_ref, spectra_set, get_frequency_unit_text_label(args.Units),

@@ -434,7 +434,7 @@ def save_scalar_spectrum_or_spectra(
 
 def save_raman_intensity_theta(
         theta_vals, intensity_sets, theta_unit_label, intensity_unit_label,
-        file_path, file_format='dat'):
+        file_path, irrep_symbols=None, file_format='dat'):
     """ Save a set of calculated Raman intensities as a function of
     polarisation angle theta.
 
@@ -447,6 +447,8 @@ def save_raman_intensity_theta(
         file_path -- file to save to.
 
     Keyword arguments:
+        irrep_symbols -- irrep symbols for each mode to be added to
+            column headings.
         file_format -- file format to export to ('csv' or 'dat';
             default: 'dat').
     """
@@ -454,9 +456,16 @@ def save_raman_intensity_theta(
     header_row_1 = (["", "I(v) [{0}]".format(intensity_unit_label)]
                    + [""] * (len(intensity_sets) - 1))
     
-    header_row_2 = (
-        [r"\theta [{0}]".format(theta_unit_label)]
-        + ["Mode {0}".format(i + 1) for i in range(len(intensity_sets[0]))])
+    mode_labels = [
+        "Mode {0}".format(i + 1) for i in range(len(intensity_sets))]
+    
+    if irrep_symbols is not None:
+        mode_labels = [
+            "{0} ({1})".format(label, symbol)
+                for label, symbol in zip(mode_labels, irrep_symbols)
+            ]
+    
+    header_row_2 = [r"\theta [{0}]".format(theta_unit_label)] + mode_labels
 
     data_rows = [header_row_1, header_row_2]
 

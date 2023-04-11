@@ -132,10 +132,11 @@ def update_parser(parser, spectrum_type):
         
         group.add_argument(
             "--theta-step",
-            metavar="<step>", type=float, dest="ThetaStep", default=5.0,
+            metavar="<step>", type=float, dest="ThetaStep", default=2.5,
             help="If not specifying a theta with the --theta argument "
                 "the spectrum will be simulated between 0 -> 360 deg "
-                "and --theta-step specifies the step (default: 5 deg)")
+                "and --theta-step specifies the step (default: 2.5 "
+                "deg)")
         
         group.add_argument(
             "--incident-pol",
