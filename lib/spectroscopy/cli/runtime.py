@@ -1,14 +1,7 @@
 # spectroscopy/cli/runtime.py
 
 
-# TODO: Sort out unit handling.
-# TODO:     3: Move code to "rebase" band indices to ireps to another
-# TODO:         module.
-# TODO:     4. If using "energy" units, convert at earliest opporrunity
-# TODO:         so that Raman tensors/peak tables are in requested
-# TODO:         units.
-# TODO:     5. For "wavelength" units, simulate spectrum in "energy"
-# TODO:         units then "clip" before output.
+# TODO: Fix -o option.
 
 
 # ---------
@@ -277,14 +270,9 @@ def run_mode_raman_disp(
         mode_disp_steps.append(disp_steps)
         mode_max_disps.append(max_disps)
 
-    file_name = "Raman.yaml"
-
-    if args.OutputPrefix is not None:
-        file_name = "{0}_{1}".format(args.OutputPrefix, file_name)
-
     write_raman_dataset(
         lattice_vectors, None, band_indices, frequencies,
-        mode_disp_steps, mode_max_disps, file_name, eps_tensor_sets=None,
+        mode_disp_steps, mode_max_disps, r"Raman.yaml", eps_tensor_sets=None,
         distance_unit=get_distance_unit_text_label('ang'),
         frequency_unit=get_frequency_unit_text_label('thz'),
         step_unit=_MODE_AMPLITUDE_UNITS_TEXT_LABEL
@@ -320,20 +308,24 @@ def run_mode_raman_read(eps_tensors, args):
         the displacements in the YAML data set written out by
         run_mode_raman_disp().
     """
-    # Get the name of the intermediate YAML file.
+    # Read displacement data set from intermediate Raman.yaml file and
+    # verify hard-coded units.
 
     dataset_file = "Raman.yaml"
 
-    if args.OutputPrefix is not None:
+    # For backwards compatibility.
+
+    if not os.path.isfile(dataset_file) and args.OutputPrefix is not None:
         dataset_file = "{0}_{1}".format(args.OutputPrefix, dataset_file)
+
+        if os.path.isfile(dataset_file):
+            print("WARNING: --output-prefix will no longer be applied"
+                  "to Raman.yaml.")
 
     if not os.path.isfile(dataset_file):
         raise Exception(
-            "Error: Displacement data set file \"{0}\" not found."
-            .format(dataset_file))
-
-    # Read displacement data set from intermediate Raman.yaml file and
-    # verify hard-coded units.
+            "Error: Displacement data set file \"Raman.yaml\" or "
+            "\"{0}\"not found.".format(dataset_file))
 
     lattice_vectors, cell_volume, band_indices, frequencies, disp_step_sets, \
         max_disps_sets, _, distance_unit, frequency_unit, step_unit \
@@ -380,7 +372,7 @@ def run_mode_raman_read(eps_tensors, args):
 
     write_raman_dataset(
         lattice_vectors, cell_volume, band_indices, frequencies,
-        disp_step_sets, max_disps_sets, dataset_file, eps_tensor_sets,
+        disp_step_sets, max_disps_sets, r"Raman.yaml", eps_tensor_sets,
         distance_unit, frequency_unit, step_unit)
 
 def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
@@ -404,20 +396,25 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
         linewidths -- (optional) mode linewidths.
         irrep_data -- (optional) list of (symbol, band_indices) tuples.
     """
-    # Work out the name of the intermediate YAML file and check the file
-    # exists.
+
+    # Read in the intermediate Raman data set and verify hard-coded
+    # units.
 
     dataset_file = "Raman.yaml"
 
-    if args.OutputPrefix is not None:
+    # For backwards compatibility.
+
+    if not os.path.isfile(dataset_file) and args.OutputPrefix is not None:
         dataset_file = "{0}_{1}".format(args.OutputPrefix, dataset_file)
+
+        if os.path.isfile(dataset_file):
+            print("WARNING: --output-prefix will no longer be applied"
+                  "to Raman.yaml.")
 
     if not os.path.isfile(dataset_file):
         raise Exception(
-            "Error: Displacement data set file \"{0}\" not found."
-            .format(dataset_file))
-
-    # Read in the Raman data set and verify hard-coded units.
+            "Error: Displacement data set file \"Raman.yaml\" or "
+            "\"{0}\"not found.".format(dataset_file))
 
     lattice_vectors, cell_volume, band_indices, frequencies, disp_step_sets, \
         _, eps_tensor_sets, distance_unit, frequency_unit, step_unit \
@@ -858,12 +855,29 @@ def _output_2d_polarised_raman_spectrum(
 
     file_name_base = "{0}-IntensityTheta".format(output_prefix)
 
-    for i in range(len(intensity_sets[0])):
+    for i, frequency in enumerate(frequencies):
         intensities = [intensities[i] for intensities in intensity_sets]
         
         file_name = "{0}-Mode{1:0>4}.png".format(file_name_base, i + 1)
+
+        # Generate plot label.
         
-        plot_label = "Mode {0}".format(i + 1)
+        plot_label = None
+
+        abs_freq = math.fabs(frequency)
+
+        if abs_freq < 10.0:
+            plot_label = "{0:.3f} {1}".format(
+                frequencies[i], get_frequency_unit_plot_label(args.Units))
+        elif abs_freq < 100.0:
+            plot_label = "{0:.2f} {1}".format(
+                frequencies[i], get_frequency_unit_plot_label(args.Units))
+        elif abs_freq < 1000.0:
+            plot_label = "{0:.1f} {1}".format(
+                frequencies[i], get_frequency_unit_plot_label(args.Units))
+        else:
+            plot_label = "{0:.0f} {1}".format(
+                frequencies[i], get_frequency_unit_plot_label(args.Units))
 
         if irrep_symbols is not None:
             plot_label = "{0} ({1})".format(plot_label, irrep_symbols[i])
