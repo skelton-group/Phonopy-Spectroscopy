@@ -563,7 +563,7 @@ def _raman_postproc_pol(
     surface_normal = hkl_to_real_space_normal(args.SurfaceHKL, lattice_vectors)
     
     surface_rot_matrix = rotation_matrix_from_vectors(
-        surface_normal, [0.0, 0.0, 1.0])
+        surface_normal, [0.0, 0.0, -1.0])
 
     # Base file name for Raman tensors.
 

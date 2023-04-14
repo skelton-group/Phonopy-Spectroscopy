@@ -251,9 +251,6 @@ def plot_intensity_theta_polar(
 
     ax.set_rmax(1.2)
     ax.set_rticks([])
-
-    ax.set_theta_direction(-1)
-    ax.set_theta_zero_location('N')
     
     if plot_label is not None:
         ax.text(
