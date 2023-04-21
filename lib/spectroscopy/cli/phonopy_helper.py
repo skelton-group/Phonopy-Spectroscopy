@@ -327,7 +327,7 @@ def phonopy_load_optional(args):
 
     # Read irrep data if available.
 
-    irrep_data = None
+    point_group, irrep_data = None, None
 
     if os.path.isfile(args.IrrepsYAML):
         try:

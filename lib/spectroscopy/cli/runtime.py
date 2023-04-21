@@ -425,6 +425,12 @@ def run_mode_raman_postproc(args, linewidths=None, irrep_data=None):
 
     # Calculate Raman activity tensors and write to file.
 
+    if eps_tensor_sets is None:
+        raise Exception(
+            "Error: Dielectric tensors not found in data set file - "
+            "run the code with the -r option before processing with "
+            "the -p option.")
+
     raman_tensors = []
 
     for disp_steps, eps_tensors in zip(disp_step_sets, eps_tensor_sets):
@@ -477,19 +483,21 @@ def _raman_check_dataset_units(
     """ Validates units in the intermediate Raman.yaml file produced
      and read by the run_mode_raman_* routines. """
 
-    if distance_unit != get_distance_unit_text_label('ang'):
+    # Case-insensitive comparison for backwards compatibility.
+
+    if distance_unit.lower() != get_distance_unit_text_label('ang').lower():
         raise Exception(
             "Error: Unexpected distance unit '{0}' read from "
             "displacement dataset file \"{1}\"."
             .format(distance_unit, file_path))
 
-    if frequency_unit != get_frequency_unit_text_label('thz'):
+    if frequency_unit.lower() != get_frequency_unit_text_label('thz').lower():
         raise Exception(
             "Error: Unexpected frequency unit '{0}' read from "
             "displacement dataset file \"{1}\"."
             .format(frequency_unit, file_path))
     
-    if step_unit != _MODE_AMPLITUDE_UNITS_TEXT_LABEL:
+    if step_unit.lower() != _MODE_AMPLITUDE_UNITS_TEXT_LABEL.lower():
         raise Exception(
             "Error: Unexpected step unit '{0}' read from "
             "displacement dataset file \"{1}\"."
