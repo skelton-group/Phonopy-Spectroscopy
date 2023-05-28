@@ -2,7 +2,7 @@
 
 Phonopy-Spectroscopy is a project to add the capability to simulate vibrational spectra to the Phonopy code.[[1](#Ref1)]
 
-The software package consists of a Python module, `SpectroscoPy`, along with a set of command-line scripts for working with output from Phonopy and VASP.
+The software package consists of a Python module, `spectroscopy`, along with a set of command-line scripts for working with output from Phonopy and VASP.
 
 
 ## Features
@@ -25,14 +25,18 @@ All four packages are available from PyPI (via `pip`) and on the Anaconda platfo
 Please see the documentation of the codes for instructions on how to install them on your system.
 
 This code does not currently ship with a `setup.py` script.
-After cloning or downloading and unpacking the repository, add it to your `PYTHONPATH` so that the command-line scripts can locate `SpectroscoPy`, e.g.:
+After cloning or downloading and unpacking the repository, add it to your `PYTHONPATH` so that the command-line scripts can locate `spectroscopy`, e.g.:
 
-`export PYTHONPATH=${PYTHONPATH}:/Volumes/Data/Repositories/Phonopy-Spectroscopy`
+`export PYTHONPATH=${PYTHONPATH}:/Volumes/Data/Repositories/Phonopy-Spectroscopy/lib`
 
 The command-line scripts are in the [Scripts](./Scripts) directory.
 For convenience, you may wish to add this folder to your `PATH` variable, e.g.:
 
-`export PATH=${PATH}:/Volumes/Data/Repositories/Phonopy-Spectroscopy/Scripts`
+`export PATH=${PATH}:/Volumes/Data/Repositories/Phonopy-Spectroscopy/scripts`
+
+You will also need to make the scripts executable:
+
+`chmod +x scripts/*`
 
 For a description of the command-line arguments the scripts accept, call them with the `-h` option, e.g.:
 
