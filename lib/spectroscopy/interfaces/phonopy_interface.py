@@ -318,20 +318,12 @@ def read_mesh_hdf5(file_path):
 
         # Extract the Gamma-point eigenvectors.
 
-        eigenvectors = []
+        eigenvectors = None
+        
+        temp = mesh_hdf5['eigenvector'][q_index].real
 
-        for i in range(0, len(frequencies)):
-            eigenvector = []
-
-            # Indexing taken from the Mesh.write_yaml() routine in
-            # Phonopy.
-
-            for j in range(0, n_atoms):
-                eigenvector.append(
-                    [mesh_hdf5['eigenvector'][q_index, j * 3 + k, i].real
-                        for k in range(0, 3)])
-
-            eigenvectors.append(np.array(eigenvector, dtype=np.float64))
+        eigenvectors = [
+            temp[:, i].reshape(n_atoms, 3) for i in range(len(frequencies))]
 
     finally:
         # Make sure the input file gets closed.

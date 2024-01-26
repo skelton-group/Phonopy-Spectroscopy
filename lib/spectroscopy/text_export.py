@@ -89,7 +89,7 @@ def write_data_dat(data_rows, file_path):
     # column widths in advance. The brute-force way to do this is to
     # simply call str() on each data item and find the maximum length of
     # the strings to be written in each column.
-
+    
     data_rows_string = []
 
     for data_row in data_rows:
@@ -123,7 +123,7 @@ def write_data_dat(data_rows, file_path):
     column_widths = [
         len(item) for item in data_rows_string[0]
         ]
-
+    
     for data_row_string in data_rows_string[1:]:
         for i, item in enumerate(data_row_string):
             column_widths[i] = max(column_widths[i], len(item))
@@ -471,7 +471,7 @@ def save_raman_intensity_theta(
 
     data_rows = [header_row_1, header_row_2]
 
-    for theta, intensity_set in zip(theta_vals, intensity_sets):
-        data_rows.append([theta] + [i for i in intensity_set])
+    for i, theta in enumerate(theta_vals):
+        data_rows.append([theta] + [intensity_set[i] for intensity_set in intensity_sets])
     
     write_data(data_rows, file_path, file_format)

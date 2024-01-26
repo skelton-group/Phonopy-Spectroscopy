@@ -41,6 +41,12 @@ if __name__ == "__main__":
         help="Padding between periodic images (default: 15 A)")
 
     parser.add_argument(
+        "--cubic",
+        action='store_true', dest="CubicBox", default=False,
+        help="Generate a cubic box with at least --padding between "
+             "periodic images")
+
+    parser.add_argument(
         "--title",
         metavar="<title>", type=str, dest="TitleLine", default=None,
         help="Override the system (line 1) in the POSCAR file "
@@ -58,11 +64,19 @@ if __name__ == "__main__":
     min_pos = np.min(atom_positions, axis=0)
     max_pos = np.max(atom_positions, axis=0)
 
-    lattice_vectors = np.diag((max_pos - min_pos) + args.Padding)
+    cell_lengths = None
+
+    if args.CubicBox:
+        cell_lengths = (np.ones((3, ), dtype = np.float64)
+                   + ((max_pos - min_pos).max() + args.Padding))
+    else:
+        cell_lengths = (max_pos - min_pos) + args.Padding
+    
+    lattice_vectors = np.diag(cell_lengths)
 
     # Adjust positions to place the atom at the centre of the cell.
 
-    trans = (args.Padding / 2.0) - min_pos
+    trans = ((cell_lengths - (max_pos - min_pos)) / 2.0) - min_pos
 
     atom_positions = [pos + trans for pos in atom_positions]
 

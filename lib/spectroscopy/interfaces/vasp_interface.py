@@ -18,6 +18,7 @@ import re
 
 import numpy as np
 
+from spectroscopy.constants import ZERO_TOLERANCE
 from spectroscopy import utilities
 
 
@@ -367,8 +368,8 @@ def parse_outcar(file_path, extract_list):
                 # with certain combinations of tags -- this is not what
                 # we want for Raman calculations.
 
-                if (line[:36] == "MACROSCOPIC STATIC DIELECTRIC TENSOR"
-                        and  "IONIC CONTRIBUTION" not in line):
+                if (line.startswith("MACROSCOPIC STATIC DIELECTRIC TENSOR")
+                        and "IONIC CONTRIBUTION" not in line):
                     next(input_reader)
 
                     dielectric_tensor = []
@@ -381,7 +382,45 @@ def parse_outcar(file_path, extract_list):
 
                     output_data['epsilon_static'] = np.array(
                         dielectric_tensor, dtype=np.float64)
-
+                
+                # Make sure we capture the "density-density" calculation of the
+                # real dielectric function -- again, this is what we want for
+                # the Raman calculations.
+                
+                elif ("REAL DIELECTRIC FUNCTION" in line
+                      and "density-density" in line):
+                    
+                    for _ in range(2):
+                        next(input_reader)
+                    
+                    eps_e, eps_r_e = [], []
+                    
+                    for line in input_reader:
+                        vals = line.strip().split()
+                        
+                        if len(vals) == 7:
+                            e, xx, yy, zz, xy, yz, xz = [
+                                float(val) for val in vals]
+                            
+                            eps_r = np.array(
+                                [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]],
+                                dtype=np.float64)
+                            
+                            eps_e.append(e)
+                            eps_r_e.append(eps_r)
+                        else:
+                            break
+                    
+                    if len(eps_e) == 0:
+                        raise Exception("Error: Failed to parse real "
+                                        "dielectric function.")
+                    
+                    if math.fabs(eps_e[0] > ZERO_TOLERANCE):
+                        raise Exception("Error: Real dielectric function does "
+                                        "does not start with E = 0.")
+                    
+                    output_data['epsilon_static'] = eps_r_e[0]
+            
             if 'phonon_modes' in extract_list:
                 if line == "Eigenvectors and eigenvalues of the dynamical " \
                         "matrix":

@@ -93,7 +93,9 @@ def get_frequency_unit_label(frequency_units):
 
 _IRREP_ACTIVITIES = {
     # Point group C_1.
-    '1': {'all': ["A"]},
+    '1': {'ir': ["A"],
+          'raman': ["A"],
+          'all': ["A"]},
     # Point group C_i.
     '-1': {'ir': ["Au"],
            'raman': ["Ag"],
