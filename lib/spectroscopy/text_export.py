@@ -456,7 +456,7 @@ def save_raman_intensity_theta(
     """
 
     header_row_1 = (["", "I(v) [{0}]".format(intensity_unit_label)]
-                   + [""] * (len(intensity_sets) - 1))
+                   + [""] * (len(intensity_sets[0]) - 1))
 
     mode_labels = [
         "Mode {0}".format(i + 1) for i in range(len(intensity_sets))]
