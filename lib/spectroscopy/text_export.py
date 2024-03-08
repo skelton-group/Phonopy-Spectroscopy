@@ -89,7 +89,7 @@ def write_data_dat(data_rows, file_path):
     # column widths in advance. The brute-force way to do this is to
     # simply call str() on each data item and find the maximum length of
     # the strings to be written in each column.
-    
+
     data_rows_string = []
 
     for data_row in data_rows:
@@ -123,7 +123,7 @@ def write_data_dat(data_rows, file_path):
     column_widths = [
         len(item) for item in data_rows_string[0]
         ]
-    
+
     for data_row_string in data_rows_string[1:]:
         for i, item in enumerate(data_row_string):
             column_widths[i] = max(column_widths[i], len(item))
@@ -141,7 +141,7 @@ def write_data_dat(data_rows, file_path):
                 format_code.format(item) for format_code, item in
                     zip(column_format_codes, data_row_string)
                 ]
-            
+
             # Use four blank spaces as a column separator.
 
             output_writer.write('    '.join(items) + '\n')
@@ -157,7 +157,7 @@ def group_for_peak_table(
     """ Average mode frequencies, intensities and linewidths (if
     supplied) into groups defined by the (symbol, band_indices) tuples
     in irrep_data.
-    
+
     Returns a tuple of (new_frequencies, new_intensities, irrep_symbols,
     new_linewidths) lists, each with the same length as irrep_data.
 
@@ -291,7 +291,7 @@ def save_peak_table(
         raise Exception(
             "If supplied, irrep_symbols must be the same length as "
             "frequencies.")
-    
+
     if linewidths is not None and len(linewidths) != num_modes:
         raise Exception(
             "If supplied, linewidths must be the same length as "
@@ -306,7 +306,7 @@ def save_peak_table(
 
         if irrep_symbols is not None:
             header_row_1.append("")
-        
+
         header_row_1.append("I [{0}]".format(intensity_unit_label))
         header_row_1.extend([""] * (len(intensities_or_intensity_sets) - 1))
 
@@ -319,7 +319,7 @@ def save_peak_table(
 
         if irrep_symbols is not None:
             header_row_2.append("Ir. Rep.")
-        
+
         header_row_2.extend(intensity_set_labels)
 
         if linewidths is not None:
@@ -339,7 +339,7 @@ def save_peak_table(
         if linewidths is not None:
             header_row = header_row + [
                 r"\Gamma [{0}]".format(frequency_unit_label)]
-        
+
         data_rows.append(header_row)
 
     data_items = [frequencies]
@@ -418,7 +418,7 @@ def save_scalar_spectrum_or_spectra(
         data_rows.append(
             ["", "I(v) [{0}]".format(intensity_unit_label)]
             + [""] * (len(intensities_or_intensity_sets) - 1))
-        
+
         data_rows.append(
             ["v [{0}]".format(frequency_unit_label)]
             + [label for label in intensity_set_labels])
@@ -454,24 +454,24 @@ def save_raman_intensity_theta(
         file_format -- file format to export to ('csv' or 'dat';
             default: 'dat').
     """
-    
+
     header_row_1 = (["", "I(v) [{0}]".format(intensity_unit_label)]
                    + [""] * (len(intensity_sets) - 1))
-    
+
     mode_labels = [
         "Mode {0}".format(i + 1) for i in range(len(intensity_sets))]
-    
+
     if irrep_symbols is not None:
         mode_labels = [
             "{0} ({1})".format(label, symbol)
                 for label, symbol in zip(mode_labels, irrep_symbols)
             ]
-    
+
     header_row_2 = [r"\theta [{0}]".format(theta_unit_label)] + mode_labels
 
     data_rows = [header_row_1, header_row_2]
 
-    for i, theta in enumerate(theta_vals):
-        data_rows.append([theta] + [intensity_set[i] for intensity_set in intensity_sets])
-    
+    for theta, intensity_set in zip(theta_vals, intensity_sets):
+        data_rows.append([theta] + [i for i in intensity_set])
+
     write_data(data_rows, file_path, file_format)
