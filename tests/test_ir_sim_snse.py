@@ -34,7 +34,7 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     _parse_dielectric_function,
 )
 
-from phonopy_spectroscopy.ir.calculation import InfraredCalculator
+from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
 from phonopy_spectroscopy.phonon import GammaPhonons
 
@@ -76,7 +76,7 @@ class TestInfratedSimulations(unittest.TestCase):
             gamma_ph.structure,
         )
 
-        self._calc = InfraredCalculator(
+        self._calc = InfraredCalculation(
             gamma_ph, born_charges, eps_inf=eps_inf
         )
 
@@ -251,7 +251,7 @@ class TestInfratedSimulations(unittest.TestCase):
             irreps=gamma_ph.irreps,
         )
 
-        calc_new = InfraredCalculator(
+        calc_new = InfraredCalculation(
             gamma_ph_new, calc.born_effective_charges, eps_inf=calc.epsilon_inf
         )
 

@@ -84,6 +84,11 @@ class RamanCalculation:
                     "shape (N,)."
                 )
 
+            if len(band_inds) == 0:
+                raise ValueError(
+                    "If supplied, band_inds must specify at least one band."
+                )
+
             if len(band_inds) != len(set(band_inds)):
                 raise ValueError(
                     "One or more indices in band_inds are duplicates."
@@ -92,7 +97,7 @@ class RamanCalculation:
             for idx in band_inds:
                 if idx < 0 or idx >= gamma_ph.num_modes:
                     raise ValueError(
-                        "One or more indices in band_indices are "
+                        "One or more indices in band_inds are "
                         "incompatible with the number of modes in the "
                         "phonon calculation."
                     )
@@ -102,6 +107,13 @@ class RamanCalculation:
 
         else:
             band_inds = np.array(list(range(gamma_ph.num_modes)), dtype=int)
+
+        if len(band_inds) != len(r_t.raman_tensors):
+            raise ValueError(
+                "The number of Raman tensors is inconsistent with the "
+                "number of band indices (or the number of modes in the "
+                "phonon calculation if band_inds was not supplied)."
+            )
 
         self._gamma_ph = gamma_ph
         self._r_t = r_t

@@ -140,11 +140,11 @@ def lookup_atomic_mass(symbol):
     symbol = str(symbol).title()
 
     for _, db_symbol, _, db_mass in atom_data:
-        if symbol == db_symbol:
+        if symbol == db_symbol and db_mass is not None:
             return db_mass
 
     raise ValueError(
-        'Data for symbol="{0}" not available in '
+        'Atomic mass for symbol="{0}" not available in '
         "phonopy.atoms.atom_data.".format(symbol)
     )
 

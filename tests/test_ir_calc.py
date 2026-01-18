@@ -21,7 +21,7 @@ from phonopy_spectroscopy.interfaces.phonopy_interface import (
     hf_dielectric_and_born_from_born,
 )
 
-from phonopy_spectroscopy.ir.calculation import InfraredCalculator
+from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
 from phonopy_spectroscopy.utility.io_helper import load_json, save_json
 
@@ -67,14 +67,14 @@ class TestInfraredCalculations(unittest.TestCase):
 
         # Construct an InfraredCalculator object.
 
-        calc = InfraredCalculator(gamma_ph, born_charges, eps_inf=eps_inf)
+        calc = InfraredCalculation(gamma_ph, born_charges, eps_inf=eps_inf)
 
         # Test serialisation/deserialisation of the InfraredCalculator
         # class.
 
         save_json(calc.to_dict(), r"ir_calculator.json.tmp")
 
-        calc_cmp = InfraredCalculator.from_dict(
+        calc_cmp = InfraredCalculation.from_dict(
             load_json(r"ir_calculator.json.tmp")
         )
 

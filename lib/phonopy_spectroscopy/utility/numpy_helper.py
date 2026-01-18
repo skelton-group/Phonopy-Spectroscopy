@@ -40,8 +40,8 @@ def np_asarray_copy(a, **kwargs):
 
     Notes
     -----
-    This function reproduces some of the keyword of the `copy` keyword
-    argument to `numpy.ndarray()` in NumPy >= 2.0 and is for
+    This function reproduces some of the functionality of the `copy`
+    keyword argument to `numpy.ndarray()` in NumPy >= 2.0 and is for
     compatibility with older versions.
     """
 

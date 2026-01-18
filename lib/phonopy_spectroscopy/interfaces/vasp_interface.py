@@ -84,7 +84,7 @@ def structure_from_poscar(file_path, at_m=None, conv_trans=None):
 
         v_latt = s_f * np.array(v_latt, dtype=np.float64)
 
-        if np.isclose(np.linalg.norm(v_latt, axis=0), ZERO_TOLERANCE).any():
+        if np.isclose(np.linalg.norm(v_latt, axis=1), ZERO_TOLERANCE).any():
             raise RuntimeError(
                 "POSCAR file {0}: One or more lattice vectors has zero "
                 "length.".format(file_path)

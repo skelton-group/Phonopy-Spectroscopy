@@ -20,6 +20,7 @@ import warnings
 from .calculation import RamanCalculation
 from .tensors import RamanTensors
 
+from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
 from ..phonon import GammaPhonons
 from ..units import nm_to_ev
@@ -122,14 +123,21 @@ class FiniteDisplacementRamanTensorCalculator:
             for idx in band_inds:
                 if idx < 0 or idx >= gamma_ph.num_modes:
                     raise ValueError(
-                        "One or more indices in band_indices are "
+                        "One or more indices in band_inds are "
                         "incompatible with the number of modes in the "
                         "phonon calculation."
                     )
 
+        if len(band_inds) == 0:
+            raise Exception(
+                "No Raman-active modes in phonon calculation or no "
+                "band_inds specified."
+            )
+
         self._gamma_ph = gamma_ph
         self._band_inds = band_inds
 
+        self._prec = prec
         self._step_size = step_size
         self._disp_steps = disp_steps
         self._step_coeffs = step_coeffs
@@ -148,6 +156,11 @@ class FiniteDisplacementRamanTensorCalculator:
     def step_size(self):
         """float : Displacement step size."""
         return self._step_size
+
+    @property
+    def precision(self):
+        """int : Finite-difference stencil precision."""
+        return self._prec
 
     @property
     def displacement_steps(self):
@@ -191,7 +204,7 @@ class FiniteDisplacementRamanTensorCalculator:
 
         for i, idx in enumerate(self._band_inds):
             max_disps[i] = (
-                abs_disp_steps * np.linalg.norm(edisps[idx], axis=0).max()
+                abs_disp_steps * np.linalg.norm(edisps[idx], axis=1).max()
             )
 
         return max_disps
@@ -335,8 +348,10 @@ class FiniteDisplacementRamanTensorCalculator:
         return {
             "gamma_phonons": self._gamma_ph.to_dict(),
             "band_indices": self._band_inds.tolist(),
+            "step_size": self._step_size,
+            "precision": self._prec,
             "displacement_steps": self._disp_steps.tolist(),
-            "coefficients": self._step_coeffs.tolist(),
+            "step_coefficients": self._step_coeffs.tolist(),
         }
 
     @staticmethod
@@ -357,9 +372,39 @@ class FiniteDisplacementRamanTensorCalculator:
             from the data in `d`.
         """
 
-        return FiniteDisplacementRamanTensorCalculator(
+        fd_calc = FiniteDisplacementRamanTensorCalculator(
             GammaPhonons.from_dict(d["gamma_phonons"]),
-            d["band_indices"],
-            disp_steps=d["displacement_steps"],
-            step_coeffs=d["coefficients"],
+            prec=d["precision"],
+            step_size=d["step_size"],
+            band_inds=d["band_indices"],
         )
+
+        # The displacement_steps and step_coefficients properties are
+        # generated based on the prec and stpe_size parameters, so check
+        # for consistency with the data in the dictionary.
+
+        diff = (
+            np.array(d["displacement_steps"], dtype=np.float64)
+            - fd_calc.displacement_steps
+        )
+
+        if (np.abs(diff) > ZERO_TOLERANCE).any():
+            raise Exception(
+                "displacement_steps property inconsistent with the"
+                '"displacement_steps" key in the supplied dictionary '
+                "(this is likely a bug)."
+            )
+
+        diff = (
+            np.array(d["step_coefficients"], dtype=np.float64)
+            - fd_calc.step_coefficients
+        )
+
+        if (np.abs(diff) > ZERO_TOLERANCE).any():
+            raise Exception(
+                "step_coefficients property inconsistent with the"
+                '"step_coefficients" key in the supplied dictionary '
+                "(this is likely a bug)."
+            )
+
+        return fd_calc
