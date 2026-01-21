@@ -86,6 +86,29 @@ def get_distance_unit_conversion_factor(unit_from, unit_to):
     )
 
 
+def convert_distance_units(vals, unit_from, unit_to):
+    """Convert distances in `unit_from` to `unit_to`.
+
+    Parameters
+    ----------
+    vals : array_like or float
+        Value(s) to convert.
+    unit_from, unit_to : str
+        Units to convert from and to.
+
+    Returns
+    -------
+    conv_vals : array_like or float
+        Converted values (shame shape as `vals`).
+    """
+
+    vals, n_dim_add = np_expand_dims(np.asarray(vals), (None,))
+
+    vals = vals * get_distance_unit_conversion_factor(unit_from, unit_to)
+
+    return vals if n_dim_add == 0 else vals[0]
+
+
 # ---------------
 # Frequency units
 # ---------------

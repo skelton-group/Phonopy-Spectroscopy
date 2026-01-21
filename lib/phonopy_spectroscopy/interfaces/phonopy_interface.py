@@ -44,6 +44,56 @@ from ..utility.io_helper import load_yaml
 from .vasp_interface import structure_from_poscar
 
 
+# -----------------------
+# Code interface handling
+# -----------------------
+
+
+_INTERFACE_UNITS = {
+    "abacus": {"distance": "bohr"},
+    "abinit": {"distance": "bohr"},
+    "aims": {"distance": "ang"},
+    "castep": {"distance": "ang"},
+    "cp2k": {"distance": "ang"},
+    "crystal": {"distance": "ang"},
+    "dftbp": {"distance": "bohr"},
+    "elk": {"distance": "bohr"},
+    "fleur": {"distance": "bohr"},
+    "lammps": {"distance": "ang"},
+    "qlm": {"distance": "bohr"},
+    "qe": {"distance": "bohr"},
+    "siesta": {"distance": "bohr"},
+    "turbomole": {"distance": "bohr"},
+    "vasp": {"distance": "ang"},
+    "wien2k": {"distance": "bohr"},
+    "pwmat": {"distance": "ang"},
+}
+
+"""Unit systems used in codes supported by Phonopy."""
+
+
+def get_distance_unit_for_interface(calculator):
+    """_summary_
+
+    Parameters
+    ----------
+    calculator : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+
+    k = calculator.lower()
+
+    if k in _INTERFACE_UNITS:
+        return _INTERFACE_UNITS[k]["distance"]
+
+    raise ValueError('Unknown interface "{0}".'.format(calculator))
+
+
 # -------------------
 # High-level "loader"
 # -------------------

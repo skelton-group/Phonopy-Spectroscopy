@@ -19,6 +19,8 @@ import numpy as np
 
 from .constants import ZERO_TOLERANCE
 
+from .units import convert_distance_units
+
 from .utility.numpy_helper import (
     np_asarray_copy,
     np_readonly_view,
@@ -177,7 +179,7 @@ class Structure:
         at_m : array_like, optional
             Atomic masses (optional, shape: `(N,)`).
         conv_trans : array_like, optional
-            Specifies a transformation to the conventonal unit cell
+            Specifies a transformation to the conventional unit cell
             (default: identity matrix).
         cart_to_frac : bool, optional
             If `True`, convert `at_pos` from Cartesian to fractional
@@ -420,8 +422,14 @@ class Structure:
 
         return fractional_to_cartesian_coordinates(self._at_pos, self._v_latt)
 
-    def to_phonopy_atoms(self):
+    def to_phonopy_atoms(self, distance_unit="ang"):
         """Return the structure as a `PhonopyAtoms` instance.
+
+        Params
+        ------
+        distance_unit : str, optional
+            Specify the distance unit to be used in the returned
+            `PhonopyAtoms` object (default: "ang"").
 
         Returns
         -------
@@ -439,15 +447,55 @@ class Structure:
                 "phonopy.structure.PhonopyAtoms class."
             )
 
+        v_latt = self._v_latt
+
+        if distance_unit != "ang":
+            v_latt = convert_distance_units(v_latt, "ang", distance_unit)
+
         # The phonopy API uses the idiom "if x" to detect when a
         # parameter x is set, which raises if x is a NumPy array with
         # more than one element.
 
         return PhonopyAtoms(
-            cell=self.lattice_vectors.tolist(),
+            cell=v_latt.tolist(),
             scaled_positions=self.atom_positions.tolist(),
             symbols=self.atom_types.tolist(),
             masses=self.atomic_masses.tolist(),
+        )
+
+    @staticmethod
+    def from_phonopy_atoms(atoms, distance_unit="ang", conv_trans=None):
+        """Create a new `Structure` instance from a `PhonopyAtoms`
+        object.
+
+        Params
+        ------
+        atoms : PhonopyAtoms
+            `PhonopyAtoms` object.
+        distance_unit : str, optional
+            Specify the distance unit used in `atoms` (default: "ang").
+        conv_trans : array_like, optional
+            Specify the optional `conv_trans` keyword to the `Structure`
+            class constructor (default: `None`).
+
+        Returns
+        -------
+        struct : Structure
+            `Structure` object constructed from the data in `atoms`.
+        """
+
+        v_latt = atoms.cell
+
+        if distance_unit != "ang":
+            v_latt = convert_distance_units(v_latt, distance_unit, "ang")
+
+        return Structure(
+            v_latt,
+            atoms.scaled_positions,
+            atoms.symbols,
+            atoms.masses,
+            conv_trans=conv_trans,
+            cart_to_frac=False,
         )
 
     def to_dict(self):
@@ -491,4 +539,5 @@ class Structure:
             d["atom_types"],
             at_m=d["atomic_masses"],
             conv_trans=d["conventional_transformation_matrix"],
+            cart_to_frac=False,
         )
