@@ -136,11 +136,11 @@ def map_atom_positions(str_map, str_ref, constraints=None, warn=False):
             warn=warn,
         )
 
-    thetas = np.zeros((3,), dtype=np.float64)
+    thetas = []
 
     for idx in range(3):
         dp = np.dot(str_map.lattice_vectors[idx], str_ref.lattice_vectors[idx])
-        thetas[idx] = np.acos(dp / (norms_map[idx] * norms_ref[idx]))
+        thetas.append(np.arccos(dp / (norms_map[idx] * norms_ref[idx])))
 
     thetas = np.abs(np.degrees(thetas))
 
@@ -423,7 +423,7 @@ class BandUnfolder:
         if atom_map is not None:
             atom_map = np_asarray_copy(atom_map, dtype=object)
 
-            if len(atom_map) != len(struct.num_atoms):
+            if len(atom_map) != struct.num_atoms:
                 raise ValueError(
                     "The number of entries in atom_map does not match "
                     "the number of atoms in the supercell used for the "
