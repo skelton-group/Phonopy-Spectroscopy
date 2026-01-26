@@ -332,7 +332,7 @@ def centred_modulo(a):
     return ((np.asarray(a, dtype=np.float64) + 0.5) % 1.0) - 0.5
 
 
-def map_qpoints(qpts, ref_struct, map_struct, tol=1.0e-5):
+def map_qpoints(qpts, ref_struct, map_struct):
     """Map "reduced" q-point(s) defined in the Brillouin zone of a
     reference structure to the Brillouin zone of another structure.
 
@@ -343,10 +343,6 @@ def map_qpoints(qpts, ref_struct, map_struct, tol=1.0e-5):
     ref_struct, map_struct : Structure
         Reference structure for which `qpts` are specified and structure
         to map to.
-    tol : float, optional
-        Tolerance for checking the unit cells of `ref_struct` and
-        `map_struct` are a "pure" transformation with no shear or volume
-        scaling.
 
     Returns
     -------
@@ -354,27 +350,6 @@ def map_qpoints(qpts, ref_struct, map_struct, tol=1.0e-5):
         Fractional q-point(s) in the Brillouin zone of `map_struct`
         (same shape as `qpts`).
     """
-
-    # Check whether the lattices of struct_ref and struct_map are
-    # related by a pure rotation (i.e. no shear/scaling) by comparing
-    # the real-space metric tensors.
-
-    ref_metric_tensor = np.dot(
-        ref_struct.lattice_vectors, ref_struct.lattice_vectors.T
-    )
-
-    map_metric_tensor = np.dot(
-        map_struct.lattice_vectors, map_struct.lattice_vectors.T
-    )
-
-    abs_diff = np.abs(ref_metric_tensor - map_metric_tensor)
-
-    if (abs_diff > tol).any():
-        raise Exception(
-            "Maximum absolute difference in metric tensors of "
-            "struct_ref and struct_map = {0:.3e} > {1:.3e}."
-            "".format(abs_diff.max(), tol)
-        )
 
     qpts, n_dim_add = np_expand_dims(
         np.asarray(qpts, dtype=np.float64), (None, 3)
@@ -396,13 +371,13 @@ def map_qpoints(qpts, ref_struct, map_struct, tol=1.0e-5):
 
     bz_trans_mat = np.dot(np.linalg.inv(ref_rec_v_latt), map_rec_v_latt)
 
-    # Convert the rotated q-point coordinates back to fractional
-    # coordinates in the Brillouin zone of the map structure and apply a
-    # centred modulo.
-
     map_qpts_cart = np.array(
         [np.dot(q, bz_trans_mat) for q in ref_qpts_cart], dtype=np.float64
     )
+
+    # Convert the rotated q-point coordinates back to fractional
+    # coordinates in the Brillouin zone of the map structure and apply a
+    # centred modulo.
 
     map_qpts = cartesian_to_fractional_coordinates(
         map_qpts_cart, map_rec_v_latt
