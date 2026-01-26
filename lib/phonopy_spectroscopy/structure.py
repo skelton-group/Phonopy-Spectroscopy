@@ -110,7 +110,7 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
     cart_pos = np.zeros_like(frac_pos)
 
     for i, p in enumerate(frac_pos):
-        cart_pos[i] = np.dot(p.T, latt_vecs)
+        cart_pos[i] = np.dot(p, latt_vecs)
 
     return cart_pos if n_dim_add == 0 else cart_pos[0]
 
@@ -254,7 +254,7 @@ class Structure:
         else:
             conv_trans = np.identity(3, dtype=np.float64)
 
-        latt_vecs_conv = np.dot(conv_trans, latt_vecs)
+        latt_vecs_conv = np.dot(latt_vecs, conv_trans)
 
         if n_a > 0:
             if cart_to_frac:
@@ -335,17 +335,21 @@ class Structure:
             Unit-cell volume.
         """
 
-        v_1, v_2, v_3 = self._v_latt_conv if conv else self._v_latt
-        return np.dot(v_1, np.cross(v_2, v_3))
+        v_latt = self._v_latt_conv if conv else self._v_latt
+        return np.abs(np.linalg.det(v_latt))
 
-    def reciprocal_lattice_vectors(self, conv=False):
-        """Calculate and return the reciprocal lattice vectors.
+    def reciprocal_lattice_vectors(self, conv=False, two_pi=True):
+        r"""Calculate and return the reciprocal lattice vectors.
 
         Parameters
         ----------
         conv : bool, optional
             If `True`, return the volume of the conventional unit cell
             (default: `False`).
+        two_pi : bool, optional
+            If `True`, compute the "Physics" definition of the
+            reciprocal lattice vectors with a prefactor of 2 \pi
+            (default: `True`).
 
         Returns
         -------
@@ -353,17 +357,10 @@ class Structure:
             Recipocal lattice vectors (shape: `(3, 3)`).
         """
 
-        a_1, a_2, a_3 = self._v_latt_conv if conv else self._v_latt
-        v = self.volume(conv=conv)
+        v_latt = self._v_latt_conv if conv else self._v_latt
+        rec_v_latt = np.linalg.inv(v_latt).T
 
-        return np.array(
-            [
-                np.cross(a_2, a_3) / v,
-                np.cross(a_3, a_1) / v,
-                np.cross(a_1, a_2) / v,
-            ],
-            dtype=np.float64,
-        )
+        return (2.0 * np.pi * rec_v_latt) if two_pi else rec_v_latt
 
     def real_space_normal(self, hkl, conv=False):
         """Calculate the real-space normal to the surface with Miller
@@ -389,20 +386,18 @@ class Structure:
         if not np_check_shape(hkl, (3,)):
             raise ValueError("hkl must be an array_like with shape `(3,)`.")
 
-        b_1, b_2, b_3 = self.reciprocal_lattice_vectors(conv=conv)
+        # Whether we use the "Physics" or "crystallography" definition
+        # of the reciprocal lattice doesn't matter because we normalise
+        # the result.
+
+        rec_v_latt = self.reciprocal_lattice_vectors(conv=conv, two_pi=False)
 
         # Use the reciprocal metric tensor to obtain the real-space
         # normal in fractional coordinates.
 
-        recip_metric = np.array(
-            [
-                [np.dot(b_1, b_1), np.dot(b_1, b_2), np.dot(b_1, b_3)],
-                [np.dot(b_2, b_1), np.dot(b_2, b_2), np.dot(b_2, b_3)],
-                [np.dot(b_3, b_1), np.dot(b_3, b_2), np.dot(b_3, b_3)],
-            ]
-        )
+        rec_metric = np.dot(rec_v_latt, rec_v_latt.T)
 
-        norm_frac = np.dot(recip_metric, hkl)
+        norm_frac = np.dot(rec_metric, hkl)
 
         norm_cart = fractional_to_cartesian_coordinates(
             norm_frac, self._v_latt_conv if conv else self._v_latt
