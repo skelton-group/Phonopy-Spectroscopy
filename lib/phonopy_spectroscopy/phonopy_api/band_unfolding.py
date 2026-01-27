@@ -613,12 +613,12 @@ class BandUnfolder:
         `reference_structure`."""
         return np_readonly_view(self._atom_map)
 
-    def _run_unfolding(self, qpts, ref_prim=None, tol=1.0e-5):
+    def _run_unfolding(self, qpts, ref_prim=None):
         """Run the band unfolding for a set of q-points with optional
         Brillouin zone mapping."""
 
         if ref_prim is not None:
-            qpts = map_qpoints(qpts, ref_prim, self._prim_struct, tol=tol)
+            qpts = map_qpoints(qpts, ref_prim, self._prim_struct)
 
         unfolding = Unfolding(
             self._phonopy,
@@ -632,7 +632,7 @@ class BandUnfolder:
 
         return (unfolding.frequencies, unfolding.unfolding_weights)
 
-    def unfold_to_q(self, qpts, ref_prim=None, tol=1.0e-5):
+    def unfold_to_q(self, qpts, ref_prim=None):
         """Unfold to (a) specified q-point(s).
 
         Parameters
@@ -642,9 +642,6 @@ class BandUnfolder:
         ref_prim : Structure, optional
             Reference primitive structure for which the q-point
             coordinates are defined (default: `None`).
-        tol : float, optional
-            Tolerance for checking the calculation and reference
-            primitive cells are consistent (default: 1.0e-5).
 
         Returns
         -------
@@ -658,7 +655,7 @@ class BandUnfolder:
             np.asarray(qpts, dtype=np.float64), (None, 3)
         )
 
-        freqs, weights = self._run_unfolding(qpts)
+        freqs, weights = self._run_unfolding(qpts, ref_prim=ref_prim)
 
         return (
             freqs if n_dim_add == 0 else freqs[0],
@@ -666,12 +663,7 @@ class BandUnfolder:
         )
 
     def unfold_band_structure(
-        self,
-        band_path,
-        num_pts=101,
-        var_seg_len=True,
-        ref_prim=None,
-        tol=1e-5,
+        self, band_path, num_pts=101, var_seg_len=True, ref_prim=None
     ):
         """Unfold to q-points along a specified band path.
 
@@ -688,9 +680,6 @@ class BandUnfolder:
         ref_prim : Structure, optional
             Reference primitive structure for which the q-point
             coordinates are defined (default: `None`).
-        tol : float, optional
-            Tolerance for checking the calculation and reference
-            primitive cells are consistent (default: 1.0e-5).
 
         Returns
         -------
@@ -722,9 +711,7 @@ class BandUnfolder:
         seg_freqs, seg_weights = [], []
 
         for qpts in seg_qpts:
-            freqs, weights = self._run_unfolding(
-                qpts, ref_prim=ref_prim, tol=tol
-            )
+            freqs, weights = self._run_unfolding(qpts, ref_prim=ref_prim)
 
             seg_freqs.append(freqs)
             seg_weights.append(weights)
