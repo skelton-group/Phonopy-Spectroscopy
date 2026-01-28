@@ -28,6 +28,11 @@ from .utility.numpy_helper import (
     np_expand_dims,
 )
 
+from .utility.structure import (
+    cartesian_to_fractional_coordinates,
+    fractional_to_cartesian_coordinates,
+)
+
 _PHONOPY_AVAILABLE = False
 
 try:
@@ -45,74 +50,6 @@ except ImportError:
 # ---------
 # Functions
 # ---------
-
-
-def cartesian_to_fractional_coordinates(cart_pos, latt_vecs):
-    """Convert positions from Cartesian to fractional coordinates.
-
-    Parameters
-    ----------
-    cart_pos : array_like
-        Atom position or set of positions in Cartesian coordinates
-        (shape: `(3,)` or `(N, 3)`).
-    latt_vecs : array_like
-        Lattice vectors (shape: `(3, 3)`).
-
-    Returns
-    -------
-    frac_pos : numpy.ndarray
-        Atom positions in fractional coordinates (same shape as
-        `cart_pos`).
-    """
-
-    cart_pos, n_dim_add = np_expand_dims(np.asarray(cart_pos), (None, 3))
-
-    latt_vecs = np.asarray(latt_vecs)
-
-    if not np_check_shape(latt_vecs, (3, 3)):
-        raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
-
-    trans_mat = np.linalg.inv(latt_vecs)
-
-    frac_pos = np.zeros_like(cart_pos)
-
-    for i, p in enumerate(cart_pos):
-        frac_pos[i] = np.dot(p, trans_mat) % 1.0
-
-    return frac_pos if n_dim_add == 0 else frac_pos[0]
-
-
-def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
-    """Convert positions from fractional to Cartesian coordinates.
-
-    Parameters
-    ----------
-    frac_pos : array_like
-        Atom position or set of positions in fractional coordinates
-        (shape: `(3,)` or `(N, 3)`).
-    latt_vecs : array_like
-        Lattice vectors (shape: `(3, 3)`).
-
-    Returns
-    -------
-    cart_pos : numpy.ndarray
-        Atom positions in Cartesian coordinates (same shape as
-        `frac_pos`).
-    """
-
-    frac_pos, n_dim_add = np_expand_dims(np.asarray(frac_pos), (None, 3))
-
-    latt_vecs = np.asarray(latt_vecs)
-
-    if not np_check_shape(latt_vecs, (3, 3)):
-        raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
-
-    cart_pos = np.zeros_like(frac_pos)
-
-    for i, p in enumerate(frac_pos):
-        cart_pos[i] = np.dot(p, latt_vecs)
-
-    return cart_pos if n_dim_add == 0 else cart_pos[0]
 
 
 def lookup_atomic_mass(symbol):
