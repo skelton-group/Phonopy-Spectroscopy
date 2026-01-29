@@ -20,7 +20,7 @@ import numpy as np
 
 from ..constants import ZERO_TOLERANCE
 
-from ..utility.numpy_helper import np_check_shape
+from ..utility.numpy_helper import np_expand_dims
 
 
 # ---------
@@ -28,19 +28,19 @@ from ..utility.numpy_helper import np_check_shape
 # ---------
 
 
-def participation_ratio(evec):
-    """
+def participation_ratio(evecs):
+    r"""
     Calculate the phonon participation ratio.
 
     Params
     ------
-    evec : array_like
-        Phonon eigenvector (shape: `(N, 3)`).
+    evecs : array_like
+        Phonon eigenvector(s) (shape: `(N, 3)` or `(M, N, 3)`).
 
     Returns
     -------
     pr : float
-        Participation ratio.
+        Participation ratio(s) (scalar or shape: `(M,)`).
 
     Notes
     -----
@@ -53,24 +53,28 @@ def participation_ratio(evec):
     for fully delocalised and fully localised modes.
     """
 
-    evec = np.asarray(evec)
+    evecs, n_dim_add = np_expand_dims(
+        np.asarray(evecs, dtype=np.float64), (None, None, 3)
+    )
 
-    if not np_check_shape(evec, (None, 3)):
-        raise ValueError("evec must be an array_like with shape (N, 3).")
+    # Take square modulus (for complex evecs) and sum over positional
+    # components.
 
-    # Take square modulus (for complex evecs).
+    sq_mods = (np.abs(evecs) ** 2).sum(axis=2)
 
-    sq_mod = np.abs(evec) ** 2
+    # Check eigenvectors are normalised.
 
-    # Check eigenvector is normalised.
+    abs_norms = sq_mods.sum(axis=1)
 
-    norm = sq_mod.sum()
-
-    if np.abs(norm - 1.0) > ZERO_TOLERANCE:
+    if ((abs_norms - 1.0) > ZERO_TOLERANCE).any():
         warnings.warn(
-            "evec may not be normalied: norm = {1:.5f}.", UserWarning
+            "One or more eigenvectors may not be normalied: max. norm "
+            "= {0:.5f}.".format(abs_norms.max()),
+            UserWarning,
         )
 
-    n, _ = sq_mod.shape
+    _, n = sq_mods.shape
 
-    return 1.0 / (n * np.sum(np.sum(sq_mod, axis=1) ** 2))
+    prs = 1.0 / (n * np.sum(sq_mods**2, axis=1))
+
+    return prs if n_dim_add == 0 else prs[0]

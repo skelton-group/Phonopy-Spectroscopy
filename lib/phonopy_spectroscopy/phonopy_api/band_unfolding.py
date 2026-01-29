@@ -74,12 +74,18 @@ class BandUnfolder:
             primitive cell (optional, default: `None`).
         atom_map : array_like of int or None, optional
             Mapping of the atom positions in the calculation supercell
-            to the positions in the reference structure (the default
-            value of `None` attempts an automatic mapping).
+            to the positions in the reference structure, or `None` where
+            no mapping exists (the default value of `None` attempts an
+            automatic mapping).
         ph_calc : str, optional
             Calculator interface used to set up `ph` (default: "vasp").
         symprec : float, optional
             Symmetry tolerance used to set up `ph` (default: 1e-5).
+
+        See Also
+        --------
+        utility.structure.map_atom_positions
+            Create the `atom_map` with more control over the algorithm.
 
         Notes
         -----
@@ -102,7 +108,8 @@ class BandUnfolder:
         any atoms in the reference structure.
 
         For many situations the map can be generated using the
-        `map_atom_positions()` function in this module.
+        `map_atom_positions()` function in the `utility.structure`
+        module.
 
         If `atom_map` is not set, the code will attempt to generate one
         by calling `map_atom_positions()` with the default parameters,

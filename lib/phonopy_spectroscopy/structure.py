@@ -88,6 +88,40 @@ def lookup_atomic_mass(symbol):
     )
 
 
+def lookup_atomic_number(symbol):
+    """Lookup an atomic number from a symbol.
+
+    Parameters
+    ----------
+    symbol : str
+        Atomic symbol.
+
+    Returns
+    -------
+    num : int
+        Atomic number.
+
+    Notes
+    -----
+    This function requires the `phonopy` package.
+    """
+
+    if not _PHONOPY_AVAILABLE:
+        raise RuntimeError(
+            "lookup_atomic_number() requires the "
+            "phonopy.atoms.atom_data attribute."
+        )
+
+    for db_at_num, db_symbol, _, _ in atom_data:
+        if symbol == db_symbol:
+            return db_at_num
+
+    raise ValueError(
+        'Atomic number for symbol="{0}" not available in '
+        "phonopy.atoms.atom_data.".format(symbol)
+    )
+
+
 # ---------------
 # Structure class
 # ---------------
@@ -341,6 +375,23 @@ class Structure:
         )
 
         return norm_cart / np.linalg.norm(norm_cart)
+
+    def atomic_numbers(self):
+        """Return the atomic numbers of the atoms.
+
+        Returns
+        -------
+        at_nums : numpy.ndarray
+            Atomic numbers (shape: `(N,)`).
+        """
+
+        # Avoid looking up the same symbol multiple times.
+
+        at_nums_lut = {
+            sym: lookup_atomic_number(sym) for sym in np.unique(self._at_typ)
+        }
+
+        return np.array([at_nums_lut[sym] for sym in self._at_typ], dtype=int)
 
     def cartesian_positions(self):
         """Return the atomic positions converted to Cartesian
