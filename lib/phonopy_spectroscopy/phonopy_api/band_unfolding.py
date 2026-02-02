@@ -32,6 +32,7 @@ from ..utility.numpy_helper import (
 from ..utility.structure import (
     fractional_to_cartesian_coordinates,
     map_atom_positions,
+    invert_atom_map,
     map_qpoints,
 )
 
@@ -194,38 +195,22 @@ class BandUnfolder:
 
         if atom_map is not None:
             atom_map = np_asarray_copy(atom_map, dtype=object)
-
-            if len(atom_map) != struct.num_atoms:
-                raise ValueError(
-                    "The number of entries in atom_map does not match "
-                    "the number of atoms in the supercell used for the "
-                    "phonon calculation."
-                )
-
-            for i, idx in enumerate(atom_map):
-                if idx is not None:
-                    idx = int(idx)
-
-                    if idx < 0 or idx >= ref_struct.num_atoms:
-                        raise ValueError(
-                            "One or more indices in atom_map are "
-                            "inconsistent with the number of atoms in "
-                            "ref_struct."
-                        )
-
-                    atom_map[i] = idx
         else:
             atom_map, _ = map_atom_positions(struct, ref_struct)
 
-        # While it is intuitive to map the calculation structure onto
-        # the reference structure, the Phonopy Unfolding class requires
-        # the reverse.
+        # While it is arguably most intuitive to map the calculation
+        # structure onto the reference structure, the Phonopy Unfolding
+        # class requires the reverse.
 
-        inv_atom_map = [None] * ref_struct.num_atoms
+        # invert_atom_map() handles the validation of atom_map.
 
-        for idx, ref_idx in enumerate(atom_map):
-            if ref_idx is not None:
-                inv_atom_map[ref_idx] = idx
+        inv_atom_map = invert_atom_map(atom_map, struct, ref_struct)
+
+        # Convert placeholders for many -> one mapping to None.
+
+        if -1 in inv_atom_map:
+            for i, idx in enumerate(inv_atom_map):
+                inv_atom_map[i] = None
 
         inv_atom_map = np.array(inv_atom_map, dtype=object)
 

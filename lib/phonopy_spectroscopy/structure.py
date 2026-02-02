@@ -225,7 +225,7 @@ class Structure:
         else:
             conv_trans = np.identity(3, dtype=np.float64)
 
-        latt_vecs_conv = np.dot(latt_vecs, conv_trans)
+        latt_vecs_conv = np.matmul(conv_trans.T, latt_vecs)
 
         if n_a > 0:
             if cart_to_frac:
@@ -363,18 +363,8 @@ class Structure:
 
         rec_v_latt = self.reciprocal_lattice_vectors(conv=conv, two_pi=False)
 
-        # Use the reciprocal metric tensor to obtain the real-space
-        # normal in fractional coordinates.
-
-        rec_metric = np.dot(rec_v_latt, rec_v_latt.T)
-
-        norm_frac = np.dot(rec_metric, hkl)
-
-        norm_cart = fractional_to_cartesian_coordinates(
-            norm_frac, self._v_latt_conv if conv else self._v_latt
-        )
-
-        return norm_cart / np.linalg.norm(norm_cart)
+        v = np.matmul(hkl, rec_v_latt)
+        return v / np.linalg.norm(v)
 
     def atomic_numbers(self):
         """Return the atomic numbers of the atoms.

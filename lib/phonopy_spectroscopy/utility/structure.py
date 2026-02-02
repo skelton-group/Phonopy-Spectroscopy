@@ -27,6 +27,25 @@ from ..constants import ZERO_TOLERANCE
 from ..utility.numpy_helper import np_check_shape, np_expand_dims
 
 
+# ---------------
+# Helper routines
+# ---------------
+
+
+def _in_place_centred_modulo(a):
+    """Apply an in-place "centred modulo" to the values in a
+    `numpy.ndarray` object `a`."""
+
+    if not isinstance(a, np.ndarray):
+        raise TypeError(
+            "a must be a numpy.ndarray (this is most likely a bug)."
+        )
+
+    a -= np.round(a)
+
+    return a
+
+
 # ---------------------
 # Coordinate conversion
 # ---------------------
@@ -57,12 +76,8 @@ def cartesian_to_fractional_coordinates(cart_pos, latt_vecs):
     if not np_check_shape(latt_vecs, (3, 3)):
         raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
 
-    trans_mat = np.linalg.inv(latt_vecs)
-
-    frac_pos = np.zeros_like(cart_pos)
-
-    for i, p in enumerate(cart_pos):
-        frac_pos[i] = np.dot(p, trans_mat) % 1.0
+    frac_pos = np.matmul(cart_pos, np.linalg.inv(latt_vecs))
+    frac_pos %= 1.0
 
     return frac_pos if n_dim_add == 0 else frac_pos[0]
 
@@ -92,10 +107,7 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
     if not np_check_shape(latt_vecs, (3, 3)):
         raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
 
-    cart_pos = np.zeros_like(frac_pos)
-
-    for i, p in enumerate(frac_pos):
-        cart_pos[i] = np.dot(p, latt_vecs)
+    cart_pos = np.matmul(frac_pos, latt_vecs)
 
     return cart_pos if n_dim_add == 0 else cart_pos[0]
 
@@ -168,18 +180,158 @@ def calculate_distances_frac(pos, latt_vecs, other_pos=None, ret_vecs=False):
             UserWarning,
         )
 
-    vecs_frac = pos[:, np.newaxis, :] - other_pos[np.newaxis, :, :]
+    vecs = pos[:, np.newaxis, :] - other_pos[np.newaxis, :, :]
+    vecs = _in_place_centred_modulo(vecs)
 
     # Apply periodic boundary conditions.
 
-    vecs_frac[vecs_frac < -0.5] += 1.0
-    vecs_frac[vecs_frac >= 0.5] -= 1.0
+    # vecs[vecs < -0.5] += 1.0
+    # vecs[vecs >= 0.5] -= 1.0
 
     # Convert fractional to Cartesian coordinates.
 
-    vecs = np.einsum("ijk,kl", vecs_frac, latt_vecs)
+    vecs = np.matmul(vecs, latt_vecs, out=vecs)
 
     return vecs if ret_vecs else np.linalg.norm(vecs, axis=2)
+
+
+# -------------
+# Atom grouping
+# -------------
+
+
+def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
+    """Group atoms in a structure e.g. into molecules by tracing a
+    bonding network.
+
+    Parameters
+    ----------
+    struct : Structure
+        Structure.
+    bond_dists : sequence, optional
+        Bond distances specified as `(sym, dist)` pairs for all bonds to
+        atoms of type `sym`) or `(sym1, sym2, dist)` triples for bonds
+        between atoms of type `sym1` and `sym2`).
+    default_dist : float, optional
+        Default bond distance for bonds not specified in `bond_dists`
+        (default: 1.6 Ang).
+    atom_inds : array_like or None, optional
+        Optionally specify a subset of atoms to "start" groups from -
+        other atoms will automatically be included if part of the
+        bonding network (default: `None`, group all atoms).
+
+    Returns
+    -------
+    mol_grp_inds : list of numpy.ndarray
+        Indices of atoms in each group.
+    """
+
+    if default_dist <= 0.0:
+        raise ValueError("default_dist must be > 0.")
+
+    at_typs = struct.atom_types
+    at_syms, inv_inds = np.unique(at_typs, return_inverse=True)
+
+    # Given M unique atom types, set up an MxM matrix where each element
+    # corresponds to the maximum distance between each pair of types.
+
+    bond_dist_mat = np.zeros((len(at_syms),) * 2, dtype=np.float64)
+
+    if bond_dists is not None:
+        # Build a temporary lookup table and fill unassigned distances
+        # with default_dist.
+
+        bond_dist_lut = {
+            sym: {sym: default_dist for sym in at_syms} for sym in at_syms
+        }
+
+        if bond_dists is not None:
+            for bond_dist in bond_dists:
+                if len(bond_dist) == 2:
+                    # (sym, dist) : Set max dist for all bonds to an
+                    # atom.
+
+                    sym, dist = bond_dist
+
+                    if sym in at_syms:
+                        bond_dist_lut[sym] = {sym: dist for sym in at_syms}
+
+                elif len(bond_dist) == 3:
+                    # (sym1, sym2, dist) : Set max dist for a specific
+                    # atom pair.
+
+                    sym1, sym2, dist = bond_dist
+
+                    if sym1 in at_syms and sym2 in at_syms:
+                        bond_dist_lut[sym1][sym2] = dist
+                        bond_dist_lut[sym2][sym1] = dist
+                else:
+                    raise ValueError(
+                        "Entries in bond_dists must specify either "
+                        "(sym, dist) pairs or (sym1, sym2, dist) "
+                        "triples."
+                    )
+
+        # Use lookup table to fill bond-distance matrix.
+
+        for i, sym1 in enumerate(at_syms):
+            for j, sym2 in enumerate(at_syms):
+                bond_dist_mat[i, j] = bond_dist_lut[sym1][sym2]
+
+    else:
+        # If individual bond distances are not specified, set all max
+        # dists to default_dist.
+
+        bond_dist_mat[:, :] = default_dist
+
+    if atom_inds is not None:
+        for idx in atom_inds:
+            if idx < 0 or idx >= struct.num_atoms:
+                raise ValueError(
+                    "One or more indices in atom_inds are inconsistent "
+                    "with the number of atoms in struct."
+                )
+    else:
+        atom_inds = [i for i in range(struct.num_atoms)]
+
+    # Generate a neighbour distance table and use the bond-distance
+    # matrix to create a Boolean "bond table".
+
+    dist_table = calculate_distances_frac(
+        struct.atom_positions, struct.lattice_vectors, ret_vecs=False
+    )
+
+    bond_table = dist_table <= bond_dist_mat[np.ix_(inv_inds, inv_inds)]
+
+    # Group atoms into molecules.
+
+    mol_grp_inds = []
+
+    # Keep track of which atoms we've already assigned to molecule
+    # groups.
+
+    assigned_inds = set()
+
+    for i in atom_inds:
+        if i not in assigned_inds:
+            grp_inds = [i]
+
+            while True:
+                grp_inds_new = set(grp_inds)
+
+                for idx1 in grp_inds:
+                    (inds2,) = np.where(bond_table[idx1])
+                    grp_inds_new.update(inds2)
+
+                if len(grp_inds_new) == len(grp_inds):
+                    break
+
+                grp_inds = list(grp_inds_new)
+
+            mol_grp_inds.append(list(grp_inds))
+            assigned_inds.update(grp_inds)
+
+    return [np.array(grp_inds, dtype=int) for grp_inds in mol_grp_inds]
 
 
 # -----------------
@@ -455,7 +607,7 @@ def map_atom_positions(
 
     # If allow_non_unique is not set, check the mapping is unique.
 
-    if not allow_non_unique is None:
+    if not allow_non_unique:
         temp = [idx for idx in idx_refs if idx is not None]
 
         if len(temp) != len(set(temp)):
@@ -468,6 +620,75 @@ def map_atom_positions(
     # Use dtype=object to ensure None is preserved.
 
     return (np.array(idx_refs, dtype=object), np.array(dists, dtype=object))
+
+
+def invert_atom_map(atom_map, map_struct, ref_struct):
+    """Invert an integer mapping produced by `map_atom_positions`.
+
+    Parameters
+    ----------
+    atom_map : array_like
+        Atom map.
+    map_struct, ref_struct : Structure
+        Mapped and reference structures.
+
+    Returns
+    -------
+    inv_map : numpy.ndarray
+        Integer mapping of the atoms in `ref_struct` to atoms in
+        `map_struct`.
+
+    Notes
+    -----
+    `map_atom_positions` allows for "many -> one" mapping, where
+    multiple atoms in `map_struct` map to the same atom in `ref_struct`,
+    which does not have a sensible (singular) inverse. In this scenario,
+    the mapping for that atom is set to `None` and a `RuntimeWarning` is
+    issued.
+    """
+
+    if len(atom_map) != map_struct.num_atoms:
+        raise ValueError(
+            "The number of entries in atom_map does not match the "
+            "number of atoms in map_struct."
+        )
+
+    for i, idx in enumerate(atom_map):
+        if idx is not None:
+            if idx < 0 or idx >= ref_struct.num_atoms:
+                raise ValueError(
+                    "One or more indices in atom_map are "
+                    "inconsistent with the number of atoms in "
+                    "ref_struct."
+                )
+
+    inv_atom_map = [None] * ref_struct.num_atoms
+
+    for idx, ref_idx in enumerate(atom_map):
+        if ref_idx is not None:
+            if (
+                inv_atom_map[ref_idx] is not None
+                and inv_atom_map[ref_idx] != -1
+            ):
+                warnings.warn(
+                    "Multiple atoms in map_struct map to the same atom "
+                    "in ref_struct. Since a singular inverse mapping "
+                    "does not exist, the mapping for this atom will be "
+                    "set to None.",
+                    RuntimeWarning,
+                )
+
+                inv_atom_map[ref_idx] = -1
+            else:
+                inv_atom_map[ref_idx] = idx
+
+    # Convert placeholders for many -> one mapping to None.
+
+    if -1 in inv_atom_map:
+        for i, idx in enumerate(inv_atom_map):
+            inv_atom_map[i] = None
+
+    return np.array(inv_atom_map, dtype=object)
 
 
 # ----------------------
@@ -510,22 +731,28 @@ def map_qpoints(qpts, ref_struct, map_struct):
     ref_qpts_cart = fractional_to_cartesian_coordinates(qpts, ref_rec_v_latt)
 
     # Determine the transformation between the reciprcal lattices of the
-    # reference and map structures and rotate the q-points.
+    # reference and map structures and rotate the q-points. Note that we
+    # need to work with "normal" column-matrix algebra here.
 
-    bz_trans_mat = np.dot(np.linalg.inv(ref_rec_v_latt), map_rec_v_latt)
+    trans_mat = np.matmul(map_rec_v_latt.T, np.linalg.inv(ref_rec_v_latt.T))
 
-    map_qpts_cart = np.array(
-        [np.dot(q, bz_trans_mat) for q in ref_qpts_cart], dtype=np.float64
-    )
-
-    # Convert the rotated q-point coordinates back to fractional
-    # coordinates in the Brillouin zone of the map structure and apply a
+    # Rotate the Cartesian q-point coordinates, convert to fractional
+    # coordinates in the Brillouin zone of map_struct, and apply a
     # centred modulo.
+
+    # The double transpose here is required to converts the q-point
+    # coordinates to column vectors and back.
+
+    map_qpts_cart = np.matmul(trans_mat, ref_qpts_cart.T).T
 
     map_qpts = cartesian_to_fractional_coordinates(
         map_qpts_cart, map_rec_v_latt
     )
 
-    map_qpts = ((map_qpts + 0.5) % 1.0) - 0.5
+    map_qpts = _in_place_centred_modulo(map_qpts)
+
+    diff = map_qpts - qpts
+    diff = diff - np.rint(diff)
+    assert np.allclose(diff, 0.0)
 
     return map_qpts if n_dim_add == 0 else map_qpts[0]

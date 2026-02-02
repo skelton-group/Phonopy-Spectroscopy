@@ -247,11 +247,6 @@ def rotate_tensors(t, r):
     if not np_check_shape(r, (3, 3)):
         raise ValueError("r must be an array_like with shape (3, 3).")
 
-    t_prime = np.zeros_like(t)
-
-    # Rotation matrices should be orthogonal, so that R^-1 = R^T.
-
-    for i, t in enumerate(t):
-        t_prime[i] = np.dot(r, np.dot(t, r.T))
+    t_prime = np.matmul(r, np.matmul(t, r.T))
 
     return t_prime if n_dim_add == 0 else t_prime[0]
