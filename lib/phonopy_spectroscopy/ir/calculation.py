@@ -149,7 +149,7 @@ class InfraredCalculation:
                 temp = np.zeros_like(edisp)
 
                 for j in range(self._gamma_ph.structure.num_atoms):
-                    temp[j] = np.dot(self._born_charges[j], edisp[j])
+                    temp[j] = np.matmul(self._born_charges[j], edisp[j])
 
                 mode_eff_chg[i] = temp.sum(axis=0)
 
@@ -455,7 +455,7 @@ class InfraredCalculation:
                     "(3, 3)."
                 )
 
-            r = np.dot(rot, r)
+            r = np.matmul(rot, r)
 
         self._lazy_calc_mode_oscillator_strengths()
 
@@ -659,7 +659,7 @@ class InfraredCalculation:
 
             if freq > ZERO_TOLERANCE:
                 mode_w[i] = sum(
-                    w * np.abs(np.dot(v, eff_chg)) for v, w in zip(q_v, q_w)
+                    w * np.abs(np.matmul(v, eff_chg)) for v, w in zip(q_v, q_w)
                 ) / np.sqrt(np.abs(freq))
 
         return ((mode_w * freqs[band_inds]) / mode_w.sum()).sum()

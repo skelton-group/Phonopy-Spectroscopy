@@ -47,7 +47,7 @@ def _scalar_oscillator_strength(v_i, t, v_s):
         Mode oscillator strength.
     """
 
-    return np.dot(v_s, np.dot(t, v_i))
+    return np.matmul(v_s, np.matmul(t, v_i))
 
 
 # -----------------------------------

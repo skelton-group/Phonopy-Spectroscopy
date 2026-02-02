@@ -184,7 +184,7 @@ def calculate_powder_intensities_nquad(f, t, geom, i_pol, s_pol, int_f=None):
         def _integrand(phi, theta, psi, v_i, t, v_s):
             rot = direction_cosine(phi, theta, psi)
 
-            return f(v_i, np.dot(rot, np.dot(t, rot.T)), v_s) * (
+            return f(v_i, np.matmul(rot, np.matmul(t, rot.T)), v_s) * (
                 np.sin(theta) / (8.0 * np.pi**2)
             )
 
@@ -268,7 +268,7 @@ def calculate_powder_intensities_with_odf_nquad(
 
             return (
                 march_dollase(po_alpha, po_r)
-                * f(v_i, np.dot(rot, np.dot(t, rot.T)), v_s)
+                * f(v_i, np.matmul(rot, np.matmul(t, rot.T)), v_s)
                 * (np.sin(theta) / (8.0 * np.pi**2))
             )
 
@@ -349,7 +349,7 @@ def calculate_powder_intensities_lebedev_circle(
 
         def _integrand(phi, theta, psi, v_i, t, v_s):
             rot = direction_cosine(phi, theta, psi)
-            return f(v_i, np.dot(rot, np.dot(t, rot.T)), v_s)
+            return f(v_i, np.matmul(rot, np.matmul(t, rot.T)), v_s)
 
         int_f = _integrand
 
@@ -432,7 +432,7 @@ def calculate_powder_intensities_with_odf_lebedev_circle(
                 np.arccos(np.dot(np.dot(rot, po_norm), po_axis)), po_r
             )
 
-            return w * f(v_i, np.dot(rot, np.dot(t, rot.T)), v_s)
+            return w * f(v_i, np.matmul(rot, np.matmul(t, rot.T)), v_s)
 
         int_f = _integrand
 

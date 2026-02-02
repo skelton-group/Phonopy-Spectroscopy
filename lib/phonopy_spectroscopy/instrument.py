@@ -344,13 +344,13 @@ class Polarisation:
         # the axis to +z and applying it to +x.
 
         r = rotation_matrix_from_vectors(axis, parse_direction("z"))
-        v_0 = np.dot(r, parse_direction("x"))
+        v_0 = np.matmul(r, parse_direction("x"))
 
         # Generate a sequence of polarisation vectors by rotating v_0
         # around axis.
 
         vecs = [
-            np.dot(rotation_matrix_from_axis_angle(axis, theta), v_0)
+            np.matmul(rotation_matrix_from_axis_angle(axis, theta), v_0)
             for theta in angles
         ]
 
@@ -426,7 +426,9 @@ class Polarisation:
 
         vecs, w = unit_circle_quad_rule(n, ret="vectors")
 
-        return Polarisation([np.dot(r, v) for v in vecs], w)
+        # Double transpose to convert vecs to/from column format.
+
+        return Polarisation(np.matmul(r, vecs.T).T, w)
 
     @staticmethod
     def cross_to(pol, axis, rot_dir=1.0):
@@ -466,9 +468,7 @@ class Polarisation:
         pol_cross = np.zeros_like(pol)
 
         for i, p in enumerate(pol):
-            pol_cross[i] = Polarisation(
-                [np.dot(r, v) for v in p.vectors], p.weights
-            )
+            pol_cross[i] = Polarisation(np.matmul(r, p.vectors.T).T, p.weights)
 
         return pol_cross if n_dim_add == 0 else pol_cross[0]
 

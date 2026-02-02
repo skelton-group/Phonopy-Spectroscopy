@@ -462,15 +462,7 @@ class RamanCalculation:
             -1.0 * geom.incident_direction,
         )
 
-        if rot is not None:
-            temp = np.zeros_like(rot)
-
-            for i, r_2 in enumerate(rot):
-                temp[i] = np.dot(r_2, r)
-
-            rot = temp
-        else:
-            rot = np.reshape(r, (1, 3, 3))
+        rot = np.matmul(rot, r) if rot is not None else r.reshape((1, 3, 3))
 
         ints = None
 

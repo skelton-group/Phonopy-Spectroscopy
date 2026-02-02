@@ -127,7 +127,7 @@ class BandUnfolder:
 
         The composite matrix used to transform the supercell to the
         primitive cell during unfolding is given by:
-        `np.dot(sc_mat, np.linalg.inv(prim_trans))`
+        `np.matmul(sc_mat, np.linalg.inv(prim_trans))`
 
         This is computed automatically and the result is stored in
         `unfolding_supercell_matrix`.
@@ -171,7 +171,7 @@ class BandUnfolder:
 
             prim_trans = np.eye(3, dtype=np.float64)
 
-        uf_sc_mat = np.dot(sc_mat, np.linalg.inv(prim_trans))
+        uf_sc_mat = np.matmul(sc_mat, np.linalg.inv(prim_trans))
 
         struct = Structure.from_phonopy_atoms(
             ph.supercell,
