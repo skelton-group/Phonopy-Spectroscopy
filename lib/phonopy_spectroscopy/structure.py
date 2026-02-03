@@ -25,7 +25,6 @@ from .utility.numpy_helper import (
     np_asarray_copy,
     np_readonly_view,
     np_check_shape,
-    np_expand_dims,
 )
 
 from .utility.structure import (

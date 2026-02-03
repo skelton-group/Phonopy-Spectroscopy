@@ -206,6 +206,22 @@ class BandUnfolder:
 
         inv_atom_map = invert_atom_map(atom_map, struct, ref_struct)
 
+        # The Unfolding class cannot handle "many -> one" mapping, where
+        # multiple atoms in struct map to the same atom in ref_struct.
+        # The only sensible way to handle this is to set the
+        # corresponding entry to None and issue a warning.
+
+        for i, inds in enumerate(inv_atom_map):
+            if np.ndim(inds) != 0:
+                warnings.warn(
+                    "The BandUnfolder class currently does not support "
+                    "many -> one mapping. Groups of indices will be "
+                    "to None.",
+                    RuntimeWarning,
+                )
+
+                inv_atom_map[i] = None
+
         # Convert placeholders for many -> one mapping to None.
 
         if -1 in inv_atom_map:

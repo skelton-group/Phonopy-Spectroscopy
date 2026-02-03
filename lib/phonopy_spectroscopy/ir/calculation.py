@@ -225,7 +225,7 @@ class InfraredCalculation:
         (shape: `(3N, 3)`)."""
 
         self._lazy_calc_mode_effective_charges()
-        return np_readonly_view(self._mode_effective_charges)
+        return np_readonly_view(self._mode_eff_chg)
 
     @property
     def mode_oscillator_strengths(self):
@@ -233,7 +233,7 @@ class InfraredCalculation:
         (shape: `(3N, 3, 3)`)."""
 
         self._lazy_calc_mode_oscillator_strengths()
-        return np_readonly_view(self._mode_oscillator_strengths)
+        return np_readonly_view(self._mode_osc_str)
 
     def _get_calc_params(self, lw, add_eps_inf, active_only):
         r"""Determine parameters for infrared dielectric function

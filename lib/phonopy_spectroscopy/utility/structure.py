@@ -14,15 +14,9 @@
 # -------
 
 
-import glob
-import os
 import warnings
 
 import numpy as np
-
-from itertools import product
-
-from ..constants import ZERO_TOLERANCE
 
 from ..utility.numpy_helper import np_check_shape, np_expand_dims
 
@@ -33,7 +27,7 @@ from ..utility.numpy_helper import np_check_shape, np_expand_dims
 
 
 def _in_place_centred_modulo(a):
-    """Apply an in-place "centred modulo" to the values in a
+    """Apply an in-place "centred modulo" to fractional coordinates in a
     `numpy.ndarray` object `a`."""
 
     if not isinstance(a, np.ndarray):
@@ -112,9 +106,47 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
     return cart_pos if n_dim_add == 0 else cart_pos[0]
 
 
-# ---------------------
-# Distance calculations
-# ---------------------
+# --------------------------------
+# Centroid + distance calculations
+# --------------------------------
+
+
+def calculate_centroid(struct, at_inds, com=False):
+    """Calculate the centroid of a subset of atoms in a structure.
+
+    Parameters
+    ----------
+    struct : Structure
+        Crystal structure.
+    at_inds : array_like
+        Atom indices (shape: `(M,)`).
+    com : bool, optional
+        Calculate the centre of mass (default: `False`).
+
+    Returns
+    -------
+    pos : numpy.ndarray
+        Calculated centroid (shape: `(3,)`).
+    """
+
+    at_inds = np.array(at_inds, dtype=int)
+
+    if not np_check_shape(at_inds, (None,)):
+        raise ValueError("at_inds must be an array with shape (M,).")
+
+    if (at_inds < 0).any() or (at_inds > struct.num_atoms).any():
+        raise ValueError(
+            "One or more of at_inds are inconsistent with the number "
+            "of atoms in struct."
+        )
+
+    at_pos = struct.atom_positions[at_inds]
+
+    if com:
+        at_m = struct.atomic_masses[at_inds]
+        return (at_m[:, np.newaxis] * at_pos).sum(axis=0) / at_m.sum()
+
+    return np.mean(at_pos, axis=0)
 
 
 def calculate_distances_frac(pos, latt_vecs, other_pos=None, ret_vecs=False):
@@ -305,7 +337,7 @@ def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
 
     # Group atoms into molecules.
 
-    mol_grp_inds = []
+    at_grp_inds = []
 
     # Keep track of which atoms we've already assigned to molecule
     # groups.
@@ -328,10 +360,10 @@ def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
 
                 grp_inds = list(grp_inds_new)
 
-            mol_grp_inds.append(list(grp_inds))
+            at_grp_inds.append(list(grp_inds))
             assigned_inds.update(grp_inds)
 
-    return [np.array(grp_inds, dtype=int) for grp_inds in mol_grp_inds]
+    return [np.array(grp_inds, dtype=int) for grp_inds in at_grp_inds]
 
 
 # -----------------
@@ -640,11 +672,10 @@ def invert_atom_map(atom_map, map_struct, ref_struct):
 
     Notes
     -----
-    `map_atom_positions` allows for "many -> one" mapping, where
-    multiple atoms in `map_struct` map to the same atom in `ref_struct`,
-    which does not have a sensible (singular) inverse. In this scenario,
-    the mapping for that atom is set to `None` and a `RuntimeWarning` is
-    issued.
+    Entries can be a single integer (atom in `ref_struct` maps to a
+    single atom in `map_struct`), `None` (atom does not map to anything
+    in `map_struct`), or a `numpy.ndarray` of integers (atom maps to
+    multiple atoms in `map_struct`).
     """
 
     if len(atom_map) != map_struct.num_atoms:
@@ -662,38 +693,21 @@ def invert_atom_map(atom_map, map_struct, ref_struct):
                     "ref_struct."
                 )
 
-    inv_atom_map = [None] * ref_struct.num_atoms
+    inv_atom_map = [[] for _ in range(ref_struct.num_atoms)]
 
     for idx, ref_idx in enumerate(atom_map):
         if ref_idx is not None:
-            if (
-                inv_atom_map[ref_idx] is not None
-                and inv_atom_map[ref_idx] != -1
-            ):
-                warnings.warn(
-                    "Multiple atoms in map_struct map to the same atom "
-                    "in ref_struct. Since a singular inverse mapping "
-                    "does not exist, the mapping for this atom will be "
-                    "set to None.",
-                    RuntimeWarning,
-                )
+            inv_atom_map[ref_idx].append(idx)
 
-                inv_atom_map[ref_idx] = -1
-            else:
-                inv_atom_map[ref_idx] = idx
-
-    # Convert placeholders for many -> one mapping to None.
-
-    if -1 in inv_atom_map:
-        for i, idx in enumerate(inv_atom_map):
+    for i, inds in enumerate(inv_atom_map):
+        if len(inds) == 0:
             inv_atom_map[i] = None
+        elif len(inds) == 1:
+            inv_atom_map[i] = inds[0]
+        else:
+            inv_atom_map[i] = np.array(inds, dtype=int)
 
     return np.array(inv_atom_map, dtype=object)
-
-
-# ----------------------
-# Brillouin zone mapping
-# ----------------------
 
 
 def map_qpoints(qpts, ref_struct, map_struct):
