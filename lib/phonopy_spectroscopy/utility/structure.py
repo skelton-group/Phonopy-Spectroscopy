@@ -360,7 +360,7 @@ def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
 
                 grp_inds = list(grp_inds_new)
 
-            at_grp_inds.append(list(grp_inds))
+            at_grp_inds.append(grp_inds)
             assigned_inds.update(grp_inds)
 
     return [np.array(grp_inds, dtype=int) for grp_inds in at_grp_inds]

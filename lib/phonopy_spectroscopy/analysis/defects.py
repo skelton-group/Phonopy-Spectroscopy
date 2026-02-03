@@ -172,10 +172,7 @@ def find_defects(struct, ref_struct, atom_map=None, group=True, **kwargs):
             struct, atom_inds=list(subs_ints_inds), **kwargs
         )
 
-        return (
-            np.asarray(at_grp_inds, dtype=object),
-            ref_struct.atom_positions[vac_inds],
-        )
+        return (at_grp_inds, ref_struct.atom_positions[vac_inds])
     else:
         return (
             np.array(list(subs_ints_inds), dtype=int),
