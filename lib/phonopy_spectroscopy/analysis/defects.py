@@ -25,7 +25,6 @@ from ..structure import Structure
 from ..utility.numpy_helper import np_check_shape, np_expand_dims
 
 from ..utility.structure import (
-    calculate_centroid,
     calculate_distances_frac,
     group_atoms,
     map_atom_positions,
@@ -38,13 +37,62 @@ from ..utility.structure import (
 # ---------------
 
 
-def _centroid_or_position(struct, at_inds=None, pos=None, com=False):
+def _check_convert_atom_indices(struct, at_inds):
+    """If supplied, check a set of atom-indices against a structure and
+    convert to a `numpy.ndarray`."""
+
+    if at_inds is not None:
+        at_inds = np.asarray(at_inds, dtype=int)
+
+        if not np_check_shape(at_inds, (None,)):
+            raise ValueError(
+                "If supplied, at_inds must be an array_like with shape (M,)."
+            )
+
+        if (at_inds < 0).any() or (at_inds >= struct.num_atoms).any():
+            raise ValueError(
+                "One or more of at_inds is incompatible with the "
+                "number of atoms in struct."
+            )
+
+        if len(np.unique(at_inds)) != len(at_inds):
+            raise ValueError("One or more of at_inds are duplicates.")
+
+    return at_inds
+
+
+def _check_convert_nearest_neighbour_indices(struct, nn_inds):
+    """Check a set of nearest-neighbour indices against a structure and
+    convert to a `numpy.ndarray."""
+
+    nn_inds = np.asarray(nn_inds, dtype=int)
+
+    if not np_check_shape(nn_inds, (None,)):
+        raise ValueError("nn_inds must be an array_like with shape (M,).")
+
+    if (nn_inds < 0).any() or (nn_inds > struct.num_atoms).any():
+        raise ValueError(
+            "One or more of nn_inds is incompatible with the number of "
+            "atoms in struct."
+        )
+
+    if len(np.unique(nn_inds)) != len(nn_inds):
+        raise ValueError("nn_inds contains duplicate indices.")
+
+    return nn_inds
+
+
+def _get_centroid_or_position(struct, at_inds=None, pos=None, com=False):
     """Return a calculated centroid from a structure and set of atom
     indices, or a specified position."""
 
+    at_inds = _check_convert_atom_indices(struct, at_inds)
+
     if at_inds is not None:
-        at_inds, _ = np_expand_dims(np.asarray(at_inds, dtype=int), (None,))
-        return calculate_centroid(struct, at_inds, com=com)
+        return calculate_centroid_or_centre_of_mass(
+            struct.atom_positions[at_inds],
+            at_m=(struct.atomic_masses[at_inds] if com else None),
+        )
 
     if pos is None:
         raise Exception("One of atom_idx or pos must be specified.")
@@ -67,6 +115,38 @@ def _centroid_or_position(struct, at_inds=None, pos=None, com=False):
 # ----------------------
 # Defects and neighbours
 # ----------------------
+
+
+def calculate_centroid_or_centre_of_mass(at_pos, at_m=None):
+    """Calculate the geometric centroid or centre of mass of a set of
+    atomic positions.
+
+    Parameters
+    ----------
+    at_pos : array_like
+        Atom positions (shape: `(M, 3)`).
+    at_m : array_like or None, optional
+        Atomic masses (shape: `(M,)`).
+
+    Returns
+    -------
+    cent : numpy.ndarray
+        Calculated centroid (shape: `(3,)`).
+    """
+
+    at_pos, _ = np_expand_dims(np.asarray(at_pos, dtype=np.float64), (None, 3))
+
+    if at_m is None:
+        return np.mean(at_pos, axis=0)
+
+    at_m = np.asarray(at_m, dtype=np.float64)
+
+    if not np_check_shape(at_m, (len(at_pos),)):
+        raise ValueError(
+            "If supplied, at_m must be an array_like with shape (M,)."
+        )
+
+    return (at_m[:, np.newaxis] * at_pos).sum(axis=0) / at_m.sum()
 
 
 def find_defects(struct, ref_struct, atom_map=None, group=True, **kwargs):
@@ -180,16 +260,18 @@ def find_defects(struct, ref_struct, atom_map=None, group=True, **kwargs):
         )
 
 
-def find_nearest_neighbours(struct, at_inds=None, pos=None, delta_r=1.0):
-    """Identify the nearest neighbours to an atom or arbitrary position
-    in a structure using a simple distance search.
+def find_nearest_neighbours(struct, at_inds, pos=None, delta_r=1.0):
+    """Identify the nearest neighbours to the atom(s) forming a centre
+    or an arbitrary position in a structure using a simple distance
+    search.
 
     Parameters
     ----------
     struct : Structure
         Structure to analyse.
-    at_inds : int, array_like or None, optional
-        Index or indices of the atom to analyse (default: `None`).
+    at_inds : int, array_like or None
+        Index or indices of the atom(s) to analyse (shape: `(M,)`), or
+        `None` for vacancies.
     pos : array_like, optional
         Position to analyse (shape: `(3,)`) (default: `None`).
     delta_r : float, optional
@@ -199,7 +281,8 @@ def find_nearest_neighbours(struct, at_inds=None, pos=None, delta_r=1.0):
     Returns
     -------
     inds_dists : tuple of numpy.ndarray
-        Atom indices and distances of nearest neighbours.
+        Atom indices and distances of nearest neighbours (shapes:
+        `(M')`).
 
     Notes
     -----
@@ -207,7 +290,7 @@ def find_nearest_neighbours(struct, at_inds=None, pos=None, delta_r=1.0):
     neighbous.
 
     The distances of all the atoms in `struct` from a reference
-    position, specified implicitly with `atom_idx` or implicitly with
+    position, specified implicitly with `atom_idx` or explicitly with
     `pos`, are calculated and the closest non-overlapping atom is
     identified.
 
@@ -215,19 +298,15 @@ def find_nearest_neighbours(struct, at_inds=None, pos=None, delta_r=1.0):
     of `min_dist` -> `min_dist + delta_r`.
     """
 
-    if at_inds is not None:
-        at_inds, _ = np_expand_dims(np.asarray(at_inds, dtype=int), (None,))
-
-    ref_pos = _centroid_or_position(struct, at_inds=at_inds, pos=pos, com=True)
+    ref_pos = _get_centroid_or_position(
+        struct, at_inds=at_inds, pos=pos, com=True
+    )
 
     # ref_pos is a single position, so the distance table returned by
     # calculate_distances_frac() will have shape (1, N).
 
     (dists,) = calculate_distances_frac(
-        ref_pos,
-        struct.lattice_vectors,
-        other_pos=struct.atom_positions,
-        ret_vecs=False,
+        ref_pos, struct.lattice_vectors, other_pos=struct.atom_positions
     )
 
     all_inds = np.arange(0, struct.num_atoms, dtype=int)
@@ -254,6 +333,166 @@ def find_nearest_neighbours(struct, at_inds=None, pos=None, delta_r=1.0):
     return (nn_inds, dists[nn_inds])
 
 
+# ----------------
+# Characterisation
+# ----------------
+
+
+def off_centring_character(edisps, struct, at_inds, nn_inds, group_corr=False):
+    r"""Calculate the "off-centring" character for a set of phonon modes
+    and a given defect centre and its neighbouring atoms.
+
+    Parameters
+    ----------
+    edisps : array_like
+        Cartesian displacements (eigendisplacements) (shape: `(3N, 3)`
+        or `(O, 3N, 3)`).
+    struct : Structure
+        Crystal structure.
+    at_inds : int, array_like or None
+        Index or indices of the atom(s) forming the defect centre
+        (shape: `(M,)`), or `None` for a vacancy.
+    nn_inds : int or array_like
+        Index or indices of nearest neighbour atoms (shape: `(M',)`).
+    group_corr : bool, optional
+        Reweight the score for "group" defects where the centre contains
+        multiple atoms (e.g. a molecule) (default: `False`).
+
+    Returns
+    -------
+    ocs : numpy.ndarray or float
+        Calculated off-centring scores (scalar if `edisps` is a single
+        set of displacements, or shape: `(O,)` otherwise).
+
+    Notes
+    -----
+    The off-centring score is given by:
+
+    .. math::
+
+        \chi^\mathrm{OC}_j = \frac{ \left| \langle \boldsymbol{u}_{jk} \rangle_{k \in M} - \langle \boldsymbol{u}_{jk} \rangle_{k \in M^\prime} \right| }{ \sum_{k \in M, M^\prime} \left| \boldsymbol{u}_{jk} \right| }
+
+    When `at_inds` is not set, the defect is treated as a vacancy and
+    the terms involving the defect atoms are discarded.
+    """
+
+    edisps, n_dim_add = np_expand_dims(
+        np.asarray(edisps, dtype=np.float64), (None, struct.num_atoms, 3)
+    )
+
+    at_inds = _check_convert_atom_indices(struct, at_inds)
+    nn_inds = _check_convert_nearest_neighbour_indices(struct, nn_inds)
+
+    ocs = np.zeros((len(edisps),), dtype=np.float64)
+
+    for i, edisp in enumerate(edisps):
+        # Running total of the norms of the defect + neighbour
+        # displacements.
+
+        disp_norm_sum = 0.0
+
+        # The defect contribution is only computed if at_inds is set.
+
+        def_w_edisp = 0.0
+
+        if at_inds is not None:
+            def_w_edisp = calculate_centroid_or_centre_of_mass(
+                edisp[at_inds], at_m=struct.atomic_masses[at_inds]
+            )
+
+            disp_norm_sum += np.linalg.norm(edisp[at_inds], axis=-1).sum()
+
+        nn_w_edisp = calculate_centroid_or_centre_of_mass(
+            edisp[nn_inds], at_m=struct.atomic_masses[nn_inds]
+        )
+
+        disp_norm_sum += np.linalg.norm(edisp[nn_inds], axis=-1).sum()
+
+        ocs[i] = np.linalg.norm(def_w_edisp - nn_w_edisp) / disp_norm_sum
+
+    if group_corr and at_inds is not None:
+        # Apply a rewighting to correct the score for "group" defects
+        # (e.g. molecules).
+
+        ocs *= len(at_inds)
+
+    return ocs if n_dim_add == 0 else ocs[0]
+
+
+def radial_breathing_character(edisps, struct, at_inds, nn_inds, pos=None):
+    r"""Calculate the "radial-breathing" character for a set of phonon
+    modes and a given defect centre and its neighbouring atoms.
+
+    Parameters
+    ----------
+    edisps : array_like
+        Cartesian displacements (eigendisplacements) (shape: `(3N, 3)`
+        or `(O, 3N, 3)`).
+    struct : Structure
+        Crystal structure.
+    at_inds : int, array_like or None
+        Index or indices of the atom(s) forming the defect centre
+        (shape: `(M,)`), or `None` for a vacancy.
+    nn_inds : int or array_like
+        Index or indices of nearest neighbour atoms (shape: `(M',)`).
+    pos : array_like or None, optional
+        Position of the defect centre (shape: `(3,)`) (default: `None`).
+
+    Returns
+    -------
+    rbs : numpy.ndarray or float
+        Calculated radial-breathign scores (scalar if `edisps` is a
+        single set of displacements, or shape: `(O,)` otherwise).
+
+    Notes
+    -----
+    The radial-breathing character is given by:
+
+    .. math::
+
+        \chi^\mathrm{B}_j = \frac{ \left| \sum_{k \in M^\prime} \boldsymbol{u}_{jk} \cdot \hat{\boldsymbol{r}}_{k} \right| }{ \sum_{k \in M^\prime} \left| \boldsymbol{u}_{jk} \right| }
+
+    For vacancies, the defect centre must be specified with the `pos`
+    keyword.
+    """
+
+    edisps, n_dim_add = np_expand_dims(
+        np.asarray(edisps, dtype=np.float64), (None, struct.num_atoms, 3)
+    )
+
+    centre = _get_centroid_or_position(
+        struct, at_inds=at_inds, pos=pos, com=True
+    )
+
+    nn_inds = _check_convert_nearest_neighbour_indices(struct, nn_inds)
+
+    # calculate_distances_frac calculates pos - other_pos. To project
+    # the eigendisplacements, we need pos = neighbour positions and
+    # other_pos = centre. The reshape() drops the extraneous second
+    # dimension to make it easier to compute the dot product.
+
+    nn_c_vecs = calculate_distances_frac(
+        struct.atom_positions[nn_inds],
+        struct.lattice_vectors,
+        other_pos=centre,
+        ret_vecs=True,
+    ).reshape(-1, 3)
+
+    nn_c_vecs /= np.linalg.norm(nn_c_vecs, axis=-1)[:, np.newaxis]
+
+    rbs = np.zeros((len(edisps),), dtype=np.float64)
+
+    for i, edisp in enumerate(edisps):
+        nn_edisp = edisp[nn_inds]
+        nn_edisp_norms = np.linalg.norm(nn_edisp, axis=-1)
+
+        dot_prods = np.einsum("ij,ij->i", nn_c_vecs, nn_edisp)
+
+        rbs[i] = np.abs(dot_prods.sum()) / nn_edisp_norms.sum()
+
+    return rbs if n_dim_add == 0 else rbs[0]
+
+
 # -------------
 # Miscellaneous
 # -------------
@@ -277,7 +516,9 @@ def centre_structure(struct, at_inds=None, pos=None):
         Centred structure.
     """
 
-    centre = _centroid_or_position(struct, at_inds=at_inds, pos=pos, com=False)
+    centre = _get_centroid_or_position(
+        struct, at_inds=at_inds, pos=pos, com=False
+    )
 
     # The centre of the cell is (0.5, 0.5, 0.5)
 

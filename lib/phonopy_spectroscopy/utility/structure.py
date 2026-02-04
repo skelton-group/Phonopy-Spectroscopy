@@ -106,47 +106,9 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
     return cart_pos if n_dim_add == 0 else cart_pos[0]
 
 
-# --------------------------------
-# Centroid + distance calculations
-# --------------------------------
-
-
-def calculate_centroid(struct, at_inds, com=False):
-    """Calculate the centroid of a subset of atoms in a structure.
-
-    Parameters
-    ----------
-    struct : Structure
-        Crystal structure.
-    at_inds : array_like
-        Atom indices (shape: `(M,)`).
-    com : bool, optional
-        Calculate the centre of mass (default: `False`).
-
-    Returns
-    -------
-    pos : numpy.ndarray
-        Calculated centroid (shape: `(3,)`).
-    """
-
-    at_inds = np.array(at_inds, dtype=int)
-
-    if not np_check_shape(at_inds, (None,)):
-        raise ValueError("at_inds must be an array with shape (M,).")
-
-    if (at_inds < 0).any() or (at_inds > struct.num_atoms).any():
-        raise ValueError(
-            "One or more of at_inds are inconsistent with the number "
-            "of atoms in struct."
-        )
-
-    at_pos = struct.atom_positions[at_inds]
-
-    if com:
-        at_m = struct.atomic_masses[at_inds]
-        return (at_m[:, np.newaxis] * at_pos).sum(axis=0) / at_m.sum()
-
-    return np.mean(at_pos, axis=0)
+# --------------------
+# Distance calculation
+# --------------------
 
 
 def calculate_distances_frac(pos, latt_vecs, other_pos=None, ret_vecs=False):
