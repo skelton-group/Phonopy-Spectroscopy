@@ -60,11 +60,11 @@ def participation_ratio(evecs):
     # Take square modulus (for complex evecs) and sum over positional
     # components.
 
-    sq_mods = (np.abs(evecs) ** 2).sum(axis=2)
+    sq_mods = (np.abs(evecs) ** 2).sum(axis=-1)
 
     # Check eigenvectors are normalised.
 
-    abs_norms = sq_mods.sum(axis=1)
+    abs_norms = sq_mods.sum(axis=-1)
 
     if ((abs_norms - 1.0) > ZERO_TOLERANCE).any():
         warnings.warn(
@@ -75,6 +75,6 @@ def participation_ratio(evecs):
 
     _, n = sq_mods.shape
 
-    prs = 1.0 / (n * np.sum(sq_mods**2, axis=1))
+    prs = 1.0 / (n * np.sum(sq_mods**2, axis=-1))
 
     return prs if n_dim_add == 0 else prs[0]

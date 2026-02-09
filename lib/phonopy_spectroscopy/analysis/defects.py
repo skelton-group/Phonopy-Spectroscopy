@@ -42,12 +42,7 @@ def _check_convert_atom_indices(struct, at_inds):
     convert to a `numpy.ndarray`."""
 
     if at_inds is not None:
-        at_inds = np.asarray(at_inds, dtype=int)
-
-        if not np_check_shape(at_inds, (None,)):
-            raise ValueError(
-                "If supplied, at_inds must be an array_like with shape (M,)."
-            )
+        at_inds, _ = np_expand_dims(np.asarray(at_inds, dtype=int), (None,))
 
         if (at_inds < 0).any() or (at_inds >= struct.num_atoms).any():
             raise ValueError(
@@ -65,10 +60,7 @@ def _check_convert_nearest_neighbour_indices(struct, nn_inds):
     """Check a set of nearest-neighbour indices against a structure and
     convert to a `numpy.ndarray."""
 
-    nn_inds = np.asarray(nn_inds, dtype=int)
-
-    if not np_check_shape(nn_inds, (None,)):
-        raise ValueError("nn_inds must be an array_like with shape (M,).")
+    nn_inds, _ = np_expand_dims(np.asarray(nn_inds, dtype=int), (None,))
 
     if (nn_inds < 0).any() or (nn_inds > struct.num_atoms).any():
         raise ValueError(
