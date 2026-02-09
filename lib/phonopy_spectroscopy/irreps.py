@@ -445,7 +445,7 @@ class Irreps:
         if subset_inds is None:
             subset_inds = np.asarray(band_inds)
 
-            if not np_check_shape(band_inds, (None,)):
+            if not np_check_shape(subset_inds, (None,)):
                 raise ValueError(
                     "band_inds must have shape (N,) if specified as an "
                     "array_like."
