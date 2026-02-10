@@ -355,12 +355,13 @@ def map_atom_positions(
     type_constraints : sequence or None, optional
        If set, specifies pairwise sets of atom types in `map_struct` and
        `ref_struct` to constrain matching (default: `None`).
+    len_tol, ang_tol : float, optional
+        Maximum allowed differences in the lengths and angles between
+        the lattice vectors of `map_struct` and `ref_struct` (default:
+        0.1 Ang, 1 deg).
     allow_non_unique: bool, optional
         Allow multiple atoms in `map_struct` to map to the same atom in
         `ref_struct`.
-    tol: float, optional
-        Specifies the maximum allowed differences in the metric tensors
-        of `map_struct` and `ref_struct` (default: `tol=1.0e-5`).
 
     Returns
     -------
