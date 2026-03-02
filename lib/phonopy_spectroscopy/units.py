@@ -121,6 +121,12 @@ _FREQUENCY_UNIT_DATA = {
         "from_thz": 1.0,
         "to_thz": 1.0,
     },
+    "rad_thz": {
+        "text_label": r"\omega / rad THz",
+        "plot_label": r"$\omega$ / rad THz",
+        "from_thz": 2.0 * np.pi,
+        "to_thz": 1.0 / (2.0 * np.pi),
+    },
     "inv_cm": {
         "text_label": "v / cm^-1",
         "plot_label": r"$\bar{\nu}$ / cm$^{-1}$",

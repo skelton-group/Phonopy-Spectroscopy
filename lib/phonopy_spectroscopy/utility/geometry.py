@@ -19,6 +19,11 @@ import numpy as np
 from ..constants import ZERO_TOLERANCE
 from .numpy_helper import np_check_shape, np_expand_dims
 
+try:
+    from numba import njit
+except ImportError:
+    from .numba_helper import dummy_njit as njit
+
 
 # ---------
 # Functions
@@ -179,6 +184,7 @@ def rotation_matrix_from_axis_angle(k, theta):
     )
 
 
+@njit
 def direction_cosine(phi, theta, psi):
     """Compute the direction cosine for the Euler angles `phi`, `theta`
     and `psi`.

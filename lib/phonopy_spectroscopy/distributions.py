@@ -20,6 +20,12 @@ from .constants import BOLTZMANN_CONSTANT_EV, PLANCK_CONSTANT_EV
 from .utility.numpy_helper import np_check_shape, np_expand_dims
 
 
+try:
+    from numba import njit
+except ImportError:
+    from .utility.numba_helper import dummy_njit as njit
+
+
 # ----------
 # Lineshapes
 # ----------
@@ -88,10 +94,10 @@ def lorentzian(x, i, x0, gamma):
     )
 
 
-def dielectric_function(omega, s, omega_0, eta):
+def lorentz_oscillator(omega, s, omega_0, eta):
     r"""Evaluate the complex dielectric function for a phonon mode with
     intensity (oscillator strength) `s`, central value `x_0` and width
-    ("complex shift") `eta`.
+    ("complex shift") `eta` using the Lorentz oscillator model.
 
     Parameters
     ----------
@@ -105,7 +111,7 @@ def dielectric_function(omega, s, omega_0, eta):
     Returns
     -------
     dielectric_func : numpy.ndarray
-        Complex dielectirc function evaluated at `x` (shape `(N,)` for
+        Complex dielectric function evaluated at `x` (shape `(N,)` for
         scalar `s`, or `(N, 3, 3)` for tensor `s`.
 
     Notes
@@ -115,6 +121,7 @@ def dielectric_function(omega, s, omega_0, eta):
     https://www.vasp.at/wiki/index.php/Category:Dielectric_properties
 
     .. math::
+
         f(\omega) = \frac{s}{ \omega_0^2 - (\omega + i\eta)^2 }
     """
 
@@ -185,6 +192,7 @@ def phonon_occupation_number(nu, t):
 # ---------------------
 
 
+@njit
 def march_dollase(alpha, r):
     r"""Evaluate the March-Dollase distribution function with the
     supplied angle `alpha` and March parameter `r`.

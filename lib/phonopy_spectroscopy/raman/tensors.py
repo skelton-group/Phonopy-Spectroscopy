@@ -86,10 +86,9 @@ class RamanTensors:
         if len(e) > 1 and (e[1:] <= e[:-1]).any():
             raise ValueError("e must be monotonically increasing.")
 
-        # Using complex instead of real numbers in calculations
-        # can incur a performance penalty. If the Raman tensors
-        # are real, drop the imaginary part and convert them to
-        # np.float64.
+        # Using complex instead of real numbers in calculations can
+        # incur a performance penalty. If the Raman tensors are real,
+        # drop the imaginary part and convert them to np.float64.
 
         if not np.iscomplex(r_t).any():
             r_t = np.array(r_t.real, dtype=np.float64)

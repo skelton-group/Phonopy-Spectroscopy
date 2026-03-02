@@ -204,7 +204,7 @@ class TestRamanSimulation(unittest.TestCase):
 
             for e_i, e_s in zip(pol_vecs_ref, pol_vecs_ref):
                 ints_ref.append(
-                    [np.dot(e_i, np.dot(t, e_s)) ** 2 for t in self._r_t]
+                    [np.dot(e_s, np.dot(t, e_i)) ** 2 for t in self._r_t]
                 )
 
             self.assertTrue(np.allclose(ints, ints_ref))
@@ -231,7 +231,7 @@ class TestRamanSimulation(unittest.TestCase):
 
         ints_2 = [
             calculate_powder_raman_intensities(
-                self._r_t, self._geom, i_pol, s_pol, method="nquad"
+                self._r_t, self._geom, i_pol, s_pol, method="quad"
             )
             for s_pol in s_pols
         ]
@@ -242,7 +242,7 @@ class TestRamanSimulation(unittest.TestCase):
                 self._geom,
                 i_pol,
                 s_pol,
-                method="lebedev+circle",
+                method="leb+circ",
                 lc_prec=5,
             )
             for s_pol in s_pols
@@ -358,7 +358,7 @@ class TestRamanSimulation(unittest.TestCase):
                 s_pol,
                 po_eta=0.1,
                 po_surf_norm=po_surf_norm,
-                method="nquad",
+                method="quad",
             )
 
             ints_po_lebedev = calculate_powder_raman_intensities(
@@ -368,7 +368,7 @@ class TestRamanSimulation(unittest.TestCase):
                 s_pol,
                 po_eta=0.1,
                 po_surf_norm=po_surf_norm,
-                method="lebedev+circle",
+                method="leb+circ",
                 lc_prec=lc_prec,
             )
 

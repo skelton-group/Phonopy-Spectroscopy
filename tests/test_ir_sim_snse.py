@@ -255,7 +255,7 @@ class TestInfratedSimulations(unittest.TestCase):
             gamma_ph_new, calc.born_effective_charges, eps_inf=calc.epsilon_inf
         )
 
-        dielectric_func = calc_new.tensor_dielectric_function(
+        dielectric_func = calc_new.dielectric_function(
             lw=2.0 * np.mean(e_ref[1:] - e_ref[:-1]),
             add_eps_inf=False,
             x=e_ref,

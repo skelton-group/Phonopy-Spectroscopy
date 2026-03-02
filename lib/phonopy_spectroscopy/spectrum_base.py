@@ -125,7 +125,7 @@ def auto_x(freqs, lws, x_range=None, x_res=None):
 class SpectrumBase:
     """Base class for simulated spectra."""
 
-    def __init__(self, x_range=None, x_res=None, x=None, x_units=None):
+    def __init__(self, x_range=None, x_res=None, x=None, x_units="thz"):
         """Create a new instance of the `SpectrumBase` class.
 
         Parameters
@@ -138,19 +138,25 @@ class SpectrumBase:
         x : array_like or None, optional
             x-axis values in `x_units` (shape: `(O,)`; overrides
             `x_range` and `x_res`; default: `None`).
-        x_units : str or None, optional
-            x-axis units of the simulated spectrum (default: `None`).
+        x_units : str, optional
+            x-axis units of the simulated spectrum (default: "thz").
 
         Notes
         -----
-        One of `x_range`/`x_res` or `x` must be specified.
+        One of `x_range`/`x_res` or `x` must be specified. If `x_range`
+        is specified, `x` is generated using the `auto_x()` function
+        with `x_res` if supplied.
+
+        See Also
+        --------
+        auto_x : Function used to set `x` if not specified.
         """
 
         if x is not None:
             x = np_asarray_copy(x, copy=True, dtype=np.float64)
 
             if not np_check_shape(x, (None,)):
-                raise ValueError("x must be an array_like with shape (N,).")
+                raise ValueError("x must be an array_like with shape (O,).")
         else:
             if x_range is None or x_res is None:
                 raise ValueError(
@@ -170,15 +176,13 @@ class SpectrumBase:
 
             x = np.arange(x_min, x_max + x_res / 10.0, x_res, dtype=np.float64)
 
-        if x_units is not None:
-            x_units = str(x_units).lower()
+        x_units = str(x_units).lower()
 
-            if x_units not in get_supported_frequency_units():
-                raise ValueError(
-                    'x_units="{0}" is not a supported '
-                    "frequency/energy unit (this may be a bug)."
-                    "".format(x_units)
-                )
+        if x_units not in get_supported_frequency_units():
+            raise ValueError(
+                'x_units="{0}" is not a supported frequency/energy '
+                "unit.".format(x_units)
+            )
 
         self._x = x
         self._x_units = x_units
@@ -188,6 +192,12 @@ class SpectrumBase:
         """numpy.ndarray : x values for simulated spectrum (shape:
         `(O,)`)."""
         return np_readonly_view(self._x)
+
+    @property
+    def x_units(self):
+        """str : Code for x units compatible with the unit-handling
+        routines in the `units` module."""
+        return self._x_units
 
     @property
     def x_unit_text_label(self):

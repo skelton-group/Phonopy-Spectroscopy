@@ -69,25 +69,23 @@ def df_to_txt(df, file_path, col_fmts, preamble_lines=None):
 # ----------------
 
 
-def infrared_peak_table_to_txt(dielectric_func, file_path):
-    """Write a peak table from a `ScalarInfraredDielectricFunction` or
-    `TensorInfraredDielectricFunction` object to a plain-text file.
+def infrared_peak_table_to_txt(eps_ir, file_path):
+    """Write a peak table from an `InfraredDielectricFunction` object to
+    a plain-text file.
 
     Parameters
     ----------
-    dielectric_func : ScalarInfraredDielectricFunction or TensorInfraredDielectricFunction
+    eps_ir : InfraredDielectricFunction
         Dielectric function.
     file_path : str
         File to write data to.
     """
 
-    df = dielectric_func.peak_table()
+    df = eps_ir.peak_table()
 
     preamble_lines = [
-        "x : {0}".format(dielectric_func.x_unit_text_label),
-        "y : {0}".format(
-            dielectric_func.mode_oscillator_strength_unit_text_label
-        ),
+        "x : {0}".format(eps_ir.x_unit_text_label),
+        "y : {0}".format(eps_ir.mode_oscillator_strength_unit_text_label),
     ]
 
     col_fmts = ["{0: >12.5f}", "{0: >10.5f}", "{0: >5}"]
@@ -96,23 +94,23 @@ def infrared_peak_table_to_txt(dielectric_func, file_path):
     df_to_txt(df, file_path, col_fmts, preamble_lines=preamble_lines)
 
 
-def tensor_infrared_spectrum_to_txt(dielectric_func, file_path):
-    """Write the dielectric function from a
-    `TensorInfraredDielectricFunction` object to a plain-text file.
+def infrared_dielectric_function_to_txt(eps_ir, file_path):
+    """Write the dielectric function from an
+    `InfraredDielectricFunction` object to a plain-text file.
 
     Parameters
     ----------
-    dielectric_func : TensorInfraredDielectricFunction
+    eps_ir : InfraredDielectricFunction
         Dielectric function.
     file_path : str
         File to write data to.
     """
 
-    df = dielectric_func.spectrum()
+    df = eps_ir.spectrum()
 
     preamble_lines = [
-        "x : {0}".format(dielectric_func.x_unit_text_label),
-        "y : {0}".format(dielectric_func.epsilon_unit_text_label),
+        "x : {0}".format(eps_ir.x_unit_text_label),
+        "y : {0}".format(eps_ir.epsilon_unit_text_label),
     ]
 
     col_fmts = ["{0: >12.5f}"] + ["{0: >12.5e}"] * (len(df.columns) - 1)
@@ -120,28 +118,25 @@ def tensor_infrared_spectrum_to_txt(dielectric_func, file_path):
     df_to_txt(df, file_path, col_fmts, preamble_lines=preamble_lines)
 
 
-def scalar_infrared_spectrum_to_txt(dielectric_func, file_path):
-    """Write the dielectric function and derived quantities from a
-    `ScalarInfraredDielectricFunction` object to a plain-text file.
+def optical_spectrum_to_txt(sp, file_path):
+    """Write the quantities from an `OpticalEigenmodeSpectrum`,
+    `OpticalSpectrum`, or derived class to a plain-text file.
 
     Parameters
     ----------
-    dielectric_func : ScalarInfraredDielectricFunction
-        Dielectric function.
+    sp : OpticalEigenmodeSpectrum or OpticalSpectrum
+        Spectrum.
     file_path : str
         File to write data to.
     """
 
-    df = dielectric_func.spectrum()
+    df = sp.spectrum()
 
     preamble_lines = [
-        "x : {0}".format(dielectric_func.x_unit_text_label),
-        "y (eps) : {0}".format(dielectric_func.epsilon_unit_text_label),
-        "y (alpha) : {0}".format(
-            dielectric_func.absorption_coefficient_unit_text_label
-        ),
-        "y (R) : dimensionless",
-        "y (L) : dimensionless",
+        "x : {0}".format(sp.x_unit_text_label),
+        "y (epsilon) : {0}".format(sp.epsilon_unit_text_label),
+        "y (abs. c.) : {0}".format(sp.absorption_coefficient_unit_text_label),
+        "y (cond.) : {0}".format(sp.optical_conductivity_unit_text_label),
     ]
 
     col_fmts = ["{0: >12.5f}"] + ["{0: >12.5e}"] * (len(df.columns) - 1)

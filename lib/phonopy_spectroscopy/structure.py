@@ -332,7 +332,7 @@ class Structure:
 
         return (2.0 * np.pi * rec_v_latt) if two_pi else rec_v_latt
 
-    def real_space_normal(self, hkl, conv=False):
+    def real_space_normal(self, hkl, conv=True):
         """Calculate the real-space normal to the surface with Miller
         index `hkl`.
 
@@ -341,8 +341,8 @@ class Structure:
         hkl : array_like
             Integer Miller indices of the surface (shape: `(3,)`).,
         conv : bool, optional
-            If `True`, return the volume of the conventional unit cell
-            (default: `False`).
+            If `True`, interpret the Miller indices in terms of the
+            conventional unit cell (default: `True`).
 
         Returns
         -------
@@ -393,6 +393,56 @@ class Structure:
         """
 
         return fractional_to_cartesian_coordinates(self._at_pos, self._v_latt)
+
+    def build_supercell(self, dim):
+        """Build and return a supercell of the structure.
+
+        Parameters
+        ----------
+        dim : array_like of int
+            Supercell dimensions (shape: `(3,)`).
+
+        Returns
+        -------
+        sc : Structure
+            Expanded supercell.
+
+        Notes
+        -----
+        The supercell retains the original atom ordering - i.e. for a
+        supercell expansion with `m = np.prod(dim)` times the original
+        cell volume, atoms `0:m` are the replicas of atom `0` in the
+        original cell, atoms `m:2m` are replicas of atom `1`, etc.
+        """
+
+        dim = np.asarray(dim, dtype=int)
+
+        if not np_check_shape(dim, (3,)):
+            raise ValueError("dim must be an array_like with shape (3,).")
+
+        if (dim <= 0).any():
+            raise ValueError("Supercell dimensions must be >= 0.")
+
+        sc_latt_vecs = dim[:, np.newaxis] * self._v_latt
+
+        # Prepare a set of translations for building the supercell, then
+        # generate and scale the translated atom positions.
+
+        d_1, d_2, d_3 = dim
+        grid = np.mgrid[0:d_1, 0:d_2, 0:d_3].T.reshape(-1, 3)
+
+        sc_at_pos = self._at_pos[:, np.newaxis, :] + grid[np.newaxis, :, :]
+        sc_at_pos /= dim[np.newaxis, np.newaxis, :]
+
+        mult = np.prod(dim)
+
+        return Structure(
+            sc_latt_vecs,
+            sc_at_pos.reshape(-1, 3),
+            np.repeat(self._at_typ, mult),
+            np.repeat(self._at_m, mult),
+            conv_trans=self._conv_trans,
+        )
 
     def to_phonopy_atoms(self, distance_unit="ang"):
         """Return the structure as a `PhonopyAtoms` instance.

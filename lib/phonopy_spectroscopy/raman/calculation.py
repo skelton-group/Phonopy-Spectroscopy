@@ -369,29 +369,29 @@ class RamanCalculation:
 
         Parameters
         ----------
-        hkl : tuple of int
-            Miller index of crystal surface to orient along incident
-            direction.
+        hkl : array_like of int
+            Miller index of the crystal surface to orient antiparallel
+            to the incident direction.
         geom : Geometry
             Measurement geometry.
         i_pol, s_pol : str, Polarisation or list of Polarisation
-            Polarisation(s) of incident and scattered light. The
+            Polarisations of the incident and scattered light. The
             scattered polarisation may also be specified by one of
             {"parallel", "cross", "sum"}.
         rot : array_like or None, optional
-            Rotation matrix or set of matrices to realign crystal after
-            the `hkl` rotation.
+            Rotation matrix or set of matrices to realign the crystal
+            after the `hkl` rotation.
         w, t : float or None, optional
             Measurement wavelength and temperature.
         e_rt : float or None, optional
-            Photon energy for evaluating Raman tensors in energy-
+            Photon energy for evaluating the Raman tensors in energy-
             dependent Raman calculations (default: calculated from `w`
             if set and if energy-dependent Raman tensors are available,
             otherwise E = 0.)
         lw : float or None, optional
             Uniform linewidth or scale factor for calculated linewidths
             (defaults: 0.5 THz uniform linewidth or scale factor of
-            1.0, depending on whether calculation has linewidths).
+            1.0, depending on whether the calculation has linewidths).
         band_grp_inds : array_like or None, optional
             Indices of "band groups" to include in the calculation
             (default: all groups). Groups are defined by irreps if
@@ -560,13 +560,13 @@ class RamanCalculation:
 
         Parameters
         ----------
-        hkl : tuple of int
-            Miller index of crystal surface to orient along incident
-            direction.
+        hkl : array_like of int
+            Miller index of the crystal surface to orient antiparallel
+            to the incident direction.
         geom : Geometry
             Measurement geometry.
         i_pol, s_pol : str or Polarisation
-            Polarisation of incident and scattered light. The
+            Polarisations of the incident and scattered light. The
             polarisation to be rotated can be specified by "rot". The
             scattered polarisation may also be specified by one of
             {"parallel", "cross", "sum"}.
@@ -642,13 +642,13 @@ class RamanCalculation:
 
         Parameters
         ----------
-        hkl : tuple of int
-            Miller index of crystal surface to orient along the incident
-            direction.
+        hkl : array_like of int
+            Miller index of the crystal surface to orient antiparallel
+            to the incident direction.
         geom : Geometry
             Measurement geometry.
         i_pol, s_pol : str or Polarisation
-            Polarisation(s) of incident and scattered light. The
+            Polarisations of the incident and scattered light. The
             scattered polarisation may also be specified by one of
             {"parallel", "cross", "sum"}.
         phi_start, phi_end, phi_step : float, optional
@@ -741,19 +741,19 @@ class RamanCalculation:
         ----------
         geom : Geometry
             Measurement geometry.
-        i_pol, s_pol : str, Polarisation or list of Polarisation
-            Polarisation(s) of incident and scattered light. The
+        i_pol, s_pol : str, Polarisation or array_like of Polarisation
+            Polarisations of the incident and scattered light. The
             scattered polarisation may also be specified by one of
             {"parallel", "cross", "sum"}.
-        po_hkl : tuple of int or None, optional
-            Miller index of preferred orientation (default: None).
+        po_hkl : array_like of int or None, optional
+            Miller index of the preferred orientation (default: None).
         po_eta : float, optional
             Fraction of crystallites with the preferred orientation
             (default: 0.0)
         w, t : float or None, optional
             Measurement wavelength and temperature.
         e_rt : float or None, optional
-            Photon energy for evaluating Raman tensors in energy-
+            Photon energy for evaluating the Raman tensors in energy-
             dependent Raman calculations (default: calculated from `w`
             if set and if energy-dependent Raman tensors are available,
             otherwise E = 0.)
@@ -765,7 +765,7 @@ class RamanCalculation:
             Indices of "band groups" to include in the calculation
             (default: all groups). Groups are defined by irreps if
             available, or the band indices in the calculation otherwise.
-        method : {"nquad", "lebedev+circle", "best"}, optional
+        method : {"nquad", "leb+circ", "best"}, optional
             Method for powder averaging (default: `"best"`).
         lc_prec : int, optional
             Precision of the Lebedev + circle numerical quadrature
@@ -926,7 +926,7 @@ class RamanCalculation:
         geom : Geometry
             Measurement geometry.
         i_pol, s_pol : str or Polarisation
-            Polarisation of incident and scattered light. The
+            Polarisations of the incident and scattered light. The
             polarisation to be rotated can be specified by "rot". The
             scattered polarisation may also be specified by one of
             {"parallel", "cross", "sum"}.

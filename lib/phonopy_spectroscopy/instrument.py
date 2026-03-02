@@ -166,7 +166,16 @@ class Polarisation:
         than to instantiate them directly (see above).
         """
 
-        v, _ = np_expand_dims(np_asarray_copy(v, dtype=np.float64), (None, 3))
+        v, _ = np_expand_dims(
+            np_asarray_copy(v, dtype=np.complex128), (None, 3)
+        )
+
+        # For most "routine" calculations the polarisation vectors are
+        # real - if so, drop the imaginary part and convert to
+        # np.float64 for performance.
+
+        if not np.iscomplex(v).any():
+            v = np.array(v.real, dtype=np.float64)
 
         if w is not None:
             w = np_asarray_copy(w, dtype=np.float64)
@@ -208,6 +217,12 @@ class Polarisation:
         """int : Number of weights/vectors."""
         return self._v.shape[0]
 
+    @property
+    def is_complex(self):
+        """bool : `True` if any of `vectors` are complex, otherwise
+        `False`."""
+        return np.iscomplex(self._v).any()
+
     def iter_v_w(self):
         """Iterate over polarisation vectors and weights.
 
@@ -225,20 +240,21 @@ class Polarisation:
 
         Parameters
         ----------
-        axis : array_like
-            Axis to check (shape: `(3,)`).
+        axis : array_like or str
+            Axis to check.
 
         Returns
         -------
         perp : bool
             `True` if all polarisation vectors are perpendicular to
             axis, otherwise `False`.
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `axis`.
         """
 
-        axis = np.asarray(axis, dtype=np.float64)
-
-        if not np_check_shape(axis, (3,)):
-            raise ValueError("axis must be an array_like with shape (3,).")
+        axis = parse_direction(axis)
 
         for v in self._v:
             # cos(\theta) = 0 for perpendicular vectors, so it does not
