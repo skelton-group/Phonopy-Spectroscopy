@@ -271,7 +271,7 @@ def optical_spectra_from_epsilon(x, eps, x_units):
 
     # Optical conductivity:
 
-    s = -1.0j * x * VACUUM_PERMITIVITY * (eps - 1.0)
+    s = 1.0e-2 * -1.0j * 1.0e12 * x * VACUUM_PERMITIVITY * (eps - 1.0)
 
     # Energy loss function.
 
@@ -422,7 +422,7 @@ def incoherent_transmission_absorbance(a, r, t):
 
     .. math::
 
-         T(\omega) = \frac{\left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]}{1 - R(\omega)^2 \exp \left[ -2 \alpha(\omega) t \right]}
+         T(\omega) = \frac{\left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]}{1 - R^2(\omega) \exp \left[ -2 \alpha(\omega) t \right]}
 
     .. math::
 

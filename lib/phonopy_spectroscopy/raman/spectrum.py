@@ -425,7 +425,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         # intensities are "raw" values.
 
         return (
-            "d(sigma)/d(omega) / (Ang^2 sterad^-1)"
+            "d(sigma)/d(omega) / (Ang^2 sr^-1)"
             if self._w is not None
             else "I^Raman / (Ang^4 amu^-1)"
         )
@@ -438,7 +438,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         # (See comment on _intensity_unit_text_label.)
 
         return (
-            r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sterad$^{-1}$)"
+            r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
             if self._w is not None
             else r"$I^\mathrm{Raman}$ / ($\mathrm{AA}^4$ amu$^{-1}$)"
         )
