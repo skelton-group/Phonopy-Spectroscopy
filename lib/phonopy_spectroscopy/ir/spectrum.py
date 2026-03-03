@@ -41,6 +41,8 @@ from ..utility.numpy_helper import (
     np_check_shape,
 )
 
+from ..utility.diagonalisation import reorder_with_branch_tracking
+
 
 # ---------
 # Constants
@@ -59,7 +61,7 @@ _SIGMA_UNIT_PLOT_LABEL = r"$\sigma$ / S cm$^{-1}$"
 # -------------------
 
 
-def diagonalise_epsilon(eps):
+def diagonalise_epsilon(eps, branch_tracking=True):
     """Diagonalise a frequency-dependent D-dimensional dielectric
     function and return the eigenvalues and eigenvectors.
 
@@ -67,6 +69,9 @@ def diagonalise_epsilon(eps):
     ----------
     eps : array_like
         Dielectric function (shape: `(O,)` or `(O, D, D)`).
+    branch_tracking : bool, optional
+        If `True`, reorder the optical eigenmodes by performing a
+        "branch tracking" over frequencies (default: `True`).
 
     Returns
     -------
@@ -103,6 +108,11 @@ def diagonalise_epsilon(eps):
         return (eps[:, :, 0], np.ones((d_1, 1, 1), dtype=np.float64))
 
     evals, evecs = np.linalg.eig(eps)
+
+    # If branch_tracking is set, reorder evals/evecs.
+
+    if branch_tracking:
+        evals, evecs = reorder_with_branch_tracking(evals, evecs)
 
     # If the eigenvectors are real, strip out the complex part for
     # efficiency.
@@ -488,7 +498,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
     """Class for finding the optical eigenmodes of a D-dimensional
     dielectric function and simulating the optical spectra."""
 
-    def __init__(self, x, eps, x_units="thz", t=1.0):
+    def __init__(self, x, eps, x_units="thz", t=1.0, branch_tracking=True):
         """Create a new instance of the `OpticalSpectrumBase` class.
 
         Parameters
@@ -503,6 +513,9 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         t : float or None, optional
             Sample thickness for calculating absorbance and transmission
             in mm (default: 1 mm).
+        branch_tracking : bool, optional
+            If `True`, reorder the optical eigenmodes by performing a
+            "branch tracking" over frequencies (default: `True`).
         """
 
         # Checks and validates x and x_units, and sets the _x and
@@ -517,7 +530,9 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         # eigenmodes. diagonalise_epsilon() checks the shape of eps and
         # handles "0D" or 1D dielectric functions.
 
-        evals, evecs = diagonalise_epsilon(eps)
+        evals, evecs = diagonalise_epsilon(
+            eps, branch_tracking=branch_tracking
+        )
 
         if len(evals) != len(self._x):
             raise ValueError(
@@ -626,7 +641,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         at the `i`th frequency is `epsilon_eigenvectors[i, j]`)
         (this is more natural for many operations)."""
 
-        evecs = np.swap_axes(self._mode_evecs, 1, 2)
+        evecs = np.swapaxes(self._mode_evecs, 1, 2)
         return np_readonly_view(evecs)
 
     @property
@@ -776,7 +791,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         return pd.DataFrame(d)
 
     @staticmethod
-    def from_infrared_dielectric_function(eps_ir, t=1.0):
+    def from_infrared_dielectric_function(eps_ir, t=1.0, branch_tracking=True):
         """Create an `OpticalEigenmodeSpectrum` from an
         `InfraredDielectricFunction object.
 
@@ -786,6 +801,9 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
             Infrared dielectric function.
         t : float, optonal
             Thickness in mm (default: 1 mm).
+        branch_tracking : bool, optional
+            If `True`, reorder the optical eigenmodes by performing a
+            "branch tracking" over frequencies (default: `True`).
 
         Returns
         -------
@@ -794,7 +812,11 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         """
 
         return OpticalEigenmodeSpectrum(
-            eps_ir.x, eps_ir.epsilon, x_units=eps_ir.x_units, t=t
+            eps_ir.x,
+            eps_ir.epsilon,
+            x_units=eps_ir.x_units,
+            t=t,
+            branch_tracking=branch_tracking,
         )
 
 
