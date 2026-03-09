@@ -29,15 +29,15 @@ try:
     _PHONOPY_AVAILABLE = True
 except ImportError:
     warnings.warn(
-        "Imports from phonopy failed - some functions require phonopy and "
-        "will raise exceptions if it is not installed.",
+        "Imports from Phonopy failed - some functions require Phonopy "
+        "and will raise exceptions if it is not installed.",
         RuntimeWarning,
     )
 
 
 from ..constants import ZERO_TOLERANCE
 from ..irreps import Irreps
-from ..phonon import GammaPhonons
+from ..phonon import GammaPhonons, PolarGammaPhonons
 from ..structure import Structure
 from ..utility.io_helper import load_yaml
 
@@ -73,17 +73,17 @@ _INTERFACE_UNITS = {
 
 
 def get_distance_unit_for_interface(calculator):
-    """_summary_
+    """Return the distance units used by a named calculator.
 
     Parameters
     ----------
-    calculator : _type_
-        _description_
+    calculator : str
+        Calculator name.
 
     Returns
     -------
-    _type_
-        _description_
+    units : str
+        Distance units.
     """
 
     k = calculator.lower()
@@ -105,11 +105,12 @@ def gamma_phonons_from_phono3py(
     lws_file=None,
     lws_t=300.0,
     irreps_file=None,
+    born_file=None,
     at_m=None,
     conv_trans=None,
 ):
-    """Read a complete Phono(3)py calculation and return a
-    `GammaPhonons` object.
+    r"""Read a complete Phono(3)py calculation and return a
+    `GammaPhonons` or `PolarGammaPhonons` object.
 
     Parameters
     ----------
@@ -125,6 +126,9 @@ def gamma_phonons_from_phono3py(
         Temperature to read linewidths at (default: 300 K)
     irreps_file : str, optional
         irreps.yaml file to read irreps from (default: `None`).
+    born_file : str, optional
+        BORN file to read high-frequency dielectric constant \eps_inf
+        and Born effective charges from (default: `None`).
     at_m : array_like, optional
         Atomic masses (optional, default: `None`; overridden if
         `cell_file` is a phonopy.yaml file).
@@ -164,11 +168,11 @@ def gamma_phonons_from_phono3py(
     _, ext = os.path.splitext(freqs_evecs_file)
 
     if ext.lower() == ".yaml":
-        freqs, evecs = gamma_freqs_evecs_from_mesh_or_band_yaml(
+        freqs, evecs = gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(
             freqs_evecs_file
         )
     elif ext.lower() == ".hdf5":
-        freqs, evecs = gamma_freqs_evecs_from_mesh_or_band_hdf5(
+        freqs, evecs = gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(
             freqs_evecs_file
         )
     else:
@@ -193,9 +197,18 @@ def gamma_phonons_from_phono3py(
     if irreps_file is not None:
         irreps = irreps_from_irreps_yaml(irreps_file)
 
-    # Construct and return a GammaPhonons object with the data. (The
-    # GammaPhonons constructor will handle validation and consistency
-    # checking.)
+    if born_file is not None:
+        # Read BORN file and return a PolarGammaPhonons object.
+
+        eps_inf, born_charges = hf_dielectric_and_born_from_born(
+            born_file, struct
+        )
+
+        return PolarGammaPhonons(
+            struct, freqs, evecs, eps_inf, born_charges, lws=lws, irreps=irreps
+        )
+
+    # Return a GammaPhonons object.
 
     return GammaPhonons(struct, freqs, evecs, lws=lws, irreps=irreps)
 
@@ -236,7 +249,7 @@ def structure_from_phonopy_yaml(file_path, conv_trans=None):
     )
 
 
-def gamma_freqs_evecs_from_mesh_or_band_yaml(file_path):
+def gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(file_path):
     r"""Read Gamma-point phonon frequencies and eigenvectors
     from a mesh.yaml or band.yaml file.
 
@@ -279,11 +292,15 @@ def gamma_freqs_evecs_from_mesh_or_band_yaml(file_path):
             # Gamma-point calculations, the imaginary part should be
             # zero, and we can drop the last dimension.
 
-            if not np.allclose(evecs[:, :, :, 1], 0.0, atol=ZERO_TOLERANCE):
-                raise RuntimeError(
+            max_imag = np.abs(evecs[:, :, :, 1]).max()
+
+            if max_imag > ZERO_TOLERANCE:
+                warnings.warn(
                     "mesh.yaml/band.yaml file {0}: One or more "
-                    "Gamma-point eigenvectors has a non-zero "
-                    "imaginary part.".format(file_path)
+                    "Gamma-point eigenvectors has a non-zero imaginary"
+                    "part (max. abs. = {1:.3e}). Imaginary parts will "
+                    "be discarded.".format(file_path, max_imag),
+                    UserWarning,
                 )
 
             return (freqs, evecs[:, :, :, 0])
@@ -332,7 +349,7 @@ def irreps_from_irreps_yaml(file_path):
 # ----------
 
 
-def gamma_freqs_evecs_from_mesh_or_band_hdf5(file_path):
+def gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(file_path):
     """Read Gamma-point phonon frequencies and eigenvectors from a
     mesh.hdf5 or band.hdf5 file.
 
@@ -385,21 +402,19 @@ def gamma_freqs_evecs_from_mesh_or_band_hdf5(file_path):
             if np.allclose(q_pos, 0.0, atol=ZERO_TOLERANCE):
                 freqs = freqs[idx]
 
-                if not np.allclose(evecs[idx].imag, 0.0, atol=ZERO_TOLERANCE):
-                    raise RuntimeError(
+                max_imag = np.abs(evecs[idx].imag).max()
+
+                if max_imag > ZERO_TOLERANCE:
+                    warnings.warn(
                         "mesh.hdf5/band.hdf5 file {0}: One or more "
                         "Gamma-point eigenvectors has a non-zero "
-                        "imaginary part.".format(file_path)
+                        "imaginary part (max. abs. = {1:.3e}). "
+                        "Imaginary parts will be discarded."
+                        "".format(file_path, max_imag),
+                        UserWarning,
                     )
 
-                n_at = len(freqs) // 3
-
-                evecs = evecs[idx].real
-
-                evecs = np.array(
-                    [evecs[:, i].reshape(n_at, 3) for i in range(len(freqs))],
-                    dtype=np.float64,
-                )
+                evecs = evecs[idx].real.T.reshape(-1, len(freqs) // 3, 3)
 
                 return (freqs, evecs)
 

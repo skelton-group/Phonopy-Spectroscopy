@@ -5,15 +5,18 @@
 # Docstring
 # ---------
 
-"""This module contains routines for comparing objects as part of unit
-tests."""
+
+"""Routines for comparing objects as part of unit tests."""
 
 
 # -------
 # Imports
 # -------
 
+
 import numpy as np
+
+from phonopy_spectroscopy.phonon import PolarGammaPhonons
 
 
 # ---------
@@ -117,14 +120,41 @@ def compare_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
     )
 
 
-def compare_infrared_calculators(calc_cmp, calc_ref):
-    """Compare two `InfraredCalculator` objects and determine whether
+def compare_polar_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
+    """Compare two `PolarGammaPhonons` objects and determine whether
     they hold identical data.
 
     Parameters
     ----------
-    calc_cmp, calc_ref : InfraredCalculator
-        `InfraredCalculator` objects to compare.
+    gamma_ph_cmp, gamma_ph_ref : PolarGammaPhonons
+        `PolarGammaPhonons` objects to compare.
+
+    Returns
+    -------
+    equiv : bool
+        `True` if `gamma_ph_cmp` is equivalent to `gamma_ph_ref`,
+        otherwise `False`.
+    """
+
+    if not compare_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
+        return False
+
+    return np.allclose(
+        gamma_ph_cmp.epsilon_inf, gamma_ph_ref.epsilon_inf
+    ) and np.allclose(
+        gamma_ph_cmp.born_effective_charges,
+        gamma_ph_ref.born_effective_charges,
+    )
+
+
+def compare_infrared_calculations(calc_cmp, calc_ref):
+    """Compare two `InfraredCalculation` objects and determine whether
+    they hold identical data.
+
+    Parameters
+    ----------
+    calc_cmp, calc_ref : InfraredCalculation
+        `InfraredCalculation` objects to compare.
 
     Returns
     -------
@@ -133,22 +163,9 @@ def compare_infrared_calculators(calc_cmp, calc_ref):
         `False`.
     """
 
-    if not compare_gamma_phonons(
-        calc_ref.gamma_phonons, calc_cmp.gamma_phonons
-    ):
-        return False
-
-    if not np.allclose(
-        calc_cmp.born_effective_charges, calc_ref.born_effective_charges
-    ):
-        return False
-
-    if calc_cmp.epsilon_inf is not None:
-        return calc_ref.epsilon_inf is not None and np.allclose(
-            calc_cmp.epsilon_inf, calc_ref.epsilon_inf
-        )
-    else:
-        return calc_ref.born_charges is None
+    return compare_gamma_phonons(
+        calc_ref.phonon_calculation, calc_cmp.phonon_calculation
+    )
 
 
 def compare_finite_displacement_raman_tensor_calculators(
@@ -170,7 +187,7 @@ def compare_finite_displacement_raman_tensor_calculators(
     """
 
     if not compare_gamma_phonons(
-        fd_calc_ref.gamma_phonons, fd_calc_cmp.gamma_phonons
+        fd_calc_ref.phonon_calculation, fd_calc_cmp.phonon_calculation
     ):
         return False
 
@@ -223,11 +240,28 @@ def compare_raman_calculations(calc_cmp, calc_ref):
         `False`.
     """
 
+    # The RamanCalculation object can be initialised with either of a
+    # GammaPhonons or PolarGammaPhonons object.
+
+    if isinstance(calc_cmp.phonon_calculation, PolarGammaPhonons):
+        if isinstance(calc_ref.phonon_calculation, PolarGammaPhonons):
+            if not compare_polar_gamma_phonons(
+                calc_cmp.phonon_calculation, calc_ref.phonon_calculation
+            ):
+                return False
+        else:
+            return False
+    else:
+        if isinstance(calc_ref.phonon_calculation, PolarGammaPhonons):
+            return False
+
+        if not compare_gamma_phonons(
+            calc_cmp.phonon_calculation, calc_ref.phonon_calculation
+        ):
+            return False
+
     return (
-        compare_gamma_phonons(calc_cmp.gamma_phonons, calc_ref.gamma_phonons)
-        and compare_raman_tensors(
-            calc_cmp.raman_tensors, calc_ref.raman_tensors
-        )
+        compare_raman_tensors(calc_cmp.raman_tensors, calc_ref.raman_tensors)
         and np.equal(calc_cmp.band_indices, calc_ref.band_indices).all()
         and compare_irreps(calc_cmp.irreps, calc_ref.irreps)
     )

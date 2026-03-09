@@ -6,7 +6,7 @@
 # ---------
 
 
-"""This file contains test routines for the core I/O routines."""
+"""Test routines for the core I/O."""
 
 
 # -------
@@ -19,10 +19,12 @@ import unittest
 
 import numpy as np
 
-from phonopy_spectroscopy.phonon import GammaPhonons
-from phonopy_spectroscopy.structure import Structure
-
-from phonopy_spectroscopy.utility.io_helper import load_json, save_json
+from phonopy_spectroscopy.interfaces.phonopy_interface import (
+    gamma_phonons_from_phono3py,
+    structure_from_phonopy_yaml,
+    gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml,
+    gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5,
+)
 
 from phonopy_spectroscopy.interfaces.vasp_interface import (
     structure_from_poscar,
@@ -30,14 +32,16 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     dielectric_from_vasprun_xml,
 )
 
-from phonopy_spectroscopy.interfaces.phonopy_interface import (
-    gamma_phonons_from_phono3py,
-    structure_from_phonopy_yaml,
-    gamma_freqs_evecs_from_mesh_or_band_yaml,
-    gamma_freqs_evecs_from_mesh_or_band_hdf5,
-)
+from phonopy_spectroscopy.phonon import GammaPhonons, PolarGammaPhonons
+from phonopy_spectroscopy.structure import Structure
 
-from comparison_helper import compare_structures, compare_gamma_phonons
+from phonopy_spectroscopy.utility.io_helper import load_json, save_json
+
+from comparison_helper import (
+    compare_structures,
+    compare_gamma_phonons,
+    compare_polar_gamma_phonons,
+)
 
 
 # ---------
@@ -45,7 +49,8 @@ from comparison_helper import compare_structures, compare_gamma_phonons
 # ---------
 
 
-_EXAMPLE_BASE_DIR = r"../example/Si"
+_EXAMPLE_BASE_DIR_SI = r"../example/si"
+_EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
 
 # -------------
@@ -54,18 +59,20 @@ _EXAMPLE_BASE_DIR = r"../example/Si"
 
 
 class TestIO(unittest.TestCase):
+    """Class implementing unit tests for I/O routines."""
+
     def test_structure_io(self):
-        """Test "core" structure input/output routines."""
+        """Test structure input/output routines."""
 
         # Load reference structures from VASP POSCAR and Phonopy
         # phonopy.yaml files and compare.
 
         struct_ref_1 = structure_from_poscar(
-            os.path.join(_EXAMPLE_BASE_DIR, r"POSCAR.Opt.Prim")
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"POSCAR.Opt.Prim")
         )
 
         struct_ref_2 = structure_from_phonopy_yaml(
-            os.path.join(_EXAMPLE_BASE_DIR, r"phonopy.yaml")
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"struct_ref/phonopy.yaml")
         )
 
         self.assertTrue(compare_structures(struct_ref_2, struct_ref_1))
@@ -98,20 +105,28 @@ class TestIO(unittest.TestCase):
         # Load frequencies and eigenvectors from mesh/band YAML and HDF5
         # files and check the data are eqivalent.
 
-        freqs_evecs_1 = gamma_freqs_evecs_from_mesh_or_band_yaml(
-            os.path.join(_EXAMPLE_BASE_DIR, r"mesh.yaml")
+        freqs_evecs_1 = gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/mesh.yaml")
         )
 
-        freqs_evecs_2 = gamma_freqs_evecs_from_mesh_or_band_yaml(
-            os.path.join(_EXAMPLE_BASE_DIR, r"band.yaml")
+        freqs_evecs_2 = gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/qpoints.yaml")
         )
 
-        freqs_evecs_3 = gamma_freqs_evecs_from_mesh_or_band_hdf5(
-            os.path.join(_EXAMPLE_BASE_DIR, r"mesh.hdf5")
+        freqs_evecs_3 = gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/band.yaml")
         )
 
-        freqs_evecs_4 = gamma_freqs_evecs_from_mesh_or_band_hdf5(
-            os.path.join(_EXAMPLE_BASE_DIR, r"band.hdf5")
+        freqs_evecs_4 = gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/mesh.hdf5")
+        )
+
+        freqs_evecs_5 = gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/qpoints.hdf5")
+        )
+
+        freqs_evecs_6 = gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"freqs_evecs_ref/band.hdf5")
         )
 
         freqs_ref, evecs_ref = freqs_evecs_1
@@ -120,11 +135,13 @@ class TestIO(unittest.TestCase):
             freqs_evecs_2,
             freqs_evecs_3,
             freqs_evecs_4,
+            freqs_evecs_5,
+            freqs_evecs_6,
         ):
             self.assertTrue(np.allclose(freqs_cmp, freqs_ref))
             self.assertTrue(np.allclose(evecs_cmp, evecs_ref))
 
-    def test_gamma_phonons_io(self):
+    def test_gamma_phonons_io_1(self):
         """Test high-level Phono(3)py "loader" and
         serialisation/deserialisation of `GammaPhonons` objects."""
 
@@ -133,10 +150,12 @@ class TestIO(unittest.TestCase):
         # and irreps.
 
         gamma_ph = gamma_phonons_from_phono3py(
-            os.path.join(_EXAMPLE_BASE_DIR, r"phonopy.yaml"),
-            os.path.join(_EXAMPLE_BASE_DIR, r"mesh.hdf5"),
-            lws_file=os.path.join(_EXAMPLE_BASE_DIR, r"kappa-m646464-g0.hdf5"),
-            irreps_file=os.path.join(_EXAMPLE_BASE_DIR, r"irreps.yaml"),
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"POSCAR.Opt.Prim"),
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"mesh.yaml"),
+            lws_file=os.path.join(
+                _EXAMPLE_BASE_DIR_SI, r"kappa-m646464-g0.hdf5"
+            ),
+            irreps_file=os.path.join(_EXAMPLE_BASE_DIR_SI, r"irreps.yaml"),
         )
 
         # Serialise the GammaPhonons to a dictionary, write it to a JSON
@@ -152,6 +171,63 @@ class TestIO(unittest.TestCase):
         self.assertTrue(compare_gamma_phonons(gamma_ph_cmp, gamma_ph))
 
         os.remove(r"gamma_phonons.json.tmp")
+
+    def test_gamma_phonons_io_2(self):
+        """Test high-level Phono(3)py "loader" and
+        serialisation/deserialisation of `PolarGammaPhonons` objects."""
+
+        cell_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"POSCAR.Opt")
+        freqs_evecs_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"mesh.yaml")
+        lws_file = os.path.join(
+            _EXAMPLE_BASE_DIR_SNSE, r"kappa-m323216-g0.hdf5"
+        )
+        irreps_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"irreps.yaml")
+        born_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"BORN")
+
+        gamma_ph_1 = gamma_phonons_from_phono3py(
+            cell_file,
+            freqs_evecs_file,
+            lws_file=lws_file,
+            irreps_file=irreps_file,
+        )
+
+        gamma_ph_2 = gamma_phonons_from_phono3py(
+            cell_file,
+            freqs_evecs_file,
+            lws_file=lws_file,
+            irreps_file=irreps_file,
+            born_file=born_file,
+        )
+
+        # Check gamma_phonons_from_phono3py() returns a
+        # PolarGammaPhonons object when passed the optional born_file
+        # argument, and a GammaPhonons object otherwise.
+
+        self.assertTrue(isinstance(gamma_ph_1, GammaPhonons))
+        self.assertFalse(isinstance(gamma_ph_1, PolarGammaPhonons))
+
+        self.assertTrue(isinstance(gamma_ph_2, GammaPhonons))
+        self.assertTrue(isinstance(gamma_ph_2, PolarGammaPhonons))
+
+        # Check the PolarGammaPhonons object has the same "base" data
+        # as the GammaPhonons initialised from the same files.
+
+        self.assertTrue(compare_gamma_phonons(gamma_ph_2, gamma_ph_1))
+
+        # Test the serialisation/deserialisation of the
+        # PolarGammaPhonons object.
+
+        save_json(gamma_ph_2.to_dict(), r"polar_gamma_phonons.json.tmp")
+
+        gamma_ph_2_cmp = PolarGammaPhonons.from_dict(
+            load_json(r"polar_gamma_phonons.json.tmp")
+        )
+
+        self.assertTrue(
+            compare_polar_gamma_phonons(gamma_ph_2_cmp, gamma_ph_2)
+        )
+
+        os.remove(r"polar_gamma_phonons.json.tmp")
 
     def test_dielectric_io(self):
         """Test routines for reading dielectric data from vasprun.xml
@@ -181,7 +257,7 @@ class TestIO(unittest.TestCase):
 
         for f, ref_eps in zip(input_files, ref_eps_hf):
             e, eps_e = dielectric_from_vasprun_xml(
-                os.path.join(_EXAMPLE_BASE_DIR, r"raman_ref", f)
+                os.path.join(_EXAMPLE_BASE_DIR_SI, r"raman_ref", f)
             )
 
             # First energy should be E = 0.

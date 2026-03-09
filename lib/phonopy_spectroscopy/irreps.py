@@ -294,9 +294,9 @@ class Irreps:
         pt_grp : str
             Point group symbol.
         ir_syms : array_like
-            Symbols of irrep groups (shape: `(N,)`).
+            Symbols of irrep groups (shape: `(M,)`).
         ir_band_inds : array_like
-            Indices of bands in irrep groups (shape: `(N, M)`, with `M`
+            Indices of bands in irrep groups (shape: `(M, L)`, with `L`
             potentially non-uniform).
         """
 
@@ -377,13 +377,31 @@ class Irreps:
 
     @property
     def irrep_symbols(self):
-        """numpy.ndarray : Irrep group symbols."""
+        """numpy.ndarray : Irrep group symbols (shape: `(K,)`)."""
         return np_readonly_view(self._ir_syms)
 
     @property
     def irrep_band_indices(self):
-        """list of numpy.ndarray : Band indices in irrep groups."""
+        """list of numpy.ndarray : Band indices in irrep groups (shape:
+        `(K,)`)."""
         return [np_readonly_view(inds) for inds in self._ir_band_inds]
+
+    def symbols_flat(self):
+        """Return a flat array of mode irrep symbols, with the symbols
+        for degenerate modes duplicated.
+
+        Returns
+        -------
+        irrep_syms : numpy.ndarray
+            Flat array of irrep symbols (shape: `(3N,)`),
+        """
+
+        irrep_syms = []
+
+        for sym, band_inds in zip(self._ir_syms, self._ir_band_inds):
+            irrep_syms += [sym] * len(band_inds)
+
+        return np.array(irrep_syms, dtype=object)
 
     def band_indices_flat(self):
         """Return a flat array of all the band indices covered by the
@@ -391,8 +409,8 @@ class Irreps:
 
         Returns
         -------
-        band_inds : ndarray
-            Flat array of band indices.
+        band_inds : numpy.ndarray
+            Flat array of band indices (shape: `(3N,)`).
         """
 
         band_inds = []

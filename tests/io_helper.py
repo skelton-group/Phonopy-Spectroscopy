@@ -6,8 +6,7 @@
 # ---------
 
 
-"""This module contains routines for input/output as part of unit tests.
-"""
+"""Toutines for input/output as part of unit tests."""
 
 
 # -------

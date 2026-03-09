@@ -30,8 +30,6 @@ import unittest
 
 import numpy as np
 
-from io_helper import generate_fd_raman_dielectric_input_file_list
-
 from phonopy_spectroscopy.cli.utility.raman_io import (
     fd_read_dielectrics_vasp,
 )
@@ -58,13 +56,15 @@ from phonopy_spectroscopy.utility.geometry import (
     rotation_matrix_from_axis_angle,
 )
 
+from io_helper import generate_fd_raman_dielectric_input_file_list
+
 
 # ---------
 # Constants
 # ---------
 
 
-_EXAMPLE_BASE_DIR = r"../example/si"
+_EXAMPLE_BASE_DIR_SI = r"../example/si"
 
 
 # ---------------------------
@@ -73,6 +73,8 @@ _EXAMPLE_BASE_DIR = r"../example/si"
 
 
 class TestRamanSimulation(unittest.TestCase):
+    """Class implementing unit tests for Raman simulations."""
+
     def setUp(self):
         """Perform setup."""
 
@@ -84,10 +86,12 @@ class TestRamanSimulation(unittest.TestCase):
         )
 
         gamma_ph = gamma_phonons_from_phono3py(
-            os.path.join(_EXAMPLE_BASE_DIR, r"phonopy.yaml"),
-            os.path.join(_EXAMPLE_BASE_DIR, r"mesh.hdf5"),
-            lws_file=os.path.join(_EXAMPLE_BASE_DIR, r"kappa-m646464-g0.hdf5"),
-            irreps_file=os.path.join(_EXAMPLE_BASE_DIR, r"irreps.yaml"),
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"POSCAR.Opt.Prim"),
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"mesh.yaml"),
+            lws_file=os.path.join(
+                _EXAMPLE_BASE_DIR_SI, r"kappa-m646464-g0.hdf5"
+            ),
+            irreps_file=os.path.join(_EXAMPLE_BASE_DIR_SI, r"irreps.yaml"),
             conv_trans=conv_trans,
         )
 
@@ -100,7 +104,7 @@ class TestRamanSimulation(unittest.TestCase):
         # structutes.
 
         file_path_template = os.path.join(
-            _EXAMPLE_BASE_DIR,
+            _EXAMPLE_BASE_DIR_SI,
             r"raman_ref",
             r"vasprun-HSE06-LinearOptics-350eV-{0:0>4}-{1:0>2}.xml",
         )

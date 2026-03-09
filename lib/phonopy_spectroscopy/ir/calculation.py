@@ -6,9 +6,9 @@
 # ---------
 
 
-"""High-level `InfraredCalculation` object providing an API for using
-Gamma-point phonon and Born effective-charge calculations to generate
-simulated infrared (IR) dielectric functions and related quantities."""
+"""High-level `InfraredCalculation` object providing an API for
+generating simulated infrared (IR) dielectric functions and optical
+spectra."""
 
 
 # -------
@@ -21,27 +21,17 @@ import warnings
 import numpy as np
 
 from .dielectric_function import InfraredDielectricFunction
+
 from .spectrum import (
     OpticalEigenmodeSpectrum,
     OpticalSpectrum,
     InputPolarisedOpticalSpectrum,
 )
 
-from ..constants import (
-    ZERO_TOLERANCE,
-    DIELECTRIC_TO_RELATIVE_PERMITTIVITY,
-)
-
-from ..phonon import GammaPhonons
-
+from ..constants import ZERO_TOLERANCE
+from ..phonon import PolarGammaPhonons
 from ..utility.geometry import rotation_matrix_from_vectors, rotate_tensors
-
-from ..utility.numpy_helper import (
-    np_asarray_copy,
-    np_readonly_view,
-    np_check_shape,
-)
-
+from ..utility.numpy_helper import np_readonly_view
 from ..utility.quadrature import unit_sphere_lebedev_quad_rule
 
 
@@ -51,86 +41,23 @@ from ..utility.quadrature import unit_sphere_lebedev_quad_rule
 
 
 class InfraredCalculation:
-    r"""Combine a `GammaPhonons` object, a set of Born effective
-    charges, and, optionally, a high-frequency dielectric constant
-    \eps_inf, to generate simulated infrared (IR) spectra and related
-    quantities."""
+    r"""Use a `PolarGammaPhonons` object to generate simulated infrared
+    (IR) spectra."""
 
-    def __init__(self, gamma_ph, born_charges, eps_inf=None):
+    def __init__(self, ph_calc):
         r"""Create a new instance of the `InfraredCalculation` class.
 
         Parameters
         ----------
-        gamma_ph : GammaPhonons
-            Gamma-point phonon calculation.
-        born_charges : array_like
-            Born effective charge tensors (shape: `(N, 3, 3)`).
-        eps_inf : array_like or None, optional
-            High-frequency dielectric constant \eps_inf (shape:
-            `(3, 3)`, default: `None`).
+        gamma_ph : PolarGammaPhonons
+            Gamma-point phonon calculation including a high-frequency
+            dielectric constant \eps_inf and Born effective charges.
         """
 
-        born_charges = np_asarray_copy(born_charges, dtype=np.float64)
-
-        if not np_check_shape(
-            born_charges, (gamma_ph.structure.num_atoms, 3, 3)
-        ):
-            raise ValueError(
-                "born_charges must be an array_like with shape (N, 3, 3)."
-            )
-
-        if eps_inf is not None:
-            eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
-
-            if not np_check_shape(eps_inf, (3, 3)):
-                raise ValueError(
-                    "If supplied, eps_inf must be an array_like with "
-                    "shape (3, 3)."
-                )
-
-        self._gamma_ph = gamma_ph
-        self._born_charges = born_charges
-
-        self._eps_inf = eps_inf
-        self._eps_ionic = None
+        self._ph_calc = ph_calc
 
         self._mode_eff_chg = None
         self._mode_osc_str = None
-
-    def _lazy_calc_epsilon_ionic(self):
-        r"""Calculate the ionic contribution to the static dielectric
-        constant \eps_ionic on first call to `epsilon_ionic`,
-        `epsilon_static` or `dielectric_function`."""
-
-        # Invert Hessian. Testing suggests h is generally badly
-        # conditioned, and np.linalg.pinv() handles this much better
-        # than np.linalg.inv().
-
-        inv_h = np.linalg.pinv(self._gamma_ph.hessian())
-
-        eps_ionic = np.zeros((3, 3), dtype=np.float64)
-
-        n_dof, _ = inv_h.shape
-
-        for i in range(n_dof):
-            i_at, i_dir = i // 3, i % 3
-
-            for j in range(n_dof):
-                j_at, j_dir = j // 3, j % 3
-
-                for a in range(3):
-                    for b in range(3):
-                        eps_ionic[a, b] += (
-                            self._born_charges[i_at][i_dir, a]
-                            * inv_h[i, j]
-                            * self._born_charges[j_at][j_dir, b]
-                        )
-
-        self._eps_ionic = (
-            DIELECTRIC_TO_RELATIVE_PERMITTIVITY
-            * eps_ionic
-            / self._gamma_ph.structure.volume()
-        )
 
     def _lazy_calc_mode_effective_charges(self):
         """Calculate the mode effective charges on first call to
@@ -139,14 +66,16 @@ class InfraredCalculation:
 
         if self._mode_eff_chg is None:
             mode_eff_chg = np.zeros(
-                (self._gamma_ph.num_modes, 3), dtype=np.float64
+                (self._ph_calc.num_modes, 3), dtype=np.float64
             )
 
-            for i, edisp in enumerate(self._gamma_ph.eigendisplacements()):
+            for i, edisp in enumerate(self._ph_calc.eigendisplacements()):
                 temp = np.zeros_like(edisp)
 
-                for j in range(self._gamma_ph.structure.num_atoms):
-                    temp[j] = np.matmul(self._born_charges[j], edisp[j])
+                for j in range(self._ph_calc.structure.num_atoms):
+                    temp[j] = np.matmul(
+                        self._ph_calc.born_effective_charges[j], edisp[j]
+                    )
 
                 mode_eff_chg[i] = temp.sum(axis=0)
 
@@ -160,10 +89,10 @@ class InfraredCalculation:
             self._lazy_calc_mode_effective_charges()
 
             mode_osc_str = np.zeros(
-                (self._gamma_ph.num_modes, 3, 3), dtype=np.float64
+                (self._ph_calc.num_modes, 3, 3), dtype=np.float64
             )
 
-            for i in range(self._gamma_ph.num_modes):
+            for i in range(self._ph_calc.num_modes):
                 mode_osc_str[i, :, :] = np.outer(
                     self._mode_eff_chg[i],
                     self._mode_eff_chg[i],
@@ -174,47 +103,12 @@ class InfraredCalculation:
     @property
     def structure(self):
         """Structure : Underlying `Structure` object."""
-        return self._gamma_ph.structure
+        return self._ph_calc.structure
 
     @property
-    def gamma_phonons(self):
-        """GammaPhonons : Underlying `GammaPhonons` object."""
-        return self._gamma_ph
-
-    @property
-    def born_effective_charges(self):
-        """numpy.ndarray : Born effective-charge tensors (shape:
-        `(N, 3, 3)`)."""
-        return np_readonly_view(self._born_charges)
-
-    @property
-    def epsilon_inf(self):
-        r"""numpy.ndarray or None : High-frequency dielectric constant
-        \eps_inf (shape: `(3, 3)`)."""
-
-        if self._eps_inf is not None:
-            return np_readonly_view(self._eps_inf)
-
-        return None
-
-    @property
-    def epsilon_ionic(self):
-        r"""numpy.ndarray : Ionic contribution to dielectric constant
-        \eps_ionic (shape: `(3, 3)`)."""
-
-        self._lazy_calc_epsilon_ionic()
-        return np_readonly_view(self._eps_ionic)
-
-    @property
-    def epsilon_static(self):
-        r"""numpy.ndarray or None : Static dielectric constant
-        \eps_static = \eps_inf + \eps_ionic (shape: `(3, 3)`)."""
-
-        if self._eps_inf is not None:
-            self._lazy_calc_epsilon_ionic()
-            return self._eps_inf + self._eps_ionic
-
-        return None
+    def phonon_calculation(self):
+        """PolarGammaPhonons : Underlying `PolarGammaPhonons` object."""
+        return self._ph_calc
 
     @property
     def mode_effective_charges(self):
@@ -233,13 +127,7 @@ class InfraredCalculation:
         return np_readonly_view(self._mode_osc_str)
 
     def dielectric_function(
-        self,
-        lw=None,
-        add_eps_inf=True,
-        active_only=True,
-        hkl=None,
-        rot=None,
-        **kwargs
+        self, lw=None, active_only=True, hkl=None, rot=None, **kwargs
     ):
         r"""Simulate the tensor infrared dielectric function.
 
@@ -249,10 +137,6 @@ class InfraredCalculation:
             Uniform linewidth or scale factor for calculated linewidths
             (defaults: 0.5 THz uniform linewidth or scale factor of
             1.0, depending on whether calculation has linewidths).
-        add_eps_inf : bool, optional
-            If `True`, add the high-frequency dielectric constant
-            \eps_inf, if available, to the dielectric function (default:
-            `True`).
         active_only : bool, optional
             If `True`, and if the underlying Gamma-point phonon
             calculation has irreps, simulate the dielectric function
@@ -285,8 +169,8 @@ class InfraredCalculation:
         band_inds = None
 
         if active_only:
-            if self._gamma_ph.has_irreps:
-                band_inds = self._gamma_ph.irreps.get_subset(
+            if self._ph_calc.has_irreps:
+                band_inds = self._ph_calc.irreps.get_subset(
                     "ir", reset_inds=False
                 ).band_indices_flat()
 
@@ -295,14 +179,14 @@ class InfraredCalculation:
 
                 mask = np.isin(
                     band_inds,
-                    self._gamma_ph.get_acoustic_mode_indices(),
+                    self._ph_calc.get_acoustic_mode_indices(),
                     invert=True,
                 )
 
                 band_inds = band_inds[mask]
 
         if band_inds is None:
-            band_inds = list(range(self._gamma_ph.num_modes))
+            band_inds = list(range(self._ph_calc.num_modes))
 
         # Linewidths.
 
@@ -311,8 +195,8 @@ class InfraredCalculation:
 
         lws = None
 
-        if self._gamma_ph.has_linewidths:
-            lws = self._gamma_ph.linewidths[band_inds]
+        if self._ph_calc.has_linewidths:
+            lws = self._ph_calc.linewidths[band_inds]
 
             if lw is not None:
                 lws = lw * lws
@@ -322,49 +206,44 @@ class InfraredCalculation:
 
             lws = lw * np.ones((len(band_inds),), dtype=np.float64)
 
-        # Irreps.
-
-        irreps = None
-
-        if self._gamma_ph.has_irreps:
-            irreps = self._gamma_ph.irreps.get_subset(
-                band_inds, reset_inds=True
-            )
-
         # Oscillator strengths.
 
         self._lazy_calc_mode_oscillator_strengths()
         osc_strs = self._mode_osc_str
 
-        # High-frequency dielectric constant.
+        # \eps_inf.
 
-        eps_inf = None
-
-        if add_eps_inf:
-            eps_inf = self._eps_inf
+        eps_inf = self._ph_calc.epsilon_inf
 
         # Rotate oscillator strengths and \eps_inf if required.
 
         if hkl is not None or rot is not None:
             r = rotation_matrix_from_vectors(
-                self._gamma_ph.structure.real_space_normal(hkl, conv=True), "z"
+                self._ph_calc.structure.real_space_normal(hkl, conv=True), "z"
             )
 
             rot = r if rot is None else np.matmul(rot, r)
 
         if rot is not None:
             osc_strs = rotate_tensors(osc_strs, rot)
+            eps_inf = rotate_tensors(eps_inf, rot)
 
-            if eps_inf is not None:
-                eps_inf = rotate_tensors(eps_inf, rot)
+        # Irreps.
+
+        irreps = None
+
+        if self._ph_calc.has_irreps:
+            irreps = self._ph_calc.irreps.get_subset(
+                band_inds, reset_inds=True
+            )
 
         return InfraredDielectricFunction(
-            self._gamma_ph.frequencies[band_inds],
+            self._ph_calc.frequencies[band_inds],
             osc_strs[band_inds],
             lws,
-            self._gamma_ph.structure.volume(),
+            self._ph_calc.structure.volume(),
+            self._ph_calc.epsilon_inf,
             irreps=irreps,
-            eps_inf=eps_inf,
             **kwargs,
         )
 
@@ -567,21 +446,21 @@ class InfraredCalculation:
 
         band_inds = None
 
-        if active_only and self._gamma_ph.has_irreps:
-            band_inds = self._gamma_ph.irreps.get_subset(
+        if active_only and self._ph_calc.has_irreps:
+            band_inds = self._ph_calc.irreps.get_subset(
                 "ir"
             ).band_indices_flat()
         else:
-            band_inds = list(range(self._gamma_ph.num_modes))
+            band_inds = list(range(self._ph_calc.num_modes))
 
         mode_w = np.zeros((len(band_inds),), dtype=np.float64)
 
         q_v, q_w = unit_sphere_lebedev_quad_rule(lebedev_prec, ret="vectors")
 
-        freqs = self._gamma_ph.frequencies
+        freqs = self._ph_calc.frequencies
 
         (inds,) = np.where(freqs < -1.0 * ZERO_TOLERANCE)
-        acc_inds = self._gamma_ph.get_acoustic_mode_indices()
+        acc_inds = self._ph_calc.get_acoustic_mode_indices()
 
         for idx in inds:
             if idx in band_inds and idx not in acc_inds:
@@ -616,13 +495,7 @@ class InfraredCalculation:
             Python types.
         """
 
-        eps_inf = self._eps_inf.tolist() if self._eps_inf is not None else None
-
-        return {
-            "gamma_phonons": self._gamma_ph.to_dict(),
-            "born_charges": self._born_charges.tolist(),
-            "epsilon_inf": eps_inf,
-        }
+        return {"phonon_calculation": self._ph_calc.to_dict()}
 
     @staticmethod
     def from_dict(d):
@@ -642,7 +515,5 @@ class InfraredCalculation:
         """
 
         return InfraredCalculation(
-            GammaPhonons.from_dict(d["gamma_phonons"]),
-            d["born_charges"],
-            d["epsilon_inf"],
+            PolarGammaPhonons.from_dict(d["phonon_calculation"])
         )

@@ -40,14 +40,14 @@ import unittest
 
 import numpy as np
 
-from phonopy_spectroscopy.structure import Structure
-
 from phonopy_spectroscopy.instrument import Geometry, Polarisation
 
 from phonopy_spectroscopy.raman.intensity import (
     calculate_single_crystal_raman_intensities,
     calculate_powder_raman_intensities,
 )
+
+from phonopy_spectroscopy.structure import Structure
 
 from phonopy_spectroscopy.utility.geometry import (
     rotation_matrix_from_vectors,
@@ -106,7 +106,11 @@ def _calculate_powder_raman_intensity_legacy(r_t):
 
 
 class TestRamanSimulation(unittest.TestCase):
+    """Class implementing unit tests for Raman simulations."""
+
     def setUp(self):
+        """Perform setup."""
+
         # "Empty" structure for obtaining surface normals.
 
         a = 5.431020511

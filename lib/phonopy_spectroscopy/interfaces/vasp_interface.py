@@ -206,7 +206,7 @@ def structure_to_poscar(
         # Lines 6/7: atom symbols and counts.
 
         f.write("  ".join(["{0: >3}".format(s) for s in at_syms]) + "\n")
-        f.write("  ".join(["{0: >2}".format(c) for c in at_cnts]) + "\n")
+        f.write("  ".join(["{0: >3}".format(c) for c in at_cnts]) + "\n")
 
         # Line 8: coordinate-type specifier.
 

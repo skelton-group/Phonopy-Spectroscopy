@@ -31,6 +31,8 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     structure_from_poscar,
 )
 
+from phonopy_spectroscopy.phonon import PolarGammaPhonons
+
 from phonopy_spectroscopy.raman.calculation import RamanCalculation
 
 from phonopy_spectroscopy.raman.finite_diff import (
@@ -53,41 +55,60 @@ from io_helper import generate_fd_raman_dielectric_input_file_list
 # ---------
 
 
-_EXAMPLE_BASE_DIR = r"../example/si"
+_EXAMPLE_BASE_DIR_SI = r"../example/si"
+_EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
 
-# ------------------------------------------------
-# Tests for finite-displacement Raman calculations
-# ------------------------------------------------
+# ------------------------------------
+# Tests for Raman calculation workflow
+# ------------------------------------
 
 
-class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
+class TestRamanCalculationWorkflow(unittest.TestCase):
+    """Class implementing unit tests for the Raman calculation
+    workflow."""
+
     def setUp(self):
         """Perform setup."""
 
         # Load a Gamma-point phonon calculation using the high-level
         # Phono(3)py "loader" function.
 
-        gamma_ph = gamma_phonons_from_phono3py(
-            os.path.join(_EXAMPLE_BASE_DIR, r"phonopy.yaml"),
-            os.path.join(_EXAMPLE_BASE_DIR, r"mesh.hdf5"),
-            lws_file=os.path.join(_EXAMPLE_BASE_DIR, r"kappa-m646464-g0.hdf5"),
-            irreps_file=os.path.join(_EXAMPLE_BASE_DIR, r"irreps.yaml"),
+        gamma_ph_1 = gamma_phonons_from_phono3py(
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"POSCAR.Opt.Prim"),
+            os.path.join(_EXAMPLE_BASE_DIR_SI, r"mesh.yaml"),
+            lws_file=os.path.join(
+                _EXAMPLE_BASE_DIR_SI, r"kappa-m646464-g0.hdf5"
+            ),
+            irreps_file=os.path.join(_EXAMPLE_BASE_DIR_SI, r"irreps.yaml"),
         )
 
         # Construct a FiniteDisplacementRamanTensorCalculator object.
 
-        self._calc = FiniteDisplacementRamanTensorCalculator(gamma_ph)
+        self._calc_1 = FiniteDisplacementRamanTensorCalculator(gamma_ph_1)
 
-    def test_finite_diff_struct_ser_des(self):
+        gamma_ph_2 = gamma_phonons_from_phono3py(
+            os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"POSCAR.Opt"),
+            os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"mesh.yaml"),
+            lws_file=os.path.join(
+                _EXAMPLE_BASE_DIR_SNSE, r"kappa-m323216-g0.hdf5"
+            ),
+            irreps_file=os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"irreps.yaml"),
+            born_file=os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"BORN"),
+        )
+
+        self._calc_2 = FiniteDisplacementRamanTensorCalculator(gamma_ph_2)
+
+    def test_finite_diff_ser_des_1(self):
         """Test serialisation/deserialisation of the
-        `FiniteDisplacementRamanTensorCalculator` class."""
+        `FiniteDisplacementRamanTensorCalculator` class when initialised
+        with a `GammaPhonons` object."""
 
         # Serialise the calculator to a dictionary, write it to a JSON
         # file, reload and recreate it, and check the two objects
         # are equivalent.
 
-        save_json(self._calc.to_dict(), r"raman_calculator.json.tmp")
+        save_json(self._calc_1.to_dict(), r"raman_calculator.json.tmp")
 
         calc_cmp = FiniteDisplacementRamanTensorCalculator.from_dict(
             load_json(r"raman_calculator.json.tmp")
@@ -95,7 +116,30 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
 
         self.assertTrue(
             compare_finite_displacement_raman_tensor_calculators(
-                self._calc, calc_cmp
+                self._calc_1, calc_cmp
+            )
+        )
+
+        os.remove(r"raman_calculator.json.tmp")
+
+    def test_finite_diff_set_des_2(self):
+        """Test serialisation/deserialisation of the
+        `FiniteDisplacementRamanTensorCalculator` class when initialised
+        with a `PolarGammaPhonons` object."""
+
+        save_json(self._calc_2.to_dict(), r"raman_calculator.json.tmp")
+
+        calc_cmp = FiniteDisplacementRamanTensorCalculator.from_dict(
+            load_json(r"raman_calculator.json.tmp")
+        )
+
+        self.assertTrue(
+            isinstance(calc_cmp.phonon_calculation, PolarGammaPhonons)
+        )
+
+        self.assertTrue(
+            compare_finite_displacement_raman_tensor_calculators(
+                self._calc_2, calc_cmp
             )
         )
 
@@ -108,16 +152,16 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
         # Generate the displaced structures and check against reference
         # structures.
 
-        disp_struct_sets = self._calc.generate_displaced_structures()
+        disp_struct_sets = self._calc_1.generate_displaced_structures()
 
         for band_idx, disp_structs in zip(
-            self._calc.band_indices, disp_struct_sets
+            self._calc_1.band_indices, disp_struct_sets
         ):
             for step_idx, (_, disp_struct) in enumerate(
-                zip(self._calc.displacement_steps, disp_structs)
+                zip(self._calc_1.displacement_steps, disp_structs)
             ):
                 file_path = os.path.join(
-                    _EXAMPLE_BASE_DIR,
+                    _EXAMPLE_BASE_DIR_SI,
                     r"raman_ref",
                     r"POSCAR-{0:0>4}-{1:0>2}".format(
                         band_idx + 1, step_idx + 1
@@ -134,28 +178,30 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
         # Load dielectric constant calculations.
 
         file_path_template = os.path.join(
-            _EXAMPLE_BASE_DIR,
+            _EXAMPLE_BASE_DIR_SI,
             r"raman_ref",
             r"vasprun-PBEsol-DFPT-{0:0>4}-{1:0>2}.xml",
         )
 
         file_list = generate_fd_raman_dielectric_input_file_list(
-            self._calc.band_indices, self._calc.num_steps, file_path_template
+            self._calc_1.band_indices,
+            self._calc_1.num_steps,
+            file_path_template,
         )
 
         e, eps_e = fd_read_dielectrics_vasp(
-            file_list, self._calc.num_bands, self._calc.num_steps
+            file_list, self._calc_1.num_bands, self._calc_1.num_steps
         )
 
         # Calculate and check Raman tensors.
 
-        raman_calc = self._calc.calculate_raman_tensors(eps_e, e)
+        raman_calc = self._calc_1.calculate_raman_tensors(eps_e, e)
 
         r_t = raman_calc.raman_tensors
 
         self.assertTrue(np.allclose(r_t.energies, e))
 
-        exp_shape = (self._calc.num_bands, len(e), 3, 3)
+        exp_shape = (self._calc_1.num_bands, len(e), 3, 3)
         self.assertTrue(np.equal(r_t.raman_tensors.shape, exp_shape).all())
 
         self.assertFalse(r_t.is_energy_dependent)
@@ -169,6 +215,7 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
         raman_calc_cmp = RamanCalculation.from_dict(
             load_json(r"raman_calculation.json.tmp")
         )
+
         self.assertTrue(compare_raman_calculations(raman_calc_cmp, raman_calc))
 
         os.remove(r"raman_calculation.json.tmp")
@@ -178,26 +225,28 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
         dielectric functions."""
 
         file_path_template = os.path.join(
-            _EXAMPLE_BASE_DIR,
+            _EXAMPLE_BASE_DIR_SI,
             r"raman_ref",
             r"vasprun-PBEsol-LinearOptics-{0:0>4}-{1:0>2}.xml",
         )
 
         file_list = generate_fd_raman_dielectric_input_file_list(
-            self._calc.band_indices, self._calc.num_steps, file_path_template
+            self._calc_1.band_indices,
+            self._calc_1.num_steps,
+            file_path_template,
         )
 
         e, eps_e = fd_read_dielectrics_vasp(
-            file_list, self._calc.num_bands, self._calc.num_steps
+            file_list, self._calc_1.num_bands, self._calc_1.num_steps
         )
 
-        raman_calc = self._calc.calculate_raman_tensors(eps_e, e)
+        raman_calc = self._calc_1.calculate_raman_tensors(eps_e, e)
 
         r_t = raman_calc.raman_tensors
 
         self.assertTrue(np.allclose(r_t.energies, e))
 
-        exp_shape = (self._calc.num_bands, len(e), 3, 3)
+        exp_shape = (self._calc_1.num_bands, len(e), 3, 3)
         self.assertTrue(np.equal(r_t.raman_tensors.shape, exp_shape).all())
 
         self.assertTrue(r_t.is_energy_dependent)
@@ -217,6 +266,43 @@ class TestFiniteDisplacementRamanCalculations(unittest.TestCase):
 
         raman_calc_cmp = RamanCalculation.from_dict(
             load_json(r"raman_calculation.json.tmp")
+        )
+
+        self.assertTrue(compare_raman_calculations(raman_calc_cmp, raman_calc))
+
+        os.remove(r"raman_calculation.json.tmp")
+
+    def test_finite_diff_raman_tensor_calc_3(self):
+        """Test calculation of Raman tensors with the underlying
+        `FiniteDisplacementRamanTensorCalculator` class initialised from
+        a `PolarGammaPhonons` object."""
+
+        file_path_template = os.path.join(
+            _EXAMPLE_BASE_DIR_SNSE,
+            r"raman_ref",
+            r"vasprun-PBEsol+D3-DFPT-{0:0>4}-{1:0>2}.xml",
+        )
+
+        file_list = generate_fd_raman_dielectric_input_file_list(
+            self._calc_2.band_indices,
+            self._calc_2.num_steps,
+            file_path_template,
+        )
+
+        e, eps_e = fd_read_dielectrics_vasp(
+            file_list, self._calc_2.num_bands, self._calc_2.num_steps
+        )
+
+        raman_calc = self._calc_2.calculate_raman_tensors(eps_e, e)
+
+        save_json(raman_calc.to_dict(), r"raman_calculation.json.tmp")
+
+        raman_calc_cmp = RamanCalculation.from_dict(
+            load_json(r"raman_calculation.json.tmp")
+        )
+
+        self.assertTrue(
+            isinstance(raman_calc_cmp.phonon_calculation, PolarGammaPhonons)
         )
 
         self.assertTrue(compare_raman_calculations(raman_calc_cmp, raman_calc))

@@ -18,7 +18,7 @@ function."""
 import numpy as np
 import pandas as pd
 
-from ..constants import INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY
+from ..constants import VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY
 from ..distributions import lorentz_oscillator
 from ..spectrum_base import GammaPhononSpectrumBase
 from ..units import convert_frequency_units
@@ -51,14 +51,7 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
     """
 
     def __init__(
-        self,
-        freqs,
-        osc_strs,
-        lws,
-        cell_volume,
-        irreps=None,
-        eps_inf=None,
-        **kwargs
+        self, freqs, osc_strs, lws, cell_volume, eps_inf, irreps=None, **kwargs
     ):
         """Create a new instance of the `InfraredDielectricFunction`
         class.
@@ -74,12 +67,11 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
             Linewidths in THz (shape: `(N,)`).
         cell_volume : float
             Unit-cell volume in Ang^3.
+        eps_inf : array_like
+            High-frequency dielectric constant in units of relative
+            permittivity (shape: `(3, 3)`).
         irreps : Irreps or None, optional
             `Irreps` object assigning bands to irrep groups.
-        eps_inf : array_like or None, optional
-            High-frequency dielectric constant in units of relative
-            permittivity to add to the calculated dielectric function
-            (shape: `(3, 3)`).
         **kwargs
             Keyword arguments to the `GammaPhononSpectrumBase`
             constructor.
@@ -119,19 +111,18 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
         if cell_volume <= 0.0:
             raise ValueError("cell_volume must be positive and non-zero.")
 
-        if eps_inf is not None:
-            eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
+        eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
 
-            if not np_check_shape(eps_inf, (3, 3)):
-                raise ValueError(
-                    "If supplied, eps_inf must be an array_like with "
-                    "shape (3, 3)."
-                )
+        if not np_check_shape(eps_inf, (3, 3)):
+            raise ValueError(
+                "If supplied, eps_inf must be an array_like with shape "
+                "(3, 3)."
+            )
 
-            # The high-frequency dielectric constant should be real.
+        # The high-frequency dielectric constant should be real.
 
-            if np.iscomplex(eps_inf).any():
-                raise ValueError("If supplied, eps_inf must be real.")
+        if np.iscomplex(eps_inf).any():
+            raise ValueError("If supplied, eps_inf must be real.")
 
         # Call the GammaPhononSpectrumBase constructor to handle
         # "x-axis"-related intialisation.
@@ -176,7 +167,8 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
             # Convert to relative permittivity.
 
             eps *= (
-                INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY / self._cell_volume
+                VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY
+                / self._cell_volume
             )
 
             # If a high-frequency dielectric constant was supplied
@@ -196,13 +188,9 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
 
     @property
     def epsilon_inf(self):
-        r"""numpy.ndarray or None : High-frequency dielectric constant
-        in \eps_0 (shape: `(3, 3)`)."""
-
-        if self._eps_inf is not None:
-            return np_readonly_view(self._eps_inf)
-
-        return None
+        r"""numpy.ndarray : High-frequency dielectric constant in \eps_0
+        (shape: `(3, 3)`)."""
+        return np_readonly_view(self._eps_inf)
 
     @property
     def epsilon(self):

@@ -80,6 +80,8 @@ def _sphere(x, y, z):
 
 
 class TestGeometry(unittest.TestCase):
+    """Class implementing unit tests for geometry-handling routines."""
+
     def test_rotation_matrix_from_vectors_1(self):
         """Test `rotation_matrix_from_vectors` with all combinations
         of +/-{x, y, z}."""
@@ -213,6 +215,9 @@ class TestGeometry(unittest.TestCase):
 
 
 class TestDifferentiation(unittest.TestCase):
+    """Class implementing unit tests for numerical differentiation
+    routines."""
+
     def test_central_difference_order_1(self):
         """Test central difference schemes for calculating the
         derivatives of some polynomials."""
@@ -247,6 +252,9 @@ class TestDifferentiation(unittest.TestCase):
 
 
 class TestQuadrature(unittest.TestCase):
+    """Class implementing unit tests for numerical integration
+    routines."""
+
     def test_unit_circle_rule(self):
         """Test vectors produced by `unit_circle_test_rule`."""
 

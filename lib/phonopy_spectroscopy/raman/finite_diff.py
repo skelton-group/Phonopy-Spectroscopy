@@ -22,7 +22,7 @@ from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
-from ..phonon import GammaPhonons
+from ..phonon import GammaPhonons, PolarGammaPhonons
 from ..units import nm_to_ev
 
 from ..utility.numpy_helper import (
@@ -44,13 +44,13 @@ class FiniteDisplacementRamanTensorCalculator:
     """Set up and post-process Raman tensor calculations using the
     finite-displacement method."""
 
-    def __init__(self, gamma_ph, step_size=1.0e-2, prec=2, band_inds="active"):
+    def __init__(self, ph_calc, step_size=1.0e-2, prec=2, band_inds="active"):
         r"""Create a new instance of the
         `FiniteDisplacementRamanTensorCalculator` class.
 
         Parameters
         ----------
-        gamma_ph : GammaPhonons
+        ph_calc : GammaPhonons or PolarGammaPhonons
             Gamma-point phonon calculation.
         step_size : float
             Step size for displacements in sqrt(amu) Ang.
@@ -79,11 +79,11 @@ class FiniteDisplacementRamanTensorCalculator:
         band_inds_str = str(band_inds).lower()
 
         if band_inds_str == "all":
-            band_inds = np.array(list(range(gamma_ph.num_modes)), dtype=int)
+            band_inds = np.array(list(range(ph_calc.num_modes)), dtype=int)
 
         elif band_inds_str == "active":
-            if gamma_ph.has_irreps:
-                band_inds = gamma_ph.irreps.get_subset(
+            if ph_calc.has_irreps:
+                band_inds = ph_calc.irreps.get_subset(
                     band_inds="raman", reset_inds=False
                 ).band_indices_flat()
             else:
@@ -95,11 +95,11 @@ class FiniteDisplacementRamanTensorCalculator:
                     RuntimeWarning,
                 )
 
-                band_inds = list(range(gamma_ph.num_modes))
+                band_inds = list(range(ph_calc.num_modes))
 
             # Exclude acoustic modes.
 
-            excl_band_inds = gamma_ph.get_acoustic_mode_indices()
+            excl_band_inds = ph_calc.get_acoustic_mode_indices()
 
             band_inds = np.array(
                 [idx for idx in band_inds if idx not in excl_band_inds],
@@ -121,7 +121,7 @@ class FiniteDisplacementRamanTensorCalculator:
                 )
 
             for idx in band_inds:
-                if idx < 0 or idx >= gamma_ph.num_modes:
+                if idx < 0 or idx >= ph_calc.num_modes:
                     raise ValueError(
                         "One or more indices in band_inds are "
                         "incompatible with the number of modes in the "
@@ -134,7 +134,7 @@ class FiniteDisplacementRamanTensorCalculator:
                 "band_inds specified."
             )
 
-        self._gamma_ph = gamma_ph
+        self._ph_calc = ph_calc
         self._band_inds = band_inds
 
         self._prec = prec
@@ -143,9 +143,10 @@ class FiniteDisplacementRamanTensorCalculator:
         self._step_coeffs = step_coeffs
 
     @property
-    def gamma_phonons(self):
-        """GammaPhonons : Gamma-point phonon calculation."""
-        return self._gamma_ph
+    def phonon_calculation(self):
+        """GammaPhonons or PolarGammaPhonons : Gamma-point phonon
+        calculation."""
+        return self._ph_calc
 
     @property
     def band_indices(self):
@@ -195,7 +196,7 @@ class FiniteDisplacementRamanTensorCalculator:
             step (shape: `(N, M)`).
         """
 
-        edisps = self._gamma_ph.eigendisplacements()
+        edisps = self._ph_calc.eigendisplacements()
         abs_disp_steps = np.abs(self._disp_steps)
 
         max_disps = np.zeros(
@@ -220,10 +221,10 @@ class FiniteDisplacementRamanTensorCalculator:
             (shape: `(N, M)`).
         """
 
-        struct = self._gamma_ph.structure
+        struct = self._ph_calc.structure
         at_pos = struct.cartesian_positions()
 
-        edisps = self._gamma_ph.eigendisplacements()
+        edisps = self._ph_calc.eigendisplacements()
 
         disp_structs = np.zeros(
             (len(self._band_inds), len(self._disp_steps)), dtype=object
@@ -309,7 +310,7 @@ class FiniteDisplacementRamanTensorCalculator:
                 ]
             ).sum(axis=1)
             * (1.0 / self._step_size)
-            * (self._gamma_ph._struct.volume() / (4.0 * np.pi))
+            * (self._ph_calc._struct.volume() / (4.0 * np.pi))
         )
 
         # If required, impose an energy cutoff on energy-dependent
@@ -331,7 +332,7 @@ class FiniteDisplacementRamanTensorCalculator:
             r_t = r_t[:, mask, :, :]
 
         return RamanCalculation(
-            self._gamma_ph, RamanTensors(r_t, e), self._band_inds
+            self._ph_calc, RamanTensors(r_t, e), self._band_inds
         )
 
     def to_dict(self):
@@ -346,7 +347,7 @@ class FiniteDisplacementRamanTensorCalculator:
         """
 
         return {
-            "gamma_phonons": self._gamma_ph.to_dict(),
+            "phonon_calculation": self._ph_calc.to_dict(),
             "band_indices": self._band_inds.tolist(),
             "step_size": self._step_size,
             "precision": self._prec,
@@ -372,8 +373,17 @@ class FiniteDisplacementRamanTensorCalculator:
             from the data in `d`.
         """
 
+        data = d["phonon_calculation"]
+
+        ph_calc = None
+
+        if "eps_inf" in data and "born_charges" in data:
+            ph_calc = PolarGammaPhonons.from_dict(data)
+        else:
+            ph_calc = GammaPhonons.from_dict(data)
+
         fd_calc = FiniteDisplacementRamanTensorCalculator(
-            GammaPhonons.from_dict(d["gamma_phonons"]),
+            ph_calc,
             prec=d["precision"],
             step_size=d["step_size"],
             band_inds=d["band_indices"],

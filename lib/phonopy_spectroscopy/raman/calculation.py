@@ -6,9 +6,8 @@
 # ---------
 
 
-"""High-level `RamanCalculation` object providing a simplified API for
-combining Gamma-point phonon and Raman tensor calculations to generate
-simulated spectra."""
+"""High-level `RamanCalculation` object providing an API for generating
+simulated Raman spectra."""
 
 
 # -------
@@ -31,7 +30,7 @@ from .spectrum import RamanSpectrum1D, RamanSpectrum2D
 from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
-from ..phonon import GammaPhonons
+from ..phonon import GammaPhonons, PolarGammaPhonons
 from ..units import nm_to_ev
 
 from ..utility.geometry import (
@@ -56,12 +55,12 @@ class RamanCalculation:
     """Combine `GammaPhonons` and `RamanTensors` objects for a complete
     Raman calculation to generate simulated spectra."""
 
-    def __init__(self, gamma_ph, r_t, band_inds=None):
+    def __init__(self, ph_calc, r_t, band_inds=None):
         """Create a new instance of the `RamanCalculation` class.
 
         Parameters
         ----------
-        gamma_ph : GammaPhonons
+        ph_calc : GammaPhonons or PolarGammaPhonons
             Gamma-point phonon calculation.
         r_t : RamanTensors
             Raman tensors.
@@ -95,18 +94,18 @@ class RamanCalculation:
                 )
 
             for idx in band_inds:
-                if idx < 0 or idx >= gamma_ph.num_modes:
+                if idx < 0 or idx >= ph_calc.num_modes:
                     raise ValueError(
                         "One or more indices in band_inds are "
                         "incompatible with the number of modes in the "
                         "phonon calculation."
                     )
 
-            if gamma_ph.has_irreps:
-                irreps = gamma_ph.irreps.get_subset(band_inds, reset_inds=True)
+            if ph_calc.has_irreps:
+                irreps = ph_calc.irreps.get_subset(band_inds, reset_inds=True)
 
         else:
-            band_inds = np.array(list(range(gamma_ph.num_modes)), dtype=int)
+            band_inds = np.array(list(range(ph_calc.num_modes)), dtype=int)
 
         if len(band_inds) != len(r_t.raman_tensors):
             raise ValueError(
@@ -115,7 +114,7 @@ class RamanCalculation:
                 "phonon calculation if band_inds was not supplied)."
             )
 
-        self._gamma_ph = gamma_ph
+        self._ph_calc = ph_calc
         self._r_t = r_t
 
         self._band_inds = band_inds
@@ -236,7 +235,7 @@ class RamanCalculation:
         if lw is None:
             # Default value.
 
-            lw = 1.0 if self._gamma_ph.has_linewidths else 0.5
+            lw = 1.0 if self._ph_calc.has_linewidths else 0.5
         else:
             if lw < ZERO_TOLERANCE:
                 raise ValueError("lw cannot be zero or negative.")
@@ -294,16 +293,22 @@ class RamanCalculation:
         return params
 
     @property
+    def phonon_calculation(self):
+        """GammaPhonon or PolarGammaPhonons : Underlying `GammaPhonons`
+        or `PolarGammaPhonons` object."""
+        return self._ph_calc
+
+    @property
     def frequencies(self):
         """numpy.ndarray : Band frequencies for the subset of bands in
         the calculation."""
-        return self._gamma_ph.frequencies[self._band_inds]
+        return self._ph_calc.frequencies[self._band_inds]
 
     @property
     def linewidths(self):
         """numpy.ndarrray : Linewidths for the subset of bands in the
         calculation."""
-        lws = self._gamma_ph.linewidths
+        lws = self._ph_calc.linewidths
         return lws[self._band_inds] if lws is not None else None
 
     @property
@@ -316,7 +321,7 @@ class RamanCalculation:
         # irreps from the phonon calculation.
 
         return (
-            self._irreps if self._irreps is not None else self._gamma_ph.irreps
+            self._irreps if self._irreps is not None else self._ph_calc.irreps
         )
 
     @property
@@ -327,12 +332,7 @@ class RamanCalculation:
     @property
     def structure(self):
         """Structure : Underlying `Structure` object."""
-        return self._gamma_ph.structure
-
-    @property
-    def gamma_phonons(self):
-        """GammaPhonons : Underlying `GammaPhonons` object."""
-        return self._gamma_ph
+        return self._ph_calc.structure
 
     @property
     def raman_tensors(self):
@@ -458,7 +458,7 @@ class RamanCalculation:
         # not the primitive cell (if different).
 
         r = rotation_matrix_from_vectors(
-            self._gamma_ph.structure.real_space_normal(hkl, conv=True),
+            self._ph_calc.structure.real_space_normal(hkl, conv=True),
             -1.0 * geom.incident_direction,
         )
 
@@ -843,7 +843,7 @@ class RamanCalculation:
         po_surf_norm = None
 
         if po_hkl is not None:
-            po_surf_norm = self._gamma_ph.structure.real_space_normal(
+            po_surf_norm = self._ph_calc.structure.real_space_normal(
                 po_hkl, conv=True
             )
 
@@ -1005,7 +1005,7 @@ class RamanCalculation:
         """
 
         return {
-            "gamma_phonons": self._gamma_ph.to_dict(),
+            "phonon_calculation": self._ph_calc.to_dict(),
             "raman_tensors": self._r_t.to_dict(),
             "band_indices": self._band_inds.tolist(),
         }
@@ -1026,8 +1026,17 @@ class RamanCalculation:
             `RamanCalculator` object constructed from the data in `d`.
         """
 
+        data = d["phonon_calculation"]
+
+        ph_calc = None
+
+        if "eps_inf" in data and "born_charges" in data:
+            ph_calc = PolarGammaPhonons.from_dict(data)
+        else:
+            ph_calc = GammaPhonons.from_dict(data)
+
         return RamanCalculation(
-            GammaPhonons.from_dict(d["gamma_phonons"]),
+            ph_calc,
             RamanTensors.from_dict(d["raman_tensors"]),
             d["band_indices"],
         )

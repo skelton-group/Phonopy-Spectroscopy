@@ -118,7 +118,7 @@ def diagonalise_epsilon(eps, branch_tracking=True):
     # efficiency.
 
     if not np.iscomplex(evecs).any():
-        evals = np.array(evals.real, dtype=np.float64)
+        evecs = np.array(evecs.real, dtype=np.float64)
 
     return (evals, evecs)
 

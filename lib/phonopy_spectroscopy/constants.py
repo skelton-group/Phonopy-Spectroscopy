@@ -112,11 +112,22 @@ VASP_TO_THZ = (
 in VASP internal units to ordinal frequency in THz."""
 
 
+# Born charges in e, high-frequency dielectric constant \eps_inf in
+# \eps_0, cell volume in Ang^3 and masses in AMU.
+
+VASP_NAC_PREFACTOR = (ELEMENTARY_CHARGE**2 / (VACUUM_PERMITIVITY)) / (
+    EV_TO_J * ANG_TO_M
+)
+
+r"""float : Conversion factor for the non-analytical correction to the
+dynamical matrix (NAC) to VASP internal units."""
+
+
 # Born chrages in units of E, inverse Hessian in Ang^2 / eV and volume
 # in Ang^3. This is equivalent to the EDEPS constant in the VASP source
 # code.
 
-DIELECTRIC_TO_RELATIVE_PERMITTIVITY = (
+VASP_DIELECTRIC_TO_RELATIVE_PERMITTIVITY = (
     ELEMENTARY_CHARGE**2 * (1.0 / EV_TO_J) * (1.0 / ANG_TO_M)
 ) / VACUUM_PERMITIVITY
 
@@ -127,7 +138,7 @@ units to relative permittivity."""
 # Mode oscillator strengths in e^2 / amu, volume in Ang^3 and
 # ordinal frequencies in THz.
 
-INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY = (
+VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY = (
     ELEMENTARY_CHARGE**2
     * (1.0 / AMU_TO_KG)
     * (1.0 / ANG_TO_M**3)
