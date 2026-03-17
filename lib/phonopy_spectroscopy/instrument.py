@@ -62,8 +62,8 @@ class Geometry:
         # parse_direction will validate the direction specifiers and
         # normalise the vectors.
 
-        self._i_dir = parse_direction(i_dir, norm=True)
-        self._c_dir = parse_direction(c_dir, norm=True)
+        self._i_dir = parse_direction(i_dir)
+        self._c_dir = parse_direction(c_dir)
 
     @property
     def incident_direction(self):
@@ -257,8 +257,7 @@ class Polarisation:
         axis = parse_direction(axis)
 
         for v in self._v:
-            # cos(\theta) = 0 for perpendicular vectors, so it does not
-            # matter whether axis is normalised.
+            # cos(\theta) = 0 for perpendicular vectors
 
             if np.abs(np.dot(axis, v)) > ZERO_TOLERANCE:
                 return False

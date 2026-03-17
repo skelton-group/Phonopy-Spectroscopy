@@ -43,16 +43,14 @@ _DIRECTION_STRING_LUT = {
 }
 
 
-def parse_direction(dirn, norm=False):
-    """Parse a direction and return a 3D vector.
+def parse_direction(dirn):
+    """Parse a direction and return a normalised 3D vector.
 
     Parameters
     ----------
     dirn : array_like or str
         3D `(x, y, z)` vector, or one of `{"x", "+x", "-x", "y", "+y",
         "-y", "z", "+z", "-z"}`.
-    norm : bool, optional
-        If `True`, normalise the vector (default: `False`).
 
     Returns
     -------
@@ -77,13 +75,12 @@ def parse_direction(dirn, norm=False):
             x, y = dirn
             v = np.array([x, y, 0.0], dtype=np.float64)
 
-        if norm:
-            m = np.linalg.norm(v)
+        norm = np.linalg.norm(v)
 
-            # Cannot normalise a zero vector.
+        # Cannot normalise a zero vector.
 
-            if m > 0.0:
-                return v / norm
+        if norm > 0.0:
+            return v / norm
 
         return v
 
@@ -110,8 +107,8 @@ def rotation_matrix_from_vectors(a, b):
 
     # parse_direction will validate and normalise.
 
-    a = parse_direction(a, norm=True)
-    b = parse_direction(b, norm=True)
+    a = parse_direction(a)
+    b = parse_direction(b)
 
     # If the vectors are parallel or orthogonal the solution is trivial.
 
@@ -168,7 +165,7 @@ def rotation_matrix_from_axis_angle(k, theta):
                                       -k_y &  k_x &  0   \end{bmatrix}
     """
 
-    v_x, v_y, v_z = parse_direction(k, norm=True)
+    v_x, v_y, v_z = parse_direction(k)
 
     w = np.array(
         [[0.0, -v_z, v_y], [v_z, 0.0, -v_x], [-v_y, v_x, 0.0]],

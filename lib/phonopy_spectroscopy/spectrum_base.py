@@ -98,11 +98,9 @@ def auto_x(freqs, lws, x_range=None, x_res=None):
 
     if x_res is None:
         # Choose the resolution to ensure at least _AUTO_X_MIN_NUM_PTS
-        # between f_min and f_max and at least 10 points to represent
-        # the smallest linewidth (needed to prevent "bad behaviour" for
-        # narrow line).
+        # between f_min and f_max.
 
-        temp = min(lw_min / 10.0, (f_max - f_min) / _AUTO_X_MIN_NUM_PTS)
+        temp = (f_max - f_min) / _AUTO_X_MIN_NUM_PTS
         x_res = np.power(10.0, np.floor(np.log10(temp)))
 
     # If the range is being set automatically, "align" the minimum and

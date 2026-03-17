@@ -714,15 +714,6 @@ def calculate_powder_raman_intensities(
         else:
             method = "quad"
 
-    if pref_orient and method == "leb+circ":
-        warnings.warn(
-            "Powder Raman simulations with preferred orientation using "
-            "the Lebedev + circle quadrature scheme require careful "
-            "testing of the precision and should ideally be verified "
-            'against the results with method="quad".',
-            UserWarning,
-        )
-
     if method == "quad":
         if not _NUMBA_AVAILABLE:
             warnings.warn("", RuntimeWarning)

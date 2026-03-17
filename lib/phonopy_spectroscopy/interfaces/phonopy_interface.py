@@ -287,23 +287,13 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(file_path):
                 [mode["eigenvector"] for mode in qpt["band"]], dtype=np.float64
             )
 
-            # The YAML files store the eigenvectors as complex numbers
-            # so the initial list will have shape (3N, N, 3, 2). For
-            # Gamma-point calculations, the imaginary part should be
-            # zero, and we can drop the last dimension.
+            evecs = evecs[:, :, :, 0] + 1.0j * evecs[:, :, :, 1]
+            evecs = evecs.reshape(-1, len(freqs) // 3, 3)
 
-            max_imag = np.abs(evecs[:, :, :, 1]).max()
+            if not np.iscomplex(evecs).any():
+                evecs = evecs.real
 
-            if max_imag > ZERO_TOLERANCE:
-                warnings.warn(
-                    "mesh.yaml/band.yaml file {0}: One or more "
-                    "Gamma-point eigenvectors has a non-zero imaginary"
-                    "part (max. abs. = {1:.3e}). Imaginary parts will "
-                    "be discarded.".format(file_path, max_imag),
-                    UserWarning,
-                )
-
-            return (freqs, evecs[:, :, :, 0])
+            return (freqs, evecs)
 
     raise RuntimeError(
         "mesh.yaml/band.yaml file {0}: Gamma-point "
@@ -401,20 +391,10 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(file_path):
         for idx, q_pos in enumerate(q_pts):
             if np.allclose(q_pos, 0.0, atol=ZERO_TOLERANCE):
                 freqs = freqs[idx]
+                evecs = evecs[idx].T.reshape(-1, len(freqs) // 3, 3)
 
-                max_imag = np.abs(evecs[idx].imag).max()
-
-                if max_imag > ZERO_TOLERANCE:
-                    warnings.warn(
-                        "mesh.hdf5/band.hdf5 file {0}: One or more "
-                        "Gamma-point eigenvectors has a non-zero "
-                        "imaginary part (max. abs. = {1:.3e}). "
-                        "Imaginary parts will be discarded."
-                        "".format(file_path, max_imag),
-                        UserWarning,
-                    )
-
-                evecs = evecs[idx].real.T.reshape(-1, len(freqs) // 3, 3)
+                if not np.iscomplex(evecs).any():
+                    evecs = evecs.real
 
                 return (freqs, evecs)
 

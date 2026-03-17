@@ -63,6 +63,14 @@ class FiniteDisplacementRamanTensorCalculator:
             of band indices (shape `(N,)`, default: `"active"`).
         """
 
+        # The calculation of the Raman tensors should be performed using
+        # the frequencies/eigenvectors without a non-analytical
+        # correction applied. In this case, the \Gamma-point
+        # eigenvectors should be real.
+
+        if np.iscomplex(ph_calc.eigenvectors).any():
+            raise ValueError("ph_calc must have real eigenvectors.")
+
         # Set up finite-difference steps.
 
         step_size = float(step_size)
@@ -90,8 +98,7 @@ class FiniteDisplacementRamanTensorCalculator:
                 warnings.warn(
                     'band_inds="raman" defaults to all bands apart '
                     "from the acoustic modes when the supplied phonon "
-                    "calculation does not have irreducible "
-                    "representations.",
+                    "calculation does not have irreps.",
                     RuntimeWarning,
                 )
 
@@ -99,12 +106,11 @@ class FiniteDisplacementRamanTensorCalculator:
 
             # Exclude acoustic modes.
 
-            excl_band_inds = ph_calc.get_acoustic_mode_indices()
-
-            band_inds = np.array(
-                [idx for idx in band_inds if idx not in excl_band_inds],
-                dtype=int,
+            mask = np.isin(
+                band_inds, ph_calc.acoustic_mode_indices, invert=True
             )
+
+            band_inds = band_inds[mask]
 
         else:
             band_inds = np_asarray_copy(band_inds, dtype=int)
@@ -196,7 +202,7 @@ class FiniteDisplacementRamanTensorCalculator:
             step (shape: `(N, M)`).
         """
 
-        edisps = self._ph_calc.eigendisplacements()
+        edisps = self._ph_calc.eigendisplacements
         abs_disp_steps = np.abs(self._disp_steps)
 
         max_disps = np.zeros(
@@ -224,7 +230,7 @@ class FiniteDisplacementRamanTensorCalculator:
         struct = self._ph_calc.structure
         at_pos = struct.cartesian_positions()
 
-        edisps = self._ph_calc.eigendisplacements()
+        edisps = self._ph_calc.eigendisplacements
 
         disp_structs = np.zeros(
             (len(self._band_inds), len(self._disp_steps)), dtype=object

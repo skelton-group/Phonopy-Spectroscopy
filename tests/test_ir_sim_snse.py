@@ -72,20 +72,6 @@ class TestInfraredSimulation(unittest.TestCase):
 
         self._calc = InfraredCalculation(gamma_ph)
 
-    def test_pop_freq(self):
-        """Test calculation of the polar-optic phonon (POP) frequency
-        against a reference value."""
-
-        w_po = self._calc.pop_frequency()
-
-        # Reference data from CalcPOP.py, a standalone script that
-        # implements the same algorithm as used in AMSET, including
-        # using the same source of Lebedev quadrature weights.
-
-        w_po_ref = 3.284157105842913
-
-        self.assertTrue(np.allclose(w_po, w_po_ref))
-
     def test_dielectric_function_vasp(self):
         """Compare the simulated dielectric function to a reference
         produced by the Vienna Ab initio Simulation Package (VASP) code.

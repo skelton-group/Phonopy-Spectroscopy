@@ -158,6 +158,11 @@ class TestIO(unittest.TestCase):
             irreps_file=os.path.join(_EXAMPLE_BASE_DIR_SI, r"irreps.yaml"),
         )
 
+        # The Gamma-point eigenvectors should be real and should be
+        # stored as np.float64.
+
+        self.assertEqual(gamma_ph.eigenvectors.dtype, np.float64)
+
         # Serialise the GammaPhonons to a dictionary, write it to a JSON
         # file, reload and recreate it, and check the two objects
         # are equivalent.

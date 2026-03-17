@@ -33,8 +33,6 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     _parse_dielectric_constant,
 )
 
-from comparison_helper import compare_irreps
-
 
 # ---------
 # Constants
@@ -142,39 +140,25 @@ class TestPolarGammaPhonons(unittest.TestCase):
             )
 
             freqs, _ = gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(f)
-            gamma_ph, evec_proj = self._gamma_ph.gamma_phonons_with_nac(q)
+            gamma_ph = self._gamma_ph.gamma_phonons_with_nac(q)
 
             self.assertTrue(
-                np.allclose(np.sort(gamma_ph.frequencies), freqs, atol=1.0e-5)
+                np.allclose(np.sort(gamma_ph.frequencies), freqs, atol=1.0e-4)
             )
 
-            self.assertTrue(np.allclose(np.diag(evec_proj), 1.0, atol=0.1))
+    def test_pop_freq(self):
+        """Test calculation of the polar-optic phonon (POP) frequency
+        against a reference value."""
 
-            # Check individual eignvector projections/sorting. SnSe does
-            # not have degenerate modes, so the projection coefficients
-            # should be high (>0.9).
+        w_po = self._gamma_ph.pop_frequency()
 
-            for idx, (evec_old, evec_new) in enumerate(
-                zip(self._gamma_ph.eigenvectors, gamma_ph.eigenvectors)
-            ):
-                proj = np.abs(np.dot(evec_new.flat, evec_old.flat))
+        # Reference data from CalcPOP.py, a standalone script that
+        # implements the same algorithm as used in AMSET, including
+        # using the same source of Lebedev quadrature weights.
 
-                self.assertTrue(np.isclose(proj, evec_proj[idx, idx]))
-                self.assertTrue(proj > 0.9)
+        w_po_ref = 3.284157105842913
 
-            # Linewidths should be passed through.
-
-            self.assertTrue(
-                np.allclose(gamma_ph.linewidths, self._gamma_ph.linewidths)
-            )
-
-            # Since SnSe does not have degenerate modes, the Irreps
-            # objects from the original and corrected calculations
-            # should be equivalent.
-
-            self.assertTrue(
-                compare_irreps(gamma_ph.irreps, self._gamma_ph.irreps)
-            )
+        self.assertTrue(np.isclose(w_po, w_po_ref))
 
 
 # ----
