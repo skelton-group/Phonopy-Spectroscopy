@@ -34,9 +34,13 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
 from phonopy_spectroscopy.instrument import Polarisation
 from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
-from phonopy_spectroscopy.phonon import PolarGammaPhonons
+from phonopy_spectroscopy.ir.spectrum_funcs import (
+    bruggeman_two_phase_mixture,
+    bruggeman_three_phase_mixture,
+    bruggeman_multiphase_mixture,
+)
 
-import matplotlib.pyplot as plt
+from phonopy_spectroscopy.phonon import PolarGammaPhonons
 
 
 # ---------
@@ -45,6 +49,39 @@ import matplotlib.pyplot as plt
 
 
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
+
+
+# ----------------
+# Helper functions
+# ----------------
+
+
+def verify_bruggeman_equation(eps, fracs, eps_eff):
+    """Test whether an effective dielectric constant/function for a
+    multiphase mixture satisfies the Bruggeman equation.
+
+    Parameters
+    ----------
+    eps : list of (complex or array_like)
+        Dielectric constants/functions of the components.
+    fracs : list of float
+        Volume fractions of the components.
+    eps_eff : array_like
+        Effective dielectric constant/function/
+
+    Returns
+    -------
+    test : bool
+        `True` if `eps_eff` satisfies the Bruggeman equation, otherwise
+        `False`.
+    """
+
+    res = np.zeros_like(eps_eff, dtype=np.complex128)
+
+    for e, f in zip(eps, fracs):
+        res += f * (e - eps_eff) / (e + 2.0 * eps_eff)
+
+    return np.allclose(res, 0.0)
 
 
 # ------------------------------
@@ -159,7 +196,7 @@ class TestInfraredSimulation(unittest.TestCase):
 
     def test_optical_spectra(self):
         r"""Compare the effective dielectric functions \eps_eff for
-        optical spectra obtained with different methods the "source"
+        optical spectra obtained with different methods to the "source"
         bulk infrared dielectric function."""
 
         calc = self._calc
@@ -177,7 +214,7 @@ class TestInfraredSimulation(unittest.TestCase):
         sp_ema = calc.powder_optical_spectrum_ema(t=1.0e-6)
         self.assertTrue(np.allclose(sp_ema.epsilon, eps_eff))
 
-        sp_ave_oe = calc.powder_optical_spectrum_average_eigenmodes(t=1.0e-6)
+        sp_ave_oe = calc.powder_optical_spectrum_eigenmode_average(t=1.0e-6)
         self.assertTrue(np.allclose(sp_ave_oe.epsilon, eps_eff))
 
         # Polarised single-crystal measurements along the (001)
@@ -204,6 +241,92 @@ class TestInfraredSimulation(unittest.TestCase):
         sp_sc_pol_ave = (sp_sc_pol_x.epsilon + sp_sc_pol_y.epsilon) / 2.0
 
         self.assertTrue(np.allclose(sp_sc_unpol.epsilon, sp_sc_pol_ave))
+
+    def test_bruggeman_multiphase(self):
+        """Test the implementation of the Bruggeman multiphase models."""
+
+        calc = self._calc
+
+        eps_kbr = 4.9
+        eps_air = 1.0
+
+        sp_ema = calc.powder_optical_spectrum_ema(t=1.0e-6)
+
+        eps_snse = sp_ema.epsilon
+
+        # Pure powder with 90% theoretical denisty.
+
+        eps_eff_ld = bruggeman_two_phase_mixture(eps_snse, eps_air, 0.9, 0.1)
+
+        self.assertTrue(
+            verify_bruggeman_equation(
+                [eps_snse, eps_air], [0.9, 0.1], eps_eff_ld
+            )
+        )
+
+        # 5% KBr pellet.
+
+        eps_eff_kbr = bruggeman_two_phase_mixture(
+            eps_snse, eps_kbr, 0.05, 0.95
+        )
+
+        self.assertTrue(
+            verify_bruggeman_equation(
+                [eps_snse, eps_kbr], [0.05, 0.95], eps_eff_kbr
+            )
+        )
+
+        # 5% KBr pellet with 90% denisity.
+
+        eps_eff_kbr_ld = bruggeman_three_phase_mixture(
+            eps_snse, eps_kbr, eps_air, 0.9 * 0.05, 0.9 * 0.95, 0.1
+        )
+
+        self.assertTrue(
+            verify_bruggeman_equation(
+                [eps_snse, eps_kbr, eps_air],
+                [0.9 * 0.05, 0.9 * 0.95, 0.1],
+                eps_eff_kbr_ld,
+            )
+        )
+
+        # Test the implementation via keywords to
+        # powder_optical_spectrum_ema().
+
+        sp_ema_ld = calc.powder_optical_spectrum_ema(t=1.0e-6, p_den=0.9)
+        self.assertTrue(np.allclose(sp_ema_ld.epsilon, eps_eff_ld))
+
+        sp_ema_kbr = calc.powder_optical_spectrum_ema(
+            p_vol_frac=0.05, p_binder_eps=eps_kbr
+        )
+
+        self.assertTrue(np.allclose(sp_ema_kbr.epsilon, eps_eff_kbr))
+
+        sp_ema_kbr_ld = calc.powder_optical_spectrum_ema(
+            p_vol_frac=0.05, p_binder_eps=eps_kbr, p_den=0.9
+        )
+
+        self.assertTrue(np.allclose(sp_ema_kbr_ld.epsilon, eps_eff_kbr_ld))
+
+        # General multiphase solver.
+
+        for eps, fracs, eps_eff_ref in [
+            ([eps_snse, eps_air], [0.9, 0.1], eps_eff_ld),
+            ([eps_snse, eps_kbr], [0.05, 0.95], eps_eff_kbr),
+            (
+                [eps_snse, eps_kbr, eps_air],
+                [0.9 * 0.05, 0.9 * 0.95, 0.1],
+                eps_eff_kbr_ld,
+            ),
+        ]:
+            eps_eff = bruggeman_multiphase_mixture(eps, fracs)
+
+            self.assertTrue(verify_bruggeman_equation(eps, fracs, eps_eff))
+
+            # Verify that the general solution matches the analytical
+            # formulae.
+
+            self.assertTrue(np.allclose(eps_eff, eps_eff_ref))
 
 
 # ----

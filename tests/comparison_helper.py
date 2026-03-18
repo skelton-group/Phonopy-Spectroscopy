@@ -112,12 +112,24 @@ def compare_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
     if not compare_structures(gamma_ph_cmp.structure, gamma_ph_ref.structure):
         return False
 
-    return (
-        np.allclose(gamma_ph_cmp.frequencies, gamma_ph_ref.frequencies)
-        and np.allclose(gamma_ph_cmp.eigenvectors, gamma_ph_ref.eigenvectors)
-        and np.allclose(gamma_ph_cmp.linewidths, gamma_ph_ref.linewidths)
-        and compare_irreps(gamma_ph_cmp.irreps, gamma_ph_ref.irreps)
-    )
+    if not np.allclose(gamma_ph_cmp.frequencies, gamma_ph_ref.frequencies):
+        return False
+
+    if not np.allclose(gamma_ph_cmp.eigenvectors, gamma_ph_ref.eigenvectors):
+        return False
+
+    if gamma_ph_cmp.has_linewidths:
+        if not gamma_ph_ref.has_linewidths or not np.allclose(
+            gamma_ph_cmp.linewidths, gamma_ph_ref.linewidths
+        ):
+            return False
+
+    if gamma_ph_cmp.has_irreps:
+        if not gamma_ph_ref.has_irreps or not compare_irreps(
+            gamma_ph_cmp.irreps, gamma_ph_ref.irreps
+        ):
+            return False
+    return True
 
 
 def compare_polar_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):

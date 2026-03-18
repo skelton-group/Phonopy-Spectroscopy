@@ -108,6 +108,7 @@ def gamma_phonons_from_phono3py(
     born_file=None,
     at_m=None,
     conv_trans=None,
+    discard_imag=True,
 ):
     r"""Read a complete Phono(3)py calculation and return a
     `GammaPhonons` or `PolarGammaPhonons` object.
@@ -135,6 +136,9 @@ def gamma_phonons_from_phono3py(
     conv_trans : array_like, optional
         Transformation matrix to convert the structure to its
         conventional cell (shape: `(3, 3)`, default: `None`).
+    discard_imag : bool, optional
+        Discard the imaginary part of complex eigenvectors (default:
+        `True`).
 
     Returns
     -------
@@ -181,6 +185,28 @@ def gamma_phonons_from_phono3py(
                 freqs_evecs_file
             )
         )
+
+    if discard_imag:
+        if np.iscomplex(evecs).any():
+            # Gamma-point eigenvectors should be real unless a
+            # non-analytical correction is applied to the dynamical
+            # matrix. If this is the case, it will conflict with the
+            # internal NAC implementation and is very likely a user
+            # error.
+
+            max_abs_imag = np.abs(evecs.imag).max()
+
+            if max_abs_imag > ZERO_TOLERANCE:
+                raise RuntimeError(
+                    "Discarding imaginary parts of eigenvectors "
+                    "with maximum absolute value {0:.3e} > "
+                    "ZERO_TOLERANCE = {1:.3e}. This may indicate "
+                    "a calculation performed with a non-analytical "
+                    "correction to the dynamical matrix."
+                    "".format(max_abs_imag, ZERO_TOLERANCE)
+                )
+
+        evecs = evecs.real
 
     # If a lws_file is specified, read linewidths; otherwise, set a
     # uniform linewidth of lw.

@@ -183,9 +183,11 @@ class TestIO(unittest.TestCase):
 
         cell_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"POSCAR.Opt")
         freqs_evecs_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"mesh.yaml")
+
         lws_file = os.path.join(
             _EXAMPLE_BASE_DIR_SNSE, r"kappa-m323216-g0.hdf5"
         )
+
         irreps_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"irreps.yaml")
         born_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"BORN")
 
@@ -233,6 +235,54 @@ class TestIO(unittest.TestCase):
         )
 
         os.remove(r"polar_gamma_phonons.json.tmp")
+
+    def test_gamma_phonons_io_3(self):
+        """Test high-level Phono(3)py "loader" and
+        serialisation/deserialisation of `GammaPhonons` objects with
+        complex eigenvectors."""
+
+        cell_file = os.path.join(_EXAMPLE_BASE_DIR_SNSE, r"POSCAR.Opt")
+
+        # Reference calculation with non-analytical correction has
+        # complex eigenvectors.
+
+        freqs_evecs_file = os.path.join(
+            _EXAMPLE_BASE_DIR_SNSE, r"nac_ref/qpoints-001.yaml"
+        )
+
+        # Test the option to discard the imaginary parts of complex
+        # eigenvectors from the gamma_phonons_from_phono3py() interface.
+
+        gamma_ph = gamma_phonons_from_phono3py(
+            cell_file,
+            freqs_evecs_file,
+            discard_imag=False,
+        )
+
+        # Loading complex eigenvectors with discard_imag=True should
+        # result in a UserWarning.
+
+        with self.assertRaises(RuntimeError):
+            gamma_phonons_from_phono3py(
+                cell_file,
+                freqs_evecs_file,
+                discard_imag=True,
+            )
+
+        self.assertTrue(np.iscomplexobj(gamma_ph.eigenvectors))
+
+        # Test the serialisation/deserialisation of the GammaPhonons
+        # object with complex eigenvectors.
+
+        save_json(gamma_ph.to_dict(), r"gamma_phonons.json.tmp")
+
+        gamma_ph_cmp = GammaPhonons.from_dict(
+            load_json(r"gamma_phonons.json.tmp")
+        )
+
+        self.assertTrue(compare_gamma_phonons(gamma_ph_cmp, gamma_ph))
+
+        os.remove(r"gamma_phonons.json.tmp")
 
     def test_dielectric_io(self):
         """Test routines for reading dielectric data from vasprun.xml

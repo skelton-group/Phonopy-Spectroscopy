@@ -15,24 +15,31 @@ frequency-dependent dielectric functions."""
 # -------
 
 
-from abc import ABC
+import abc
 
 import numpy as np
 import pandas as pd
 
-from ..constants import (
-    ZERO_TOLERANCE,
-    SPEED_OF_LIGHT,
-    VACUUM_PERMITIVITY,
-)
+from scipy.interpolate import interp1d
 
 from .dielectric_function import (
     _EPSILON_UNIT_TEXT_LABEL,
     _EPSILON_UNIT_PLOT_LABEL,
 )
 
+from .spectrum_funcs import (
+    diagonalise_epsilon,
+    bruggeman_mixture,
+    optical_spectra_from_epsilon,
+    complex_phase_factor,
+    intrinsic_transmission_absorbance,
+    normal_transmission_absorbance,
+    incoherent_transmission_absorbance,
+)
+
+from ..constants import ZERO_TOLERANCE
+
 from ..spectrum_base import SpectrumBase
-from ..units import convert_frequency_units
 
 from ..utility.numpy_helper import (
     np_readonly_view,
@@ -40,8 +47,6 @@ from ..utility.numpy_helper import (
     np_expand_dims,
     np_check_shape,
 )
-
-from ..utility.diagonalisation import reorder_with_branch_tracking
 
 
 # ---------
@@ -56,397 +61,12 @@ _SIGMA_UNIT_TEXT_LABEL = r"\sigma / S cm^-1"
 _SIGMA_UNIT_PLOT_LABEL = r"$\sigma$ / S cm$^{-1}$"
 
 
-# -------------------
-# Optical eigenvalues
-# -------------------
-
-
-def diagonalise_epsilon(eps, branch_tracking=True):
-    """Diagonalise a frequency-dependent D-dimensional dielectric
-    function and return the eigenvalues and eigenvectors.
-
-    Parameters
-    ----------
-    eps : array_like
-        Dielectric function (shape: `(O,)` or `(O, D, D)`).
-    branch_tracking : bool, optional
-        If `True`, reorder the optical eigenmodes by performing a
-        "branch tracking" over frequencies (default: `True`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        `(evals, evecs)` tuple (shapes: `(O, D)`, `(O, D, D)`).
-
-    Notes
-    -----
-    "0D" dielectric functions with (shape: `(O,)`) will be reshaped to
-    `(O, 1, 1)`. In this case, the returned eigenvalues are just `eps`
-    (0D) or `eps[:, 0, 0]` (1D), and the eigenvectors are
-    `np.ones((len(eps),))`.
-
-    This function applies the following post-processing:
-
-    * If the eigenvectors are all real, the returned `evecs` are
-      converted to `np.float64` instead of `np.complex128`.
-    """
-
-    eps, _ = np_expand_dims(
-        np_asarray_copy(eps, dtype=np.complex128),
-        (None, None, None),
-        expand_order=(2, 1),
-    )
-
-    _, d_1, d_2 = eps.shape
-
-    if d_1 != d_2:
-        raise ValueError(
-            "The two outermost dimensions of eps must be the same size."
-        )
-
-    if d_1 == 1:
-        return (eps[:, :, 0], np.ones((d_1, 1, 1), dtype=np.float64))
-
-    evals, evecs = np.linalg.eig(eps)
-
-    # If branch_tracking is set, reorder evals/evecs.
-
-    if branch_tracking:
-        evals, evecs = reorder_with_branch_tracking(evals, evecs)
-
-    # If the eigenvectors are real, strip out the complex part for
-    # efficiency.
-
-    if not np.iscomplex(evecs).any():
-        evecs = np.array(evecs.real, dtype=np.float64)
-
-    return (evals, evecs)
-
-
-# ------------------
-# Optical properties
-# ------------------
-
-
-def _validate_setup_optical_property_cals(opt_props, x=None, x_units="thz"):
-    """Perform common validation and setup for optical-property
-    calculation routines.
-
-    Parameters
-    ----------
-    opt_props : list of array_like
-        List of calculated optical properties (shapes: `(O,)` or
-        `(O, D)`).
-    x : array_like or None, optional
-        Frequencies (shape: `(O,)`).
-    x_units : str, optional
-        Frequency units (default: "thz").
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray or None
-        Tuple of `(opt_props, x)` with a list of optical properties and
-        frequencies in rad THz suitable for broadcasting against the
-        arrays in `opt_props`.
-    """
-
-    # Shape of outer dimension of optical properties.
-
-    if x is not None:
-        x = np.asarray(x)
-
-        if not np_check_shape(x, (None,)):
-            raise ValueError("x must be an array_like with shape (O,).")
-
-        # Convert x to rad THz.
-
-        x = convert_frequency_units(x, x_units, "rad_thz")
-
-    opt_props = [np.asarray(p) for p in opt_props]
-
-    # Require outer dimension of all optical properties to match the
-    # number of frequencies.
-
-    shape_o = len(x) if x is not None else None
-
-    p_1 = opt_props[0]
-
-    if not (
-        np_check_shape(p_1, (shape_o,)) or np_check_shape(p_1, (shape_o, None))
-    ):
-        raise ValueError(
-            "Optical properties must be array_likes with shape (O,) or "
-            "(O, D)."
-        )
-
-    for p_n in opt_props[1:]:
-        if not np_check_shape(p_n, p_1.shape):
-            raise ValueError(
-                "All optical properties must have the same shape."
-            )
-
-    # If the optical properties have shape (O, D), "expand" x for
-    # broadcasting.
-
-    if x is not None and p_1.ndim == 2:
-        x = x[:, np.newaxis]
-
-    return (opt_props, x)
-
-
-def optical_spectra_from_epsilon(x, eps, x_units):
-    r"""Calculate the optical spectra for a frequency-dependent
-    dielectric function `eps`: complex refractive index, absorption
-    coefficient, reflectivity, optical conductivity and energy loss
-    function.
-
-    Parameters
-    ----------
-    x : array_like
-        Frequencies (shape: `(O,)`).
-    eps : array_like
-        Scalar dielectric function or eigenvalues of a D-dimensional
-        dielectric functions in units of relative permittivity (shape:
-        `(O,)` or `(O, D)`).
-    x_units : str
-        Frequency unit.
-
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(n_t, a, r, s, l)` (all same shape as `eps`; `a` in
-        cm^-1, `s` in S cm^-1).
-
-    Notes
-    -----
-    The optical spectra are calculated using the formulae below.
-
-    Complex refractive index:
-
-    .. math::
-
-         \tilde{n}(\omega) = \sqrt(\varepsilon(\omega)) = n(\omega) + ik(\omega)
-
-    Absorption coefficient:
-
-    .. math::
-
-        \alpha(\omega) = \frac{2 \omega}{c} k(\omega)
-
-    Reflectivity at normal incidence:
-
-    .. math::
-
-        R(\omega) = \left| \frac{\tilde{n} - 1}{\tilde{n} + 1} \right|^2
-
-    Optical conductivity:
-
-    .. math::
-
-        \sigma(\omega) = -i \omega \varepsilon_0 \left[ \varepsilon(\omega) - 1 \right]
-
-    Loss function:
-
-    .. math::
-
-        L(\omega) = \Im \left[ -\frac{1}{\varepsilon(\omega)} \right]
-    """
-
-    (eps,), x = _validate_setup_optical_property_cals(
-        [eps], x=x, x_units=x_units
-    )
-
-    # Complex refractive index.
-
-    n_t = np.sqrt(eps)
-
-    # Absorption coefficient.
-
-    a = 1.0e-2 * (2.0 * 1.0e12 * x * n_t.imag) / SPEED_OF_LIGHT
-
-    # Reflectivity at normal incidence.
-
-    r = np.abs((n_t - 1) / (n_t + 1)) ** 2
-
-    # Optical conductivity:
-
-    s = 1.0e-2 * -1.0j * 1.0e12 * x * VACUUM_PERMITIVITY * (eps - 1.0)
-
-    # Energy loss function.
-
-    l = (-1.0 / eps).imag
-
-    return (n_t, a, r, s, l)
-
-
-def complex_phase_factor(x, n_t, t, x_units="thz"):
-    r"""Calculate the complex phase factor from a complex refractive
-    index and sample thickness.
-
-    Params
-    ------
-    x : array_like
-        Frequencies in `x_units` (shape: `(O,)`).
-    n_t : array_like
-        Complex refractive index (shape: `(O,)`).
-    t : float
-        Sample thickness in mm.
-    x_units : st, optional
-        Units of `x` (default: "thz").
-
-    Returns
-    -------
-    phi : array_like
-        Complex phase factor (shape: `(O,)`).
-
-    Notes
-    -----
-    The complex phase factor is calculated as:
-
-    .. math::
-
-        \phi(\omega) = \exp \left[ \frac{i \omega t}{c} \tilde{n}(\omega) \right]
-    """
-
-    (n_t,), x = _validate_setup_optical_property_cals(
-        [n_t], x=x, x_units=x_units
-    )
-
-    return np.exp(-1.0j * ((1.0e12 * x * t * 1.0e-3) / SPEED_OF_LIGHT) * n_t)
-
-
-def intrinsic_transmission_absorbance(a, t):
-    r"""Calculate the "intrinsic" (Beer-Lambert) transmission and
-    absorbance from an absorption coefficient and sample thickness.
-
-    Params
-    ------
-    a : array_like
-        Frequency-dependent absorption coefficient (shape: `(O,)` or
-        `(O, D)`).
-    t : float
-        Sample thickness (same distance units as `a`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(trans_t, abs_t)` (shape: `(O,)`).
-
-    Notes
-    -----
-    The intrinsic absorbance and transmission are calculated as follows:
-
-    .. math::
-
-         A(\omega) = \alpha(\omega) t
-
-    .. math::
-
-         T(\omega) = \exp \left[ - A(\omega) \right ]
-    """
-
-    (a,), _ = _validate_setup_optical_property_cals([a])
-
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
-
-    abs_t = a * t
-    trans_t = np.exp(-1.0 * abs_t)
-
-    return (trans_t, abs_t)
-
-
-def normal_transmission_absorbance(a, r, t):
-    r"""Calculate the "normal" (single reflection) transmission and
-    absorbance from an absorption coefficient, reflectivity and sample
-    thickness.
-
-    Params
-    ------
-    a, r : array_like
-        Frequency-dependent absorption coefficient and reflectivity
-        (shape: `(O,)` or `(O, D)`).
-    t : float
-        Sample thickness (same distance units as `a`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(abs_t, trans_t)` (shape: `(O,)`).
-
-    Notes
-    -----
-    The normal transmission and absorbance are calculated as follows:
-
-    .. math::
-
-         T(\omega) = \left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]
-
-    .. math::
-
-         A(\omega) = - \ln \left[T(\omega) \right]
-    """
-
-    (a, r), _ = _validate_setup_optical_property_cals([a, r])
-
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
-
-    trans_t = (1.0 - r) ** 2 * np.exp(-1.0 * a * t)
-
-    return (trans_t, -1.0 * np.log(trans_t))
-
-
-def incoherent_transmission_absorbance(a, r, t):
-    r"""Calculate the "incoherent" (multiple reflection) transmission
-    and absorbance from an absorption coefficient, reflectivity and
-    sample thickness.
-
-    Params
-    ------
-    a, r : array_like
-        Frequency-dependent absorption coefficient and reflectivity
-        (shape: `(O,)` or `(O, D)`).
-    t : float
-        Sample thickness (same distance units as `a`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(abs_t, trans_t)` (shape: `(O,)`).
-
-    Notes
-    -----
-    The transmission and absorbance are calculated as follows:
-
-    .. math::
-
-         T(\omega) = \frac{\left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]}{1 - R^2(\omega) \exp \left[ -2 \alpha(\omega) t \right]}
-
-    .. math::
-
-         A(\omega) = - \ln \left[T(\omega) \right]
-    """
-
-    (a, r), _ = _validate_setup_optical_property_cals([a, r])
-
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
-
-    trans_t = ((1.0 - r) ** 2 * np.exp(-1.0 * a * t)) / (
-        1.0 - r**2 * np.exp(-2.0 * a * t)
-    )
-
-    return (trans_t, -1.0 * np.log(trans_t))
-
-
 # -------------------------
 # OpticalSpectrumBase class
 # -------------------------
 
 
-class OpticalSpectrumBase(ABC):
+class OpticalSpectrumBase(abc.ABC):
     """Abstract base class for optical spectra."""
 
     # These properties are shared by three different classes, so an
@@ -489,6 +109,183 @@ class OpticalSpectrumBase(ABC):
         return _SIGMA_UNIT_PLOT_LABEL
 
 
+# ---------------------------------
+# UnimodalOpticalSpectrumBase class
+# ---------------------------------
+
+
+class UnimodalOpticalSpectrumBase(SpectrumBase, OpticalSpectrumBase, abc.ABC):
+    """Abstract base class for "unimodal" optical spectra."""
+
+    def __init__(
+        self,
+        x,
+        x_units="thz",
+    ):
+        """Create a new instance of the `UnimodalOpticalSpectrumBase`
+        class.
+
+        Parameters
+        ----------
+        x : array_like
+            Frequencies in `x_units` (shape: `(O,)`).
+        x_units : str, optional
+            Frequency unit (default: `thz`).
+        """
+
+        super(UnimodalOpticalSpectrumBase, self).__init__(x=x, x_units=x_units)
+
+        self._eps_eff = None
+
+        self._n_t = None
+        self._a = None
+        self._r = None
+        self._s = None
+        self._l = None
+
+        self._t = None
+
+        self._trans_int = None
+        self._trans_norm = None
+        self._trans_incoh = None
+
+        self._abs_int = None
+        self._abs_norm = None
+        self._abs_incoh = None
+
+        self._eels = None
+
+        self._set_properties()
+
+    @abc.abstractmethod
+    def _set_properties(self):
+        raise NotImplementedError(
+            "_set_properties must be overridden in derived classes."
+        )
+
+    @property
+    def epsilon(self):
+        r"""numpy.ndarray : Dielectric function in \eps_0 (shape:
+        (`O,`))."""
+        return np_readonly_view(self._eps_eff)
+
+    @property
+    def refractive_index(self):
+        """numpy.ndarray : Complex refractive index n + ik (shape:
+        `(O,)`)."""
+        return np_readonly_view(self._n_t)
+
+    @property
+    def absorption_coefficient(self):
+        """numpy.ndarray : Absorption coefficient in cm^-1 (shape:
+        `(O,)`)."""
+        return np_readonly_view(self._a)
+
+    @property
+    def reflectivity(self):
+        """numpy.ndarray : Reflectivity at normal incidence (shape:
+        `(O,)`)."""
+        return np_readonly_view(self._r)
+
+    @property
+    def optical_conductivity(self):
+        """numpy.ndarray : Optical conductivity in S m^-1 (shape:
+        `(O,)`)."""
+        return np_readonly_view(self._s)
+
+    @property
+    def energy_loss_function(self):
+        """numpy.ndarray : Energy loss function (shape: `(O,)`)."""
+        return np_readonly_view(self._l)
+
+    @property
+    def sample_thickness(self):
+        """float : Sample thickness in mm."""
+        return self._oe_sp.sample_thickness
+
+    @property
+    def intrinsic_transmission(self):
+        """numpy.ndarray : Intrinsic (Beer-Lambert) transmission at
+        `sample_thickness` (shape: `(O, D)`)."""
+        return np_readonly_view(self._trans_int)
+
+    @property
+    def normal_transmission(self):
+        """numpy.ndarray : Normal (single-reflection) transmission at
+        `sample_thickness` (shape: `(O, D)`).
+        """
+        return np_readonly_view(self._trans_norm)
+
+    @property
+    def incoherent_transmission(self):
+        """numpy.ndarray : Incoherent (multiple-reflection) transmission
+        at `sample_thickness` (shape: `(O, D)`)."""
+        return np_readonly_view(self._trans_incoh)
+
+    @property
+    def intrinsic_absorbance(self):
+        """numpy.ndarray : Intrinsic (Beer-Lambert) absorbance at
+        `sample_thickness` (shape: `(O,)`)."""
+        return np_readonly_view(self._abs_int)
+
+    @property
+    def normal_absorbance(self):
+        """numpy.ndarray : Normal (single-reflection) absorbance at
+        `sample_thickness` (shape: `(O, D)`)."""
+        return np_readonly_view(self._abs_norm)
+
+    @property
+    def incoherent_absorbance(self):
+        """numpy.ndarray : Incoherent (multiple-reflection) absorbance
+        at `sample_thickness` (shape: `(O, D)`)."""
+        return np_readonly_view(self._abs_incoh)
+
+    @property
+    def electron_energy_loss_function(self):
+        """numpy.ndarray or None : Electron energy loss function (EELS)
+        if specified."""
+
+        if self._eels is not None:
+            return np_readonly_view(self._eels)
+        else:
+            return None
+
+    def spectrum(self):
+        """Return the simulated dielectric function and derived
+        quantities as a Pandas `DataFrame`.
+
+        Returns
+        -------
+        df : pandas.DataFrame
+            `DataFrame` containing the dielectric function and derived
+            quantities.
+        """
+
+        d = {
+            "freq_energy": self._oe_sp.x,
+            "epsilon_re": self._eps_eff.real,
+            "epsilon_im": self._eps_eff.imag,
+            "refractive_index": self._n_t.real,
+            "extinction_coefficient": self._n_t.imag,
+            "absorption_coefficient": self._a,
+            "reflectivity": self._r,
+            "optical_conductivity_re": self._s.real,
+            "optical_conductivity_im": self._s.imag,
+            "energy_loss_function": self._l,
+            "intrinsic_transmission": self._trans_int,
+            "normal_transmission": self._trans_norm,
+            "incoherent_transmission": self._trans_incoh,
+            "intrinsic_absorbance": self._abs_int,
+            "normal_absorbance": self._abs_norm,
+            "incoherent_absorbance": self._abs_incoh,
+        }
+
+        if self._eels is not None:
+            d["electron_energy_loss_function"] = self._eels
+
+        return pd.DataFrame(d)
+
+
 # ------------------------------
 # OpticalEigenmodeSpectrum class
 # ------------------------------
@@ -498,7 +295,17 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
     """Class for finding the optical eigenmodes of a D-dimensional
     dielectric function and simulating the optical spectra."""
 
-    def __init__(self, x, eps, x_units="thz", t=1.0, branch_tracking=True):
+    def __init__(
+        self,
+        x,
+        eps,
+        x_units="thz",
+        t=1.0,
+        branch_tracking=True,
+        p_vol_frac=1.0,
+        p_binder_eps=1.0,
+        p_den=1.0,
+    ):
         """Create a new instance of the `OpticalSpectrumBase` class.
 
         Parameters
@@ -516,6 +323,37 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         branch_tracking : bool, optional
             If `True`, reorder the optical eigenmodes by performing a
             "branch tracking" over frequencies (default: `True`).
+        p_vol_frac : float, optional
+            Volume fraction of material in a pellet (default: 1.0).
+        p_binder_eps : float or tuple of numpy.ndarray, optional
+            Dielectric constant or tuple of `(x, eps_x)` specifying the
+            frequency-dependent dielectric function of the pellet
+            "binder" material (default: 1.0 = air).
+        p_den : float, optional
+            Density of the pellet (default: 1.0).
+
+        Notes
+        -----
+        Specifying `p_vol_frac` < 1.0 or `p_den` < 1.0 simulates a
+        pellet by modifying the dielectric response along the principal
+        axes (i.e. optical eigenmode eigenvalues) according to the
+        Bruggeman model.
+
+        With `p_den=1.0`, the pellet is treated as a two-phase system
+        with the dielectric constant or scalar (1D) frequency-dependent
+        dielectric function of the binder set with `p_binder_eps`.
+
+        With `p_den` < 1.0, the pellet is treated as a three-phase
+        system with air as the third medium.
+
+        Different parameter combinations can therefore be used to model
+        low-density pure powders, fully dense pellets, and pellets with
+        air pockets.
+
+        If `p_binder_eps` specifies a frequency-dependent dielectric
+        function, it will be interpolated to the same frequency axis as
+        `eps`. It must therefore be in the same `x_units` as `eps`, and
+        must span the same or wider frequency range.
         """
 
         # Checks and validates x and x_units, and sets the _x and
@@ -539,6 +377,60 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
                 "oe_evals must be an array_like with shape (O,) or "
                 "(O, D, D)."
             )
+
+        if p_vol_frac < 0.0 or p_vol_frac > 1.0:
+            raise ValueError("p_vol_frac must be between 0 and 1.")
+
+        if p_den < 0.0 or p_den > 1.0:
+            raise ValueError("p_den must be between 0 and 1.")
+
+        if p_vol_frac < 1.0 or p_den < 1.0:
+            # Modify the eigenvalues for a mixed pellet.
+
+            eps_mix, f_mix = [], []
+
+            if p_vol_frac < 1.0:
+                # Include the "host" specified by p_binder_eps in the
+                # mixture.
+
+                if np.ndim(p_binder_eps) != 0:
+                    x, eps = p_binder_eps
+
+                    if x.min() > self._x.min() or x.max() < self._x.max():
+                        raise ValueError(
+                            "If eps_binder specifies a frequency-dependent "
+                            "dielectric function, it must be calculated "
+                            "over the same or a wider energy range than "
+                            "the material dielectric function."
+                        )
+
+                    interp_func = interp1d(x, eps, kind="linear")
+                    eps_mix.append(interp_func(self._x))
+                else:
+                    eps_mix.append(p_binder_eps)
+
+                f_mix.append(p_den * (1.0 - p_vol_frac))
+
+            if p_den < 1.0:
+                p_vol_frac = p_den * p_vol_frac
+
+                # Include air in the mixture.
+
+                eps_mix.append(1.0)
+                f_mix.append(1.0 - p_den)
+
+            evals_new = np.zeros_like(evals, dtype=np.complex128)
+
+            for i in range(evals.shape[1]):
+                # bruggeman_mixture() automatically selects the two-
+                # or three-phase analytical model depending on the
+                # number of additional components in eps_mix/f_mix.
+
+                evals_new[:, i] = bruggeman_mixture(
+                    evals[:, i], p_vol_frac, eps_mix, f_mix
+                )
+
+            evals = evals_new
 
         self._eps = eps
         self._mode_evals = evals
@@ -791,7 +683,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         return pd.DataFrame(d)
 
     @staticmethod
-    def from_infrared_dielectric_function(eps_ir, t=1.0, branch_tracking=True):
+    def from_infrared_dielectric_function(eps_ir, t=1.0, **kwargs):
         """Create an `OpticalEigenmodeSpectrum` from an
         `InfraredDielectricFunction object.
 
@@ -801,9 +693,9 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
             Infrared dielectric function.
         t : float, optonal
             Thickness in mm (default: 1 mm).
-        branch_tracking : bool, optional
-            If `True`, reorder the optical eigenmodes by performing a
-            "branch tracking" over frequencies (default: `True`).
+        **kwargs : any
+            Other optional keywords to the `OpticalEigenmodeSpectrum`
+            constructor.
 
         Returns
         -------
@@ -812,26 +704,22 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         """
 
         return OpticalEigenmodeSpectrum(
-            eps_ir.x,
-            eps_ir.epsilon,
-            x_units=eps_ir.x_units,
-            t=t,
-            branch_tracking=branch_tracking,
+            eps_ir.x, eps_ir.epsilon, x_units=eps_ir.x_units, t=t, **kwargs
         )
 
 
-# ---------------------
-# OpticalSpectrum class
-# ---------------------
+# -------------------------------------
+# EigenmodeAverageOpticalSpectrum class
+# -------------------------------------
 
 
-class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
+class EigenmodeAverageOpticalSpectrum(UnimodalOpticalSpectrumBase):
     """Class for simulating unpolarised optical spectra from optical
     eigenmode spectra."""
 
     def __init__(self, oe_sp, eps_eels=None, ave_w=None):
-        """Create a new instance of the `UnpolarisedOpticalSpectrum`
-        class.
+        """Create a new instance of the
+        `EigenmodeAverageOpticalSpectrum` class.
 
         Parameters
         ----------
@@ -849,10 +737,6 @@ class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
 
         # This effectively "copies" the x-axis related quantities from
         # the initialising OpticalEigenmodeSpectrum.
-
-        super(OpticalSpectrum, self).__init__(x=oe_sp.x, x_units=oe_sp.x_units)
-
-        self._oe_sp = oe_sp
 
         if ave_w is not None:
             # Converts (O,) -> (O, 1).
@@ -877,6 +761,36 @@ class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
                 np.ones((len(oe_sp.x), oe_sp.num_dims), dtype=np.float64)
             ) / oe_sp.num_dims
 
+        if eps_eels is not None:
+            if oe_sp.num_dims != 2:
+                raise ValueError(
+                    "eps_eels should only be specified when "
+                    "oe_sp.num_dims is 2."
+                )
+
+            eps_eels = np_asarray_copy(eps_eels, dtype=np.complex128)
+
+            if not np_check_shape(eps_eels, (len(oe_sp.x),)):
+                raise ValueError(
+                    "If supplied, eps_eels must be an array_like with "
+                    "shape (O,)."
+                )
+
+        self._oe_sp = oe_sp
+        self._ave_w = ave_w
+        self._eps_eels = eps_eels
+
+        super(EigenmodeAverageOpticalSpectrum, self).__init__(
+            x=oe_sp.x, x_units=oe_sp.x_units
+        )
+
+    def _set_properties(self):
+        """Calculate and set optical properties."""
+
+        oe_sp, ave_w = self._oe_sp, self._ave_w
+
+        # Calculate optical properties by averaging eigenmodes.
+
         self._eps_eff = (oe_sp.mode_eigenvalues * ave_w).sum(axis=-1)
 
         self._n_t = (oe_sp.mode_refractive_index * ave_w).sum(axis=-1)
@@ -899,24 +813,8 @@ class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
         self._abs_norm = -1.0 * np.log10(trans_norm)
         self._abs_incoh = -1.0 * np.log10(trans_incoh)
 
-        self._eels = None
-
-        if eps_eels is not None:
-            if self._oe_sp.num_dims != 2:
-                raise ValueError(
-                    "eps_eels should only be specified when "
-                    "oe_sp.num_dims is 2."
-                )
-
-            eps_eels = np.asarray(eps_eels, dtype=np.complex128)
-
-            if not np_check_shape(eps_eels, (len(oe_sp.x),)):
-                raise ValueError(
-                    "If supplied, eps_eels must be an array_like with "
-                    "shape (O,)."
-                )
-
-            self._eels = (-1.0 / eps_eels).imag
+        if self._eps_eels is not None:
+            self._eels = (-1.0 / self._eps_eels).imag
 
     @property
     def optical_eigenmode_spectrum(self):
@@ -925,123 +823,20 @@ class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
         return self._oe_sp
 
     @property
-    def epsilon(self):
-        r"""numpy.ndarray : Dielectric function in \eps_0 (shape:
-        (`O,`))."""
-        return np_readonly_view(self._eps_eff)
+    def averaging_weights(self):
+        """numpy.ndarray : Averaging weights for optical eigenmodes
+        (shape: `(O, D)`)."""
+        return np_readonly_view(self._ave_w)
 
     @property
-    def refractive_index(self):
-        """numpy.ndarray : Complex refractive index n + ik (shape:
-        `(O,)`)."""
-        return np_readonly_view(self._n_t)
+    def epsilon_eels(self):
+        """numpy.ndarray or None : Dielectric function used to calculate
+        the electron energy loss function."""
 
-    @property
-    def absorption_coefficient(self):
-        """numpy.ndarray : Absorption coefficient in cm^-1 (shape:
-        `(O,)`)."""
-        return np_readonly_view(self._a)
-
-    @property
-    def reflectivity(self):
-        """numpy.ndarray : Reflectivity at normal incidence (shape:
-        `(O,)`)."""
-        return np_readonly_view(self._r)
-
-    @property
-    def optical_conductivity(self):
-        """numpy.ndarray : Optical conductivity in S m^-1 (shape:
-        `(O,)`)."""
-        return np_readonly_view(self._s)
-
-    @property
-    def energy_loss_function(self):
-        """numpy.ndarray : Energy loss function (shape: `(O,)`)."""
-        return np_readonly_view(self._l)
-
-    @property
-    def sample_thickness(self):
-        """float : Sample thickness in mm."""
-        return self._oe_sp.sample_thickness
-
-    @property
-    def intrinsic_transmission(self):
-        """numpy.ndarray : Intrinsic (Beer-Lambert) transmission at
-        `sample_thickness` (shape: `(O, D)`)."""
-        return np_readonly_view(self._trans_int)
-
-    @property
-    def normal_transmission(self):
-        """numpy.ndarray : Normal (single-reflection) transmission at
-        `sample_thickness` (shape: `(O, D)`).
-        """
-        return np_readonly_view(self._trans_norm)
-
-    @property
-    def incoherent_transmission(self):
-        """numpy.ndarray : Incoherent (multiple-reflection) transmission
-        at `sample_thickness` (shape: `(O, D)`)."""
-        return np_readonly_view(self._trans_incoh)
-
-    @property
-    def intrinsic_absorbance(self):
-        """numpy.ndarray : Intrinsic (Beer-Lambert) absorbance at
-        `sample_thickness` (shape: `(O,)`)."""
-        return np_readonly_view(self._abs_int)
-
-    @property
-    def normal_absorbance(self):
-        """numpy.ndarray : Normal (single-reflection) absorbance at
-        `sample_thickness` (shape: `(O, D)`)."""
-        return np_readonly_view(self._abs_norm)
-
-    @property
-    def incoherent_absorbance(self):
-        """numpy.ndarray : Incoherent (multiple-reflection) absorbance
-        at `sample_thickness` (shape: `(O, D)`)."""
-        return np_readonly_view(self._abs_incoh)
-
-    @property
-    def electron_energy_loss_function(self):
-        """numpy.ndarray or None : Electron energy loss function (EELS)
-        if specified."""
-
-        if self._eels is not None:
-            return np_readonly_view(self._eels)
+        if self._eps_eels is not None:
+            return np_readonly_view(self._eps_eels)
         else:
             return None
-
-    def spectrum(self):
-        """Return the simulated dielectric function and derived
-        quantities as a Pandas `DataFrame`.
-
-        Returns
-        -------
-        df : pandas.DataFrame
-            `DataFrame` containing the dielectric function and derived
-            quantities.
-        """
-
-        d = {
-            "freq_energy": self._oe_sp.x,
-            "epsilon_re": self._eps_eff.real,
-            "epsilon_im": self._eps_eff.imag,
-            "refractive_index": self._n_t.real,
-            "extinction_coefficient": self._n_t.imag,
-            "absorption_coefficient": self._a,
-            "reflectivity": self._r,
-            "optical_conductivity_re": self._s.real,
-            "optical_conductivity_im": self._s.imag,
-            "energy_loss_function": self._l,
-            "intrinsic_transmission": self._trans_int,
-            "normal_transmission": self._trans_norm,
-            "incoherent_transmission": self._trans_incoh,
-            "intrinsic_absorbance": self._abs_int,
-            "normal_absorbance": self._abs_norm,
-            "incoherent_absorbance": self._abs_incoh,
-        }
-
-        return pd.DataFrame(d)
 
 
 # -----------------------------------
@@ -1049,7 +844,7 @@ class OpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
 # -----------------------------------
 
 
-class InputPolarisedOpticalSpectrum(OpticalSpectrum):
+class InputPolarisedOpticalSpectrum(EigenmodeAverageOpticalSpectrum):
     """Class for simulating optical spectra measured in a collinear
     geometry with polarised incident light, using the optical eigenmodes
     of the "accessible" block of polarisations."""

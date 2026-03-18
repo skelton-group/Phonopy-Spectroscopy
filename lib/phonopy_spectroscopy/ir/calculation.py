@@ -16,15 +16,13 @@ spectra."""
 # -------
 
 
-import warnings
-
 import numpy as np
 
 from .dielectric_function import InfraredDielectricFunction
 
-from .spectrum import (
+from .spectrum_core import (
     OpticalEigenmodeSpectrum,
-    OpticalSpectrum,
+    EigenmodeAverageOpticalSpectrum,
     InputPolarisedOpticalSpectrum,
 )
 
@@ -225,7 +223,9 @@ class InfraredCalculation:
             **kwargs,
         )
 
-    def powder_optical_spectrum_ema(self, t=1.0, diag_eps=True, **kwargs):
+    def powder_optical_spectrum_ema(
+        self, t=1.0, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
+    ):
         """Simulate the optical spectrum of a powder using the
         effective-medium approximation
 
@@ -233,20 +233,25 @@ class InfraredCalculation:
         ----------
         t : float, optional
             Sample thickness in mm (default: 1 mm).
-        diag_eps : bool, optional
-            Diagonalise the dielectric function before taking the scalar
-            average (default: `True`).
+        p_vol_frac : float, optional
+            Volume fraction of material in a pellet (default: 1.0).
+        p_binder_eps : float or tuple of numpy.ndarray, optional
+            Dielectric constant or tuple of `(x, eps_x)` specifying the
+            frequency-dependent dielectric function of the pellet
+            "binder" material (default: 1.0 = air).
+        p_den : float, optional
+            Density of the pellet (default: 1.0).
         **kwargs : any
             Optional arguments to `dielectric_function`.
 
         Returns
         -------
-        sp : OpticalSpectrum
+        sp : EigenmodeAverageOpticalSpectrum
             Simulated spectrum.
 
         See Also
         --------
-        ir.spectrum.OpticalSpectrum
+        ir.spectrum.EigenmodeAverageOpticalSpectrum
             Object returned by this function.
         """
 
@@ -254,26 +259,32 @@ class InfraredCalculation:
 
         eps_eff = None
 
-        if diag_eps:
-            # Average of the optical eigenmode eigenvalues.
-
-            oe_sp = OpticalEigenmodeSpectrum(
-                eps_ir.x, eps_ir.epsilon, x_units=eps_ir.x_units
-            )
-
-            eps_eff = np.mean(oe_sp.mode_eigenvalues, axis=-1)
-        else:
-            # Average of the diagonal elements.
-
-            eps_eff = np.trace(eps_ir.epsilon, axis1=1, axis2=2) / 3.0
+        # Average of the optical eigenmode eigenvalues.
 
         oe_sp = OpticalEigenmodeSpectrum(
-            eps_ir.x, eps_eff, x_units=eps_ir.x_units, t=t
+            eps_ir.x,
+            eps_ir.epsilon,
+            x_units=eps_ir.x_units,
+            branch_tracking=False,
         )
 
-        return OpticalSpectrum(oe_sp)
+        eps_eff = np.mean(oe_sp.mode_eigenvalues, axis=-1)
 
-    def powder_optical_spectrum_average_eigenmodes(self, t=1.0, **kwargs):
+        oe_sp = OpticalEigenmodeSpectrum(
+            eps_ir.x,
+            eps_eff,
+            x_units=eps_ir.x_units,
+            t=t,
+            p_vol_frac=p_vol_frac,
+            p_binder_eps=p_binder_eps,
+            p_den=p_den,
+        )
+
+        return EigenmodeAverageOpticalSpectrum(oe_sp)
+
+    def powder_optical_spectrum_eigenmode_average(
+        self, t=1.0, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
+    ):
         """Simulate the optical spectrum of a powder by averaging the
         properties of the optical eigenmodes.
 
@@ -281,25 +292,38 @@ class InfraredCalculation:
         ----------
         t : float, optional
             Sample thickness in mm (default: 1 mm).
+        p_vol_frac : float, optional
+            Volume fraction of material in a pellet (default: 1.0).
+        p_binder_eps : float or tuple of numpy.ndarray, optional
+            Dielectric constant or tuple of `(x, eps_x)` specifying the
+            frequency-dependent dielectric function of the pellet
+            "binder" material (default: 1.0 = air).
+        p_den : float, optional
+            Density of the pellet (default: 1.0).
         **kwargs : any
             Optional arguments to `dielectric_function`.
 
         Returns
         -------
-        sp : OpticalSpectrum
+        sp : EigenmodeAverageOpticalSpectrum
             Simulated spectrum.
 
         See Also
         --------
-        ir.spectrum.OpticalSpectrum
+        ir.spectrum.EigenmodeAverageOpticalSpectrum
             Object returned by this function.
         """
 
         oe_sp = OpticalEigenmodeSpectrum.from_infrared_dielectric_function(
-            self.dielectric_function(**kwargs), t=t
+            self.dielectric_function(**kwargs),
+            t=t,
+            branch_tracking=True,
+            p_vol_frac=p_vol_frac,
+            p_binder_eps=p_binder_eps,
+            p_den=p_den,
         )
 
-        return OpticalSpectrum(oe_sp)
+        return EigenmodeAverageOpticalSpectrum(oe_sp)
 
     def single_crystal_unpolarised_optical_spectrum(
         self, hkl, t=1.0, rot=None, nac=False, **kwargs
@@ -327,12 +351,12 @@ class InfraredCalculation:
 
         Returns
         -------
-        sp : OpticalSpectrum
+        sp : EigenmodeAverageOpticalSpectrum
             Simulated spectrum.
 
         See Also
         --------
-        ir.spectrum.OpticalSpectrum
+        ir.spectrum.EigenmodeAverageOpticalSpectrum
             Object returned by this function.
         """
 
@@ -344,7 +368,9 @@ class InfraredCalculation:
             eps_ir.x, eps_ir.epsilon[:, :2, :2], x_units=eps_ir.x_units, t=t
         )
 
-        return OpticalSpectrum(oe_sp, eps_eels=eps_ir.epsilon[:, 2, 2])
+        return EigenmodeAverageOpticalSpectrum(
+            oe_sp, eps_eels=eps_ir.epsilon[:, 2, 2]
+        )
 
     def single_crystal_input_polarised_optical_spectrum(
         self, hkl, i_pol, t=1.0, rot=None, nac=False, **kwargs

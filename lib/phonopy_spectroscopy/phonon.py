@@ -382,10 +382,15 @@ class GammaPhonons:
         lws = self._lws.tolist() if self._lws is not None else None
         irreps = self._irreps.to_dict() if self._irreps is not None else None
 
+        evecs = {"real": self._evecs.real.tolist()}
+
+        if np.iscomplexobj(self._evecs):
+            evecs["imag"] = self._evecs.imag.tolist()
+
         return {
             "structure": self._struct.to_dict(),
             "frequencies": self._freqs.tolist(),
-            "eigenvectors": self._evecs.tolist(),
+            "eigenvectors": evecs,
             "linewidths": lws,
             "irreps": irreps,
         }
@@ -411,10 +416,25 @@ class GammaPhonons:
         if d["irreps"] is not None:
             irreps = Irreps.from_dict(d["irreps"])
 
+        evecs = np.asarray(d["eigenvectors"]["real"], dtype=np.float64)
+
+        if "imag" in d["eigenvectors"]:
+            evecs_imag = np.asarray(
+                d["eigenvectors"]["imag"], dtype=np.float64
+            )
+
+            if not np.equal(np.shape(evecs), np.shape(evecs_imag)).all():
+                raise ValueError(
+                    '"eigenvectors" key contains "real" and "imag" '
+                    "keys with different array shapes."
+                )
+
+            evecs = evecs + 1.0j * evecs_imag
+
         return GammaPhonons(
             Structure.from_dict(d["structure"]),
             d["frequencies"],
-            d["eigenvectors"],
+            evecs,
             lws=d["linewidths"],
             irreps=irreps,
         )
@@ -860,7 +880,7 @@ class PolarGammaPhonons(GammaPhonons):
         if max_imag > ZERO_TOLERANCE:
             warnings.warn(
                 "Maximum imaginary part of linewidths is {0:.3e} "
-                "> ZERO_TOLERANCE = {1:.3e}"
+                "> ZERO_TOLERANCE = {1:.3e}."
                 "".format(max_imag, ZERO_TOLERANCE),
                 RuntimeWarning,
             )

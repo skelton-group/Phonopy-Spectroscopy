@@ -40,7 +40,14 @@ from .utility.numpy_helper import (
 
 
 _AUTO_X_PAD_MULT = 5.0
+
+"""Linewidth multiplier for automatically determining x-axis padding."""
+
+
 _AUTO_X_MIN_NUM_PTS = 1000
+
+"""Minimum number of points for automatically determining x-axis
+resolution."""
 
 
 def auto_x(freqs, lws, x_range=None, x_res=None):
