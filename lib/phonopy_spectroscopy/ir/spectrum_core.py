@@ -151,7 +151,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         p_binder_eps : float or tuple of numpy.ndarray, optional
             Dielectric constant or tuple of `(x, eps_x)` specifying the
             frequency-dependent dielectric function of the pellet
-            "binder" material (default: 1.0 = air).
+            "binder" material (default: 1.0 = vacuum ~ air).
         p_den : float, optional
             Density of the pellet (default: 1.0).
 
@@ -167,11 +167,11 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
         dielectric function of the binder set with `p_binder_eps`.
 
         With `p_den` < 1.0, the pellet is treated as a three-phase
-        system with air as the third medium.
+        system with vacuum ~ air as the third medium.
 
         Different parameter combinations can therefore be used to model
-        low-density pure powders, fully dense pellets, and pellets with
-        air pockets.
+        low-density pure powders, fully dense pellets, and low-density
+        pellets.
 
         If `p_binder_eps` specifies a frequency-dependent dielectric
         function, it will be interpolated to the same frequency axis as

@@ -238,7 +238,7 @@ class InfraredCalculation:
         p_binder_eps : float or tuple of numpy.ndarray, optional
             Dielectric constant or tuple of `(x, eps_x)` specifying the
             frequency-dependent dielectric function of the pellet
-            "binder" material (default: 1.0 = air).
+            "binder" material (default: 1.0 = vaccum ~ air).
         p_den : float, optional
             Density of the pellet (default: 1.0).
         **kwargs : any
@@ -297,7 +297,7 @@ class InfraredCalculation:
         p_binder_eps : float or tuple of numpy.ndarray, optional
             Dielectric constant or tuple of `(x, eps_x)` specifying the
             frequency-dependent dielectric function of the pellet
-            "binder" material (default: 1.0 = air).
+            "binder" material (default: 1.0 = vaccum ~ air).
         p_den : float, optional
             Density of the pellet (default: 1.0).
         **kwargs : any
