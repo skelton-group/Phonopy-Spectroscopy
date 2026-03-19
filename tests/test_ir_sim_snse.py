@@ -194,7 +194,7 @@ class TestInfraredSimulation(unittest.TestCase):
                 np.allclose(eps_e[:, i1, i2], eps_e_ref[:, i1, i2])
             )
 
-    def test_optical_spectra(self):
+    def test_optical_spectra_1(self):
         r"""Compare the effective dielectric functions \eps_eff for
         optical spectra obtained with different methods to the "source"
         bulk infrared dielectric function."""
@@ -241,6 +241,55 @@ class TestInfraredSimulation(unittest.TestCase):
         sp_sc_pol_ave = (sp_sc_pol_x.epsilon + sp_sc_pol_y.epsilon) / 2.0
 
         self.assertTrue(np.allclose(sp_sc_unpol.epsilon, sp_sc_pol_ave))
+
+    def test_optical_spectra_2(self):
+        """Test the "synchronisation" of the sample thickness between
+        the `EigenmodeAverageOpticalSpectrum` and the underlying
+        `OpticalEigenmodeSpectrum`."""
+
+        sp_ema = self._calc.powder_optical_spectrum_ema(t=1.0e-6)
+
+        trans_int_1u = sp_ema.intrinsic_transmission
+        trans_norm_1u = sp_ema.normal_transmission
+        trans_incoh_1u = sp_ema.incoherent_transmission
+
+        sp_ema.sample_thickness = 1.0e-7
+
+        self.assertEqual(
+            sp_ema.sample_thickness,
+            sp_ema.optical_eigenmode_spectrum.sample_thickness,
+        )
+
+        self.assertFalse(
+            np.equal(sp_ema.intrinsic_transmission, trans_int_1u).all()
+        )
+
+        self.assertFalse(
+            np.equal(sp_ema.normal_transmission, trans_norm_1u).all()
+        )
+
+        self.assertFalse(
+            np.equal(sp_ema.incoherent_transmission, trans_incoh_1u).all()
+        )
+
+        sp_ema.optical_eigenmode_spectrum.sample_thickness = 1.0e-6
+
+        self.assertEqual(
+            sp_ema.sample_thickness,
+            sp_ema.optical_eigenmode_spectrum.sample_thickness,
+        )
+
+        self.assertTrue(
+            np.equal(sp_ema.intrinsic_transmission, trans_int_1u).all()
+        )
+
+        self.assertTrue(
+            np.equal(sp_ema.normal_transmission, trans_norm_1u).all()
+        )
+
+        self.assertTrue(
+            np.equal(sp_ema.incoherent_transmission, trans_incoh_1u).all()
+        )
 
     def test_bruggeman_multiphase(self):
         """Test the implementation of the Bruggeman multiphase models."""
