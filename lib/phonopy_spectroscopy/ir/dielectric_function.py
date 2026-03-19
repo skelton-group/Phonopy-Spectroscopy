@@ -78,8 +78,11 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
         """
 
         osc_strs, _ = np_expand_dims(
-            np_asarray_copy(osc_strs, dtype=np.float64), (None, 3, 3)
+            np_asarray_copy(osc_strs, dtype=np.complex128), (None, 3, 3)
         )
+
+        if not np.iscomplex(osc_strs).all():
+            osc_strs = osc_strs.real
 
         # If irreps are supplied, average frequencies/linewidths and sum
         # mode oscillator strengths.
@@ -99,7 +102,7 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
                     np.sum(osc_strs[inds, :, :], axis=0)
                     for inds in ir_band_inds
                 ],
-                dtype=np.float64,
+                dtype=osc_strs.dtype,
             )
 
             lws = np.array(

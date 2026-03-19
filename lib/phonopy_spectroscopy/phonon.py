@@ -179,10 +179,13 @@ class GammaPhonons:
             # values are possible due to numerical noise.
 
             if (lws < 0.0).any():
-                if lws.min() < -1.0 * ZERO_TOLERANCE:
+                min_lw = lws.min()
+
+                if min_lw < -1.0 * ZERO_TOLERANCE:
                     warnings.warn(
                         "One or more linewidths are negative and will "
-                        "be converted to absoute values",
+                        "be converted to absoute values (min linewidth "
+                        "is {0:.3e}).".format(min_lw),
                         UserWarning,
                     )
 
@@ -849,8 +852,10 @@ class PolarGammaPhonons(GammaPhonons):
         lws_new = None
 
         if self._lws is not None:
-            lws_new = evals_new.imag / np.sqrt(
-                evals_new.real.astype(np.complex128)
+            lws_new = (
+                evals_new.imag
+                / np.sqrt(evals_new.real.astype(np.complex128))
+                * VASP_TO_THZ
             )
 
         # evecs_new is in column-major format -> reorder columns,
