@@ -703,7 +703,7 @@ def normal_transmission_absorbance(a, r, t):
 
     .. math::
 
-         A(\omega) = - \ln \left[T(\omega) \right]
+         A(\omega) = -  \log_{10} \left[T(\omega) \right]
     """
 
     (a, r), _ = _validate_setup_optical_property_cals([a, r])
@@ -713,7 +713,7 @@ def normal_transmission_absorbance(a, r, t):
 
     trans_t = (1.0 - r) ** 2 * np.exp(-1.0 * a * t)
 
-    return (trans_t, -1.0 * np.log(trans_t))
+    return (trans_t, -1.0 * np.log10(trans_t))
 
 
 def incoherent_transmission_absorbance(a, r, t):
@@ -744,7 +744,7 @@ def incoherent_transmission_absorbance(a, r, t):
 
     .. math::
 
-         A(\omega) = - \ln \left[T(\omega) \right]
+         A(\omega) = -  \log_{10} \left[T(\omega) \right]
     """
 
     (a, r), _ = _validate_setup_optical_property_cals([a, r])
@@ -756,4 +756,4 @@ def incoherent_transmission_absorbance(a, r, t):
         1.0 - r**2 * np.exp(-2.0 * a * t)
     )
 
-    return (trans_t, -1.0 * np.log(trans_t))
+    return (trans_t, -1.0 * np.log10(trans_t))

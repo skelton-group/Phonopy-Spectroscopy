@@ -182,6 +182,9 @@ class Polarisation:
 
             if len(w) != v.shape[0]:
                 raise ValueError("w must be an array_like with shape (N,).")
+
+            if not np.isclose(w.sum(), 1.0, atol=ZERO_TOLERANCE):
+                raise ValueError("w must sum to one.")
         else:
             if v.shape[0] > 1:
                 raise ValueError(

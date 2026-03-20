@@ -486,7 +486,8 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def mode_intrinsic_absorbance(self):
         """numpy.ndarray : Intrinsic (Beer-Lambert) absorbance of the
-        optical eigenmodes at `sample_thickness` (shape: `(O, D)`)."""
+        optical eigenmodes at `sample_thickness` (base 10, shape:
+        `(O, D)`)."""
 
         self._lazy_init_intrinsic_trans_abs()
         return np_readonly_view(self._mode_abs_int)
@@ -494,7 +495,8 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def mode_normal_absorbance(self):
         """numpy.ndarray : Normal (single-reflection) absorbance of the
-        optical eigenmodes at `sample_thickness` (shape: `(O, D)`)."""
+        optical eigenmodes at `sample_thickness` (base 10, shape:
+        `(O, D)`)."""
 
         self._lazy_init_normal_trans_abs()
         return np_readonly_view(self._mode_abs_norm)
@@ -502,7 +504,7 @@ class OpticalEigenmodeSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def mode_incoherent_absorbance(self):
         """numpy.ndarray : Incoherent (multiple-reflection) absorbance
-        of the optical eigenmodes at `sample_thickness` (shape:
+        of the optical eigenmodes at `sample_thickness` (base 10, shape:
         `(O, D)`)."""
 
         self._lazy_init_incoherent_trans_abs()
@@ -724,7 +726,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
                 )
 
                 self._trans_int = trans_int
-                self._abs_int = -1.0 * np.log(trans_int)
+                self._abs_int = -1.0 * np.log10(trans_int)
 
     def _lazy_init_normal_trans_abs(self):
         """Lazy initialisation of normal transmission and absorbance."""
@@ -743,7 +745,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
                 )
 
                 self._trans_norm = trans_norm
-                self._abs_norm = -1.0 * np.log(trans_norm)
+                self._abs_norm = -1.0 * np.log10(trans_norm)
 
     def _lazy_init_incoherent_trans_abs(self):
         """Lazy initialisation of incohrerent transmission and
@@ -763,7 +765,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
                 )
 
                 self._trans_incoh = trans_incoh
-                self._abs_incoh = -1.0 * np.log(trans_incoh)
+                self._abs_incoh = -1.0 * np.log10(trans_incoh)
 
     @property
     def optical_eigenmode_spectrum(self):
@@ -875,7 +877,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def intrinsic_absorbance(self):
         """numpy.ndarray : Intrinsic (Beer-Lambert) absorbance at
-        `sample_thickness` (shape: `(O,)`)."""
+        `sample_thickness` (base 10, shape: `(O,)`)."""
 
         self._lazy_init_intrinsic_trans_abs()
         return np_readonly_view(self._abs_int)
@@ -883,7 +885,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def normal_absorbance(self):
         """numpy.ndarray : Normal (single-reflection) absorbance at
-        `sample_thickness` (shape: `(O, D)`)."""
+        `sample_thickness` (base 10, shape: `(O, D)`)."""
 
         self._lazy_init_normal_trans_abs()
         return np_readonly_view(self._abs_norm)
@@ -891,7 +893,7 @@ class EigenmodeAverageOpticalSpectrum(SpectrumBase, OpticalSpectrumBase):
     @property
     def incoherent_absorbance(self):
         """numpy.ndarray : Incoherent (multiple-reflection) absorbance
-        at `sample_thickness` (shape: `(O, D)`)."""
+        at `sample_thickness` (base 10, shape: `(O, D)`)."""
 
         self._lazy_init_incoherent_trans_abs()
         return np_readonly_view(self._abs_incoh)
