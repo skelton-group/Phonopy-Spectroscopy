@@ -158,7 +158,7 @@ class SpectrumBase:
         """
 
         if x is not None:
-            x = np_asarray_copy(x, copy=True, dtype=np.float64)
+            x = np_asarray_copy(x, dtype=np.float64)
 
             if not np_check_shape(x, (None,)):
                 raise ValueError("x must be an array_like with shape (O,).")
