@@ -17,7 +17,11 @@
 import numpy as np
 
 from ..constants import ZERO_TOLERANCE
-from .numpy_helper import np_check_shape, np_expand_dims
+from .numpy_helper import (
+    np_check_shape,
+    np_expand_dims,
+    np_discard_imag_if_real,
+)
 
 try:
     from numba import njit
@@ -63,17 +67,20 @@ def parse_direction(dirn):
     if dirn_str in _DIRECTION_STRING_LUT:
         return np.array(_DIRECTION_STRING_LUT[dirn_str], dtype=np.float64)
 
-    dirn = np.asarray(dirn)
+    # dirn may be a complex number; if it isn't, take the real part to
+    # avoid forcing complex arithmetic.
+
+    dirn = np_discard_imag_if_real(np.asarray(dirn, dtype=np.complex128))
 
     if np.ndim(dirn) == 1:
         v = None
 
         if len(dirn) == 3:
-            v = np.array(dirn, dtype=np.float64)
+            v = np.array(dirn, dtype=dirn.dtype)
 
         if len(dirn) == 2:
             x, y = dirn
-            v = np.array([x, y, 0.0], dtype=np.float64)
+            v = np.array([x, y, 0.0], dtype=dirn.dtype)
 
         norm = np.linalg.norm(v)
 

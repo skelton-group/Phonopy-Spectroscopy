@@ -13,6 +13,7 @@
 # Imports
 # -------
 
+
 from itertools import product
 
 import numpy as np
@@ -30,6 +31,7 @@ from .utility.numpy_helper import (
     np_readonly_view,
     np_check_shape,
     np_expand_dims,
+    np_discard_imag_if_real,
 )
 
 from .utility.quadrature import unit_circle_quad_rule
@@ -41,8 +43,7 @@ from .utility.quadrature import unit_circle_quad_rule
 
 
 class Geometry:
-    """Represent a measurement geometry in a polarised Raman
-    experiment."""
+    """Represent a measurement geometry."""
 
     def __init__(self, i_dir, c_dir):
         """Create a new instance of the `Geometry` class.
@@ -123,41 +124,101 @@ class Geometry:
 
         return True
 
+    @staticmethod
+    def conventional_backscattering():
+        """Geometry for a conventional backscattering measurement."""
 
-# ------------------
-# Polarisation class
-# ------------------
+        return Geometry("+z", "-z")
+
+    @staticmethod
+    def conventional_off_axis_transmission(theta, n_f=1.0, n_b=1.0):
+        r"""Geometry for a conventional off-axis transmission
+        measurement, optionally accounting for the refractive indices
+        of the "front" (incident) and "back" (exit) media.
+
+        Parameters
+        ----------
+        theta : float
+            Incidence angle in degrees.
+        n_f, n_b : float, optional
+            Refractive indices of the front and back media (default: 1.0
+            = vacuum ~ air).
+
+        Returns
+        -------
+        geom : Geometry
+            Measurement geometry.
+
+        Notes
+        -----
+        This assumes a "conventional" geometry where light is incident
+        in the xz plane at an angle \theta to the z axis.
+        """
+
+        t = np.radians(theta)
+
+        q_x = n_f * np.sin(t)
+        q_i_z = n_f * np.cos(t)
+
+        # At oblique angles the z component of the transmitted
+        # wavevector may be complex.
+
+        q_t_z = np.sqrt(n_b**2 - q_x**2, dtype=np.complex128)
+
+        return Geometry([q_x, 0.0, q_i_z], [q_x, 0.0, q_t_z])
+
+    @staticmethod
+    def conventional_off_axis_reflectivity(theta, n_f=1.0):
+        """Geometry for a conventional off-axis reflectivity
+        measurement, optionally accounting for the refractive indices of
+        the medium.
+
+        Parameters
+        ----------
+        theta : float
+            Incidence angle in degrees.
+        n_f, n_b : float, optional
+            Refractive indices of the front and back media (default: 1.0
+            = vacuum ~ air).
+
+        Returns
+        -------
+        geom : Geometry
+            Measurement geometry.
+
+        Notes
+        -----
+        This assumes a "conventional" geometry where light is incident
+        in the xz plane at an angle \theta to the z axis.
+        """
+
+        t = np.radians(theta)
+
+        q_x = n_f * np.sin(t)
+        q_z = n_f * np.cos(t)
+
+        return Geometry([q_x, 0.0, q_z], [q_x, 0.0, -1.0 * q_z])
 
 
-class Polarisation:
-    """Represent a polarisation in a polarised Raman measurement."""
+# ----------------------
+# PolarisationBase class
+# ----------------------
+
+
+class PolarisationBase:
+    """Represent a D-dimensional polarisation or weighted sum/average of
+    polarisations."""
 
     def __init__(self, v, w=None):
-        """Create a new instance of the `Polarisation` class.
+        """Create a new instance of the `PolarisationBase` class.
 
         Parameters
         ----------
         v : array_like
-            3D polarisation vector (shape: `(3,)`) or vectors (shape:
-            `(N, 3)`).
+            D-dimensional polarisation vector (shape: `(D,)`) or vectors
+            (shape: `(D, 3)`).
         w : array_like or None, optional
             Weights for summing/averaging multiple `v` (shape: `(N,)`).
-
-        See Also
-        --------
-        Polarisation.from_direction :
-            Define a polarisation from a direction.
-        Polarisation.from_angles :
-            Define (a) polarisation(s) as (a) rotation(s) about an axis.
-        Polarsation.from_rotation :
-            Define polarisations for an angle rotation about an axis.
-        Polarisation.integration :
-            Define an integration over polarisations.
-        Polarisation.cross_to :
-            Define polarisation(s) cross to (an)other(s).
-        Polarisation.sum_parallel_cross_to :
-            Define (a) sum(s) of polarisation(s) parallel and cross to
-            (an)other.
 
         Notes
         -----
@@ -167,20 +228,19 @@ class Polarisation:
         """
 
         v, _ = np_expand_dims(
-            np_asarray_copy(v, dtype=np.complex128), (None, 3)
+            np_asarray_copy(v, dtype=np.complex128), (None, None)
         )
 
         # For most "routine" calculations the polarisation vectors are
         # real - if so, drop the imaginary part and convert to
         # np.float64 for performance.
 
-        if not np.iscomplex(v).any():
-            v = np.array(v.real, dtype=np.float64)
+        v = np_discard_imag_if_real(v)
 
         if w is not None:
             w = np_asarray_copy(w, dtype=np.float64)
 
-            if len(w) != v.shape[0]:
+            if not np_check_shape(w, (v.shape[0],)):
                 raise ValueError("w must be an array_like with shape (N,).")
         else:
             if v.shape[0] > 1:
@@ -204,7 +264,7 @@ class Polarisation:
 
     @property
     def vectors(self):
-        """numpy.ndarray : Polarisation vectors (shape: `(N, 3)`)."""
+        """numpy.ndarray : Polarisation vectors (shape: `(N, D)`)."""
         return np_readonly_view(self._v)
 
     @property
@@ -213,15 +273,18 @@ class Polarisation:
         return np_readonly_view(self._w)
 
     @property
-    def num_vecs_w(self):
-        """int : Number of weights/vectors."""
-        return self._v.shape[0]
+    def dimension(self):
+        """int : Dimension of polarisation vectors."""
+        return self._v.shape[1]
 
     @property
     def is_complex(self):
-        """bool : `True` if any of `vectors` are complex, otherwise
+        """bool : `True` if one or more `vectors` are complex, otherwise
         `False`."""
-        return np.iscomplex(self._v).any()
+
+        # The dtype is set appropriately during construction.
+
+        return np.iscomplexobj(self._v)
 
     def iter_v_w(self):
         """Iterate over polarisation vectors and weights.
@@ -234,35 +297,6 @@ class Polarisation:
 
         for v_w in zip(self._v, self._w):
             yield v_w
-
-    def check_perpendicular(self, axis):
-        """Check polarisation vectors are perpendicular to an axis.
-
-        Parameters
-        ----------
-        axis : array_like or str
-            Axis to check.
-
-        Returns
-        -------
-        perp : bool
-            `True` if all polarisation vectors are perpendicular to
-            axis, otherwise `False`.
-
-        See Also
-        --------
-        utility.geometry.parse_direction : Accepted inputs for `axis`.
-        """
-
-        axis = parse_direction(axis)
-
-        for v in self._v:
-            # cos(\theta) = 0 for perpendicular vectors
-
-            if np.abs(np.dot(axis, v)) > ZERO_TOLERANCE:
-                return False
-
-        return True
 
     def combine_with(self, other):
         """Return the product of the polarisation weights and vectors in
@@ -300,14 +334,209 @@ class Polarisation:
             the combined weight `w`.
         """
 
+        if other.dimension != self._v.shape[1]:
+            raise ValueError(
+                "Polarisations can only be combined if they have the "
+                "same dimension."
+            )
+
         for (v_s, w_s), (v_o, w_o) in product(
             self.iter_v_w(), other.iter_v_w()
         ):
             yield (v_s, v_o, w_s * w_o)
 
+
+# ------------------
+# Polarisation class
+# ------------------
+
+
+class Polarisation(PolarisationBase):
+    """Represent a 3D polarisation or weighted sum/average of
+    polarisations."""
+
+    def __init__(self, v, w=None):
+        """Create a new instance of the `Polarisation` class.
+
+        Parameters
+        ----------
+        v : array_like
+            D-dimensional polarisation vector (shape: `(D,)`) or vectors
+            (shape: `(D, 3)`).
+        w : array_like or None, optional
+            Weights for summing/averaging multiple `v` (shape: `(N,)`).
+
+        See Also
+        --------
+        Polarisation.from_direction :
+            Define a polarisation from a direction.
+        Polarisation.from_angles :
+            Define (a) polarisation(s) as (a) rotation(s) about an axis.
+        Polarsation.from_rotation :
+            Define polarisations for an angle rotation about an axis.
+        Polarisation.integration :
+            Define an integration over polarisations.
+        Polarisation.cross_to :
+            Define polarisation(s) cross to (an)other(s).
+        Polarisation.sum_parallel_cross_to :
+            Define (a) sum(s) of polarisation(s) parallel and cross to
+            (an)other.
+
+        Notes
+        -----
+        For most use cases, it is likely more convenient to create
+        `Polarisation` objects using the static methods on this class
+        than to instantiate them directly (see above).
+        """
+
+        super(Polarisation, self).__init__(v, w=w)
+
+        if self._v.shape[1] != 3:
+            raise ValueError(
+                "Polarisation objects must be initialised with 3D vectors."
+            )
+
+    def check_perpendicular(self, axis):
+        """Check polarisation vectors are perpendicular to an axis.
+
+        Parameters
+        ----------
+        axis : array_like or str
+            Axis to check.
+
+        Returns
+        -------
+        perp : bool
+            `True` if all polarisation vectors are perpendicular to
+            axis, otherwise `False`.
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `axis`.
+        """
+
+        axis = parse_direction(axis)
+
+        for v in self._v:
+            # cos(\theta) = 0 for perpendicular vectors
+
+            if np.abs(np.dot(axis, v)) > ZERO_TOLERANCE:
+                return False
+
+        return True
+
+    @staticmethod
+    def conventional_horizontal(i_dir="z"):
+        r"""Conventional "horizontal" polarisation.
+
+        Parameters
+        ----------
+        i_dir : array_like or str
+            Incident light direction.
+
+        Returns
+        -------
+        p : Polarisation
+            `Polarisation` object equivalent to "+x" in a conventional
+            transmission or backscattering geometry.
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `i_dir`.
+
+        Notes
+        -----
+        Horizontal polarisation is defined as :math:`\hat{x}` rotated
+        to be perpendicular to `i_dir`.
+        """
+
+        # Rotation matrix that rotates z onto i_dir.
+
+        r = rotation_matrix_from_vectors("z", i_dir)
+
+        return Polarisation.from_direction(np.matmul(r, parse_direction("x")))
+
+    @staticmethod
+    def unpolarised_incident(i_dir="z"):
+        r"""Unpolarised incident light.
+
+        Parameters
+        ----------
+        i_dir : array_like or str
+            Incident light direction.
+
+        Returns
+        -------
+        p : Polarisation
+            `Polarisation` equivalent to :math:`(x + y) / 2` in a
+            conventional transmission or backscattering geometry.
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `i_dir`.
+
+        Notes
+        -----
+        Unpolarised incident light is defined as:
+
+        .. math::
+
+            \frac{1}{2} \hat{x}^\prime + \frac{1}{2} \hat{y}^\prime
+
+        where :math:`\hat{x}^\prime` and :math:`\hat{y}^\prime` are the
+        Cartesian vectors :math:`\hat{x}` and :math:`\hat{y}` rotated
+        to be perpendicular to `i_dir`.
+        """
+
+        r = rotation_matrix_from_vectors("z", i_dir)
+
+        x_p = np.matmul(r, parse_direction("x"))
+        y_p = np.matmul(r, parse_direction("y"))
+
+        return Polarisation([x_p, y_p], [0.5, 0.5])
+
+    @staticmethod
+    def unpolarised_collected(c_dir="z"):
+        r"""Unpolarised transmitted light.
+
+        Parameters
+        ----------
+        c_dir : array_like or str
+            Collected light direction.
+
+        Returns
+        -------
+        p : Polarisation
+            `Polarisation` equivalent to :math:`x + y` in a conventional
+            transmission geometry.
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `c_dir`.
+
+        Notes
+        -----
+        Unpolarised collected light is defined as:
+
+        .. math::
+
+            \hat{x}^\prime + \hat{y}^\prime
+
+        where :math:`\hat{x}^\prime` and :math:`\hat{y}^\prime` are the
+        Cartesian vectors :math:`\hat{x}` and :math:`\hat{y}` rotated
+        to be perpendicular to `c_dir`.
+        """
+
+        r = rotation_matrix_from_vectors("z", c_dir)
+
+        x_p = np.matmul(r, parse_direction("x"))
+        y_p = np.matmul(r, parse_direction("y"))
+
+        return Polarisation([x_p, y_p], [1.0, 1.0])
+
     @staticmethod
     def from_direction(dirn):
-        """Define a polarisation from a direction.
+        """Polarisation from a direction.
 
         Parameters
         ----------
@@ -317,7 +546,7 @@ class Polarisation:
         Returns
         -------
         p : Polarisation
-            A `Polarisation` object for direction `dirn`.
+            `Polarisation` for `dirn`.
 
         See Also
         --------
@@ -328,7 +557,8 @@ class Polarisation:
 
     @staticmethod
     def from_angles(axis, angles):
-        """Define (a) polarisation(s) as (a) rotation(s) about an axis.
+        """Polarisation or set of polarisations by rotating about an
+        axis.
 
         Parameters
         ----------
@@ -377,7 +607,7 @@ class Polarisation:
 
     @staticmethod
     def from_rotation(axis, start=0.0, end=360.0, step=2.5):
-        """Define polarisations for an angle rotation about an axis.
+        """Polarisations from a rotation about an axis.
 
         Parameters
         ----------
@@ -390,7 +620,7 @@ class Polarisation:
         Returns
         -------
         pols : numpy.ndarray
-            `Polarisation` objects for each step in the angle rotation.
+            `Polarisation` objects for each angle in the rotation.
 
         See Also
         --------
@@ -408,46 +638,9 @@ class Polarisation:
         return Polarisation.from_angles(axis, angles)
 
     @staticmethod
-    def integration(axis, n=16):
-        """Define an integration over polarisations perpendicular to an
-        axis using a circle quadrature rule.
-
-        Parameters
-        ----------
-        axis : array_like or str
-            Axis to which polarisation vectors should be perpendicular.
-        n : int
-            Number of points for the circle quadrature rule.
-
-        Returns
-        -------
-        p : Polarisation
-            A `Polarisation` object for the integration.
-
-        See Also
-        --------
-        utility.geometry.parse_direction : Accepted inputs for `axis`.
-        """
-
-        axis = parse_direction(axis)
-
-        # Obtain a rotation matrix for rotating vectors in the (x, y)
-        # plane to be perpendicular to axis by determining the rotation
-        # matrix that rotates the axis to +z.
-
-        r = rotation_matrix_from_vectors(axis, parse_direction("z"))
-
-        # Get vectors and weights for circle rule.
-
-        vecs, w = unit_circle_quad_rule(n, ret="vectors")
-
-        # Double transpose to convert vecs to/from column format.
-
-        return Polarisation(np.matmul(r, vecs.T).T, w)
-
-    @staticmethod
     def cross_to(pol, axis, rot_dir=1.0):
-        """Define polarisation(s) cross to (an)other(s).
+        """Polarisation or set of polarisations perpendicular to another
+        about an axis (cross polarisation).
 
         Parameters
         ----------
@@ -489,8 +682,8 @@ class Polarisation:
 
     @staticmethod
     def sum_parallel_cross_to(pol, axis, rot_dir=1.0):
-        """Define (a) sum(s) of polarisation(s) parallel and cross to
-        (an)other.
+        """DPolarisation or set of polarisations that sum the parallel
+        and perpendicular polarisations about an axis.
 
         Parameters
         ----------
@@ -534,3 +727,110 @@ class Polarisation:
             p_sum[i] = Polarisation(vecs, w)
 
         return p_sum if n_dim_add == 0 else p_sum[0]
+
+
+# --------------------
+# SPPolarisation class
+# --------------------
+
+
+class SPPolarisation(PolarisationBase):
+    """Represent a polarisation or weighted sum/average of polarisations
+    defined relative to a plane of incidence."""
+
+    def __init__(self, v, w=None):
+        """Create a new instance of the `SPPolarisation` class.
+
+        Parameters
+        ----------
+        v : array_like
+            2D vector (shape: `(2,)`) or vectors (shape: `(N, 2)`)
+            defining the `[p, s]` components of the polarisation(s).
+        w : array_like or None, optional
+            Weights for summing/averaging multiple `v` (shape: `(N,)`).
+        """
+
+        v = np_expand_dims(np.asarray(v), shape=(None, 2))
+
+        super(SPPolarisation, self).__init__(v, w=w)
+
+        if self._v.shape[1] != 2:
+            raise ValueError(
+                "SPPolarisation objects must be initialised with 3D "
+                "vectors."
+            )
+
+    def to_polarisation(self, q, n="+z"):
+        r"""Convert the s/p polarisation to a standard (3D) polarisation
+        for a given wavevector `q` and surface normal `n`.
+
+        Parameters
+        ----------
+        q : array_like or str
+            Incident wavevector.
+        n : array_like or str, optional
+            Normal vector (default: "+z").
+
+        See Also
+        --------
+        utility.geometry.parse_direction : Accepted inputs for `q` and
+        `n`.
+
+        Notes
+        -----
+        If `q` and `n` are collinear, the conventional s and p
+        directions s = y and p = x are assumed. Otherwise, the s and p
+        directions are given by:
+
+        .. math::
+
+            \hat{\boldsymbol{s}} = \hat{\boldsymbol{n}} \times \hat{\boldsymbol{q}}
+
+        .. math::
+
+            \hat{\boldsymbol{p}} = \hat{\boldsymbol{s}} \times \hat{\boldsymbol{q}}
+        """
+
+        q = parse_direction(q)
+        n = parse_direction(n)
+
+        s_dirn, p_dirn = None, None
+
+        if np.abs(np.dot(q, n)) < ZERO_TOLERANCE:
+            # q and n are collinear -> use default convention.
+
+            s_dirn = parse_direction("y")
+            p_dirn = parse_direction("x")
+        else:
+            s_dirn = np.cross(n, q)
+            p_dirn = np.cross(s_dirn, q)
+
+        v_3d = [v[0] * s_dirn + v[1] * p_dirn for v in self._v]
+
+        return Polarisation(v_3d, w=self._w)
+
+    @staticmethod
+    def unpolarised_incident():
+        """s/p polarisation representing unpolarised incident light
+        `(s + p) / 2`.
+
+        Returns
+        -------
+        pol : SPPolarisation
+            Polarisation.
+        """
+
+        return SPPolarisation([[1.0, 0.0], [0.0, 1.0]], w=[0.5, 0.5])
+
+    @staticmethod
+    def unpolarised_collected(self):
+        """s/p polarisation representing unpolarised collected light
+        `s + p`.
+
+        Returns
+        -------
+        pol : SPPolarisation
+            Polarisation.
+        """
+
+        return SPPolarisation([[1.0, 0.0], [0.0, 1.0]], w=[1.0, 1.0])

@@ -154,3 +154,31 @@ def np_expand_dims(a, shape, expand_order=None):
         )
 
     return (a, n_dim_add)
+
+
+def np_discard_imag_if_real(a):
+    """Drop the imaginary part from a NumPy array with
+    `dtype=np.complex128` if all elements are real.
+
+    Parameters
+    ----------
+    a : numpy.ndarray
+        NumPy array.
+
+    Returns
+    -------
+    a : numpy.ndarray
+        `a.real` if all elements of `a` are real, otherwise `a`.
+    """
+
+    if not isinstance(a, np.ndarray):
+        raise TypeError(
+            "a must be a numpy.ndarray (this is most likely a bug)."
+        )
+
+    if a.dtype != np.complex128:
+        raise ValueError(
+            "a must have dtype np.complex128 (this is most likely a bug)."
+        )
+
+    return a if np.iscomplex(a).any() else a.real

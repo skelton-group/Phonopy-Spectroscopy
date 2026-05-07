@@ -31,7 +31,7 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     structure_from_poscar,
 )
 
-from phonopy_spectroscopy.phonon import PolarGammaPhonons
+from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
 
 from phonopy_spectroscopy.raman.calculation import RamanCalculation
 

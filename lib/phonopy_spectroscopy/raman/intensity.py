@@ -128,6 +128,57 @@ def _validate_and_convert_march_dollase_params(po_eta, po_norm, po_axis):
     return (po_r, po_norm, po_axis)
 
 
+def _match_dtypes(t, v_i, v_s, po_norm=None, po_axis=None):
+    """Match the data types of a Raman tensor and a pair of incident/
+    scattered polarisation vectors.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        Raman tensor (shape: `(3, 3)`).
+    v_i, v_s : numpy.ndarray
+        Polarisation vectors (shape: `(3,)`).
+    po_norm, po_axis : numpy.ndarray or None, optional
+        Surface normal and reference axis for preferred orientation
+        (shape: `(3,)`).
+
+    Returns
+    -------
+    res : tuple of numpy.ndarray
+        `(t, v_i, v_s)` or `(t, v_i, v_s, po_norm, po_axis)` with the
+        `numpy.float64` data type if all arguments are real, or the
+        `numpy.complex128` type otherwise.
+
+    Notes
+    -----
+    This function is required to work around a limitation of the Numba.
+    """
+
+    if po_norm is not None and po_axis is None:
+        raise ValueError(
+            "Only one of po_norm/po_axis are set (this is most likely "
+            "a bug)."
+        )
+
+    dtype = np.float64
+
+    if (
+        np.iscomplex(t).any()
+        or np.iscomplex(v_i).any()
+        or np.iscomplex(v_s).any()
+    ):
+        dtype = np.complex128
+
+    res = (t.astype(dtype), v_i.astype(dtype), v_s.astype(dtype))
+
+    if po_norm is not None:
+        # If supplied, po_norm and po_axis should always be real.
+
+        res = res + (po_norm.astype(dtype), po_axis.astype(dtype))
+
+    return res
+
+
 # --------------------
 # Single-crystal Raman
 # --------------------
@@ -298,9 +349,9 @@ def _setup_int_func_powder_quad(t, v_i, v_s):
 
     Parameters
     ----------
-    t : array_like
+    t : numpy.ndarray
         Raman tensor (shape: `(3, 3)`).
-    v_i, v_s : array_like
+    v_i, v_s : numpy.ndarray
         Incident and scattered light polarisation vectors.
 
     Returns
@@ -314,9 +365,17 @@ def _setup_int_func_powder_quad(t, v_i, v_s):
     wrapped in a `scipy.LowLevelCallable`.
     """
 
+    if _NUMBA_AVAILABLE:
+        # Numba requires dot arguments to have the same dtype.
+
+        t, v_i, v_s = _match_dtypes(t, v_i, v_s)
+
     @njit(inline="always")
     def _int_func(phi, theta, psi):
-        r = direction_cosine(phi, theta, psi)
+        # Ensure r has the same dtype as t.
+
+        r = direction_cosine(phi, theta, psi).astype(t.dtype)
+
         p = np.vdot(v_s, np.dot(r, np.dot(t, np.dot(r.T, v_i))))
 
         return (np.abs(p).real ** 2) * (np.sin(theta) / _EIGHT_PI_SQUARED)
@@ -399,9 +458,14 @@ def _setup_int_func_powder_md_quad(t, v_i, v_s, po_r, po_norm, po_axis):
     wrapped in a `scipy.LowLevelCallable`.
     """
 
+    if _NUMBA_AVAILABLE:
+        t, v_i, v_s, po_norm, po_axis = _match_dtypes(
+            t, v_i, v_s, po_norm, po_axis
+        )
+
     @njit(inline="always")
     def _int_func(phi, theta, psi):
-        r = direction_cosine(phi, theta, psi)
+        r = direction_cosine(phi, theta, psi).astype(t.dtype)
         p = np.vdot(v_s, np.dot(r, np.dot(t, np.dot(r.T, v_i))))
         a = np.arccos(np.dot(np.dot(r, po_norm), po_axis))
 
@@ -507,7 +571,7 @@ def _powder_lebedev_int(phi, theta, psi, t, v_i, v_s):
         Scalar Raman intensity.
     """
 
-    r = direction_cosine(phi, theta, psi)
+    r = direction_cosine(phi, theta, psi).astype(t.dtype)
 
     return (
         np.abs(np.vdot(v_s, np.dot(r, np.dot(t, np.dot(r.T, v_i))))).real ** 2
@@ -544,6 +608,9 @@ def calculate_powder_intensities_leb_circ(r_t, geom, i_pol, s_pol, prec):
 
     for i, t in enumerate(r_t):
         for v_i, v_s, w in i_pol.combine_with_iter(s_pol):
+            if _NUMBA_AVAILABLE:
+                t, v_i, v_s = _match_dtypes(t, v_i, v_s)
+
             ints[i] += w * lebedev_circle_quad(
                 _powder_lebedev_int, prec, n=None, args=[t, v_i, v_s]
             )
@@ -579,7 +646,7 @@ def _powder_lebedev_odf_int(
         Scalar Raman intensity.
     """
 
-    r = direction_cosine(phi, theta, psi)
+    r = direction_cosine(phi, theta, psi).astype(t.dtype)
     po_alpha = np.arccos(np.dot(np.dot(r, po_norm), po_axis))
 
     return (
@@ -631,6 +698,11 @@ def calculate_powder_intensities_with_march_dollase_leb_circ(
 
     for i, t in enumerate(r_t):
         for v_i, v_s, w in i_pol.combine_with_iter(s_pol):
+            if _NUMBA_AVAILABLE:
+                t, v_i, v_s, po_norm, po_axis = _match_dtypes(
+                    t, v_i, v_s, po_norm, po_axis
+                )
+
             ints[i] += w * lebedev_circle_quad(
                 _powder_lebedev_odf_int,
                 prec,
@@ -716,7 +788,11 @@ def calculate_powder_raman_intensities(
 
     if method == "quad":
         if not _NUMBA_AVAILABLE:
-            warnings.warn("", RuntimeWarning)
+            warnings.warn(
+                'Numerical integration with method="quad" may be '
+                "significantly faster if Numba is installed.",
+                RuntimeWarning,
+            )
 
         if pref_orient:
             return calculate_powder_intensities_march_dollase_quad(

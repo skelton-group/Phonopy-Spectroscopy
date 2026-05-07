@@ -16,7 +16,7 @@
 
 import numpy as np
 
-from phonopy_spectroscopy.phonon import PolarGammaPhonons
+from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
 
 
 # ---------
@@ -129,6 +129,10 @@ def compare_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
             gamma_ph_cmp.irreps, gamma_ph_ref.irreps
         ):
             return False
+
+    if gamma_ph_cmp.temperature != gamma_ph_ref.temperature:
+        return False
+
     return True
 
 

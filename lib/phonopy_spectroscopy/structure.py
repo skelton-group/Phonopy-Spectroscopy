@@ -51,12 +51,12 @@ except ImportError:
 # ---------
 
 
-def lookup_atomic_mass(symbol):
+def lookup_atomic_mass(sym):
     """Lookup an atomic mass from an atomic symbol.
 
     Parameters
     ----------
-    symbol : str
+    sym : str
         Atomic symbol.
 
     Returns
@@ -75,29 +75,29 @@ def lookup_atomic_mass(symbol):
             "phonopy.atoms.atom_data attribute."
         )
 
-    symbol = str(symbol).title()
+    sym = str(sym).title()
 
-    for _, db_symbol, _, db_mass in atom_data:
-        if symbol == db_symbol and db_mass is not None:
+    for _, db_sym, _, db_mass in atom_data:
+        if sym == db_sym and db_mass is not None:
             return db_mass
 
     raise ValueError(
-        'Atomic mass for symbol="{0}" not available in '
-        "phonopy.atoms.atom_data.".format(symbol)
+        'Atomic mass for sym="{0}" not available in '
+        "phonopy.atoms.atom_data.".format(sym)
     )
 
 
-def lookup_atomic_number(symbol):
-    """Lookup an atomic number from a symbol.
+def lookup_atomic_number(sym):
+    """Lookup an atomic number from an atomic symbol.
 
     Parameters
     ----------
-    symbol : str
+    sym : str
         Atomic symbol.
 
     Returns
     -------
-    num : int
+    at_num : int
         Atomic number.
 
     Notes
@@ -111,13 +111,13 @@ def lookup_atomic_number(symbol):
             "phonopy.atoms.atom_data attribute."
         )
 
-    for db_at_num, db_symbol, _, _ in atom_data:
-        if symbol == db_symbol:
+    for db_at_num, db_sym, _, _ in atom_data:
+        if sym == db_sym:
             return db_at_num
 
     raise ValueError(
-        'Atomic number for symbol="{0}" not available in '
-        "phonopy.atoms.atom_data.".format(symbol)
+        'Atomic number for sym="{0}" not available in '
+        "phonopy.atoms.atom_data.".format(sym)
     )
 
 

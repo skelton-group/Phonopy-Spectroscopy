@@ -31,16 +31,21 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     _parse_dielectric_function,
 )
 
-from phonopy_spectroscopy.instrument import Polarisation
 from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
-from phonopy_spectroscopy.ir.spectrum_funcs import (
+from phonopy_spectroscopy.ir.base import (
+    optical_spectra_from_optical_properties,
     bruggeman_two_phase_mixture,
     bruggeman_three_phase_mixture,
     bruggeman_multiphase_mixture,
 )
 
-from phonopy_spectroscopy.phonon import PolarGammaPhonons
+from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
+from phonopy_spectroscopy.instrument import Polarisation
+from phonopy_spectroscopy.utility.geometry import (
+    parse_direction,
+    rotation_matrix_from_vectors,
+)
 
 
 # ---------
@@ -194,9 +199,9 @@ class TestInfraredSimulation(unittest.TestCase):
                 np.allclose(eps_e[:, i1, i2], eps_e_ref[:, i1, i2])
             )
 
-    def test_optical_spectra_1(self):
-        r"""Compare the effective dielectric functions \eps_eff for
-        optical spectra obtained with different methods to the "source"
+    def test_powder(self):
+        r"""Check consistency of the effective dielectric functions
+        \eps_eff obtained with different powder methods to the "source"
         bulk infrared dielectric function."""
 
         calc = self._calc
@@ -206,90 +211,83 @@ class TestInfraredSimulation(unittest.TestCase):
         eps_ir = calc.dielectric_function().epsilon
 
         # SnSe has orthorhombic symmetry, so eps_ir should be diagonal
-        # and both powder models should give the same eps_eff as
-        # averaging the trace.
+        # and the eps_eff for the EMA and the average of the optical
+        # eigenmode eigenvalues should both be equivalent to averaging
+        # the trace.
 
         eps_eff = np.trace(eps_ir, axis1=1, axis2=2) / 3.0
 
-        sp_ema = calc.powder_optical_spectrum_ema(t=1.0e-6)
-        self.assertTrue(np.allclose(sp_ema.epsilon, eps_eff))
-
-        sp_ave_oe = calc.powder_optical_spectrum_eigenmode_average(t=1.0e-6)
-        self.assertTrue(np.allclose(sp_ave_oe.epsilon, eps_eff))
-
-        # Polarised single-crystal measurements along the (001)
-        # should select the xx and yy diagonal components of eps_ir.
-
-        sp_sc_pol_x = calc.single_crystal_input_polarised_optical_spectrum(
-            (0, 0, 1), Polarisation.from_direction("x"), t=1.0e-6
-        )
-
-        sp_sc_pol_y = calc.single_crystal_input_polarised_optical_spectrum(
-            (0, 0, 1), Polarisation.from_direction("y"), t=1.0e-6
-        )
-
-        self.assertTrue(np.allclose(sp_sc_pol_x.epsilon, eps_ir[:, 0, 0]))
-        self.assertTrue(np.allclose(sp_sc_pol_y.epsilon, eps_ir[:, 1, 1]))
-
-        # An unpolarised spectrum along the (001) should give the
-        # average of the x- and y-polarised spectra
-
-        sp_sc_unpol = calc.single_crystal_unpolarised_optical_spectrum(
-            (0, 0, 1), t=1.0e-6
-        )
-
-        sp_sc_pol_ave = (sp_sc_pol_x.epsilon + sp_sc_pol_y.epsilon) / 2.0
-
-        self.assertTrue(np.allclose(sp_sc_unpol.epsilon, sp_sc_pol_ave))
-
-    def test_optical_spectra_2(self):
-        """Test the "synchronisation" of the sample thickness between
-        the `EigenmodeAverageOpticalSpectrum` and the underlying
-        `OpticalEigenmodeSpectrum`."""
-
-        sp_ema = self._calc.powder_optical_spectrum_ema(t=1.0e-6)
-
-        trans_int_1u = sp_ema.intrinsic_transmission
-        trans_norm_1u = sp_ema.normal_transmission
-        trans_incoh_1u = sp_ema.incoherent_transmission
-
-        sp_ema.sample_thickness = 1.0e-7
-
-        self.assertEqual(
-            sp_ema.sample_thickness,
-            sp_ema.optical_eigenmode_spectrum.sample_thickness,
-        )
-
-        self.assertFalse(
-            np.equal(sp_ema.intrinsic_transmission, trans_int_1u).all()
-        )
-
-        self.assertFalse(
-            np.equal(sp_ema.normal_transmission, trans_norm_1u).all()
-        )
-
-        self.assertFalse(
-            np.equal(sp_ema.incoherent_transmission, trans_incoh_1u).all()
-        )
-
-        sp_ema.optical_eigenmode_spectrum.sample_thickness = 1.0e-6
-
-        self.assertEqual(
-            sp_ema.sample_thickness,
-            sp_ema.optical_eigenmode_spectrum.sample_thickness,
-        )
+        sp_ema = calc.powder_optical_spectrum_ema()
 
         self.assertTrue(
-            np.equal(sp_ema.intrinsic_transmission, trans_int_1u).all()
+            np.allclose(sp_ema.optical_eigenmodes.eigenvalues[:, 0], eps_eff)
         )
 
-        self.assertTrue(
-            np.equal(sp_ema.normal_transmission, trans_norm_1u).all()
-        )
+        sp_oea = calc.powder_optical_spectrum_eigenmode_average()
 
-        self.assertTrue(
-            np.equal(sp_ema.incoherent_transmission, trans_incoh_1u).all()
-        )
+        eps_eff_oea = np.mean(sp_oea.optical_eigenmodes.eigenvalues, axis=1)
+
+        self.assertTrue(np.allclose(eps_eff_oea, eps_eff))
+
+    def test_single_crystal_eigenmode_projection(self):
+        """Check consistency of the optical spectra obtained with
+        the single-crystal eigenmode projection method."""
+
+        calc = self._calc
+
+        eps_ir = calc.dielectric_function().epsilon
+
+        # The three optical eigenmodes should be orthogonal, each should
+        # be aligned to one of teh Cartesian directions, and the
+        # eigenvalues should be equal to the diagonal components of the
+        # "source" dielectric function.
+
+        oes = calc.optical_eigenmodes()
+
+        vecs = oes.eigenvectors_row[0]
+
+        for idx, v in enumerate(vecs):
+            self.assertTrue(np.allclose(oes.eigenvectors[:, idx], v))
+
+        mapping = []
+
+        for v in vecs:
+            for idx, dirn in enumerate(["x", "y", "z"]):
+                if np.allclose(v, parse_direction(dirn)):
+                    mapping.append(idx)
+
+        self.assertTrue(len(mapping) == len(set(mapping)))
+
+        for i, idx in enumerate(mapping):
+            assert np.allclose(oes.eigenvalues[:, i], eps_ir[:, idx, idx])
+
+        # Eigenmode projections with suitable crystal faces and incident
+        # polarisations should yield the same optical spectra as
+        # calculated for the three diagonal components of \eps_ir.
+
+        for i, (hkl, i_pol) in enumerate(
+            [
+                ((0, 0, 1), Polarisation.from_direction("-x")),
+                ((0, 0, 1), Polarisation.from_direction("-y")),
+                ((1, 0, 0), Polarisation.from_direction("-x")),
+            ]
+        ):
+            idx = mapping.index(i)
+
+            a_int, r_s, r_t, t = optical_spectra_from_optical_properties(
+                oes.refractive_index[:, idx],
+                oes.absorption_coefficient[:, idx],
+                t=1.0e-3,
+            )
+
+            sp = calc.single_crystal_eigenmode_projection(
+                hkl, i_pol=i_pol, t=1.0e-3
+            )
+
+            self.assertTrue(np.allclose(sp.intrinsic_absorbance, a_int))
+            self.assertTrue(np.allclose(sp.single_reflectivity, r_s))
+            self.assertTrue(np.allclose(sp.total_reflectivity, r_t))
+            self.assertTrue(np.allclose(sp.transmission, t))
 
     def test_bruggeman_multiphase(self):
         """Test the implementation of the Bruggeman multiphase models."""
@@ -299,9 +297,9 @@ class TestInfraredSimulation(unittest.TestCase):
         eps_kbr = 4.9
         eps_air = 1.0
 
-        sp_ema = calc.powder_optical_spectrum_ema(t=1.0e-6)
+        sp_ema = calc.powder_optical_spectrum_ema()
 
-        eps_snse = sp_ema.epsilon
+        eps_snse = sp_ema.optical_eigenmodes.eigenvalues[:, 0]
 
         # Pure powder with 90% theoretical denisty.
 
@@ -342,20 +340,35 @@ class TestInfraredSimulation(unittest.TestCase):
         # Test the implementation via keywords to
         # powder_optical_spectrum_ema().
 
-        sp_ema_ld = calc.powder_optical_spectrum_ema(t=1.0e-6, p_den=0.9)
-        self.assertTrue(np.allclose(sp_ema_ld.epsilon, eps_eff_ld))
+        sp_ema_ld = calc.powder_optical_spectrum_ema(p_den=0.9)
+
+        self.assertTrue(
+            np.allclose(
+                sp_ema_ld.optical_eigenmodes.eigenvalues[:, 0], eps_eff_ld
+            )
+        )
 
         sp_ema_kbr = calc.powder_optical_spectrum_ema(
             p_vol_frac=0.05, p_binder_eps=eps_kbr
         )
 
-        self.assertTrue(np.allclose(sp_ema_kbr.epsilon, eps_eff_kbr))
+        self.assertTrue(
+            np.allclose(
+                sp_ema_kbr.optical_eigenmodes.eigenvalues[:, 0],
+                eps_eff_kbr,
+            )
+        )
 
         sp_ema_kbr_ld = calc.powder_optical_spectrum_ema(
             p_vol_frac=0.05, p_binder_eps=eps_kbr, p_den=0.9
         )
 
-        self.assertTrue(np.allclose(sp_ema_kbr_ld.epsilon, eps_eff_kbr_ld))
+        self.assertTrue(
+            np.allclose(
+                sp_ema_kbr_ld.optical_eigenmodes.eigenvalues[:, 0],
+                eps_eff_kbr_ld,
+            )
+        )
 
         # General multiphase solver.
 

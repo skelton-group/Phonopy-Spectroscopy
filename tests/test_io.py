@@ -32,7 +32,7 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     dielectric_from_vasprun_xml,
 )
 
-from phonopy_spectroscopy.phonon import GammaPhonons, PolarGammaPhonons
+from phonopy_spectroscopy.gamma_phonons import GammaPhonons, PolarGammaPhonons
 from phonopy_spectroscopy.structure import Structure
 
 from phonopy_spectroscopy.utility.io_helper import load_json, save_json

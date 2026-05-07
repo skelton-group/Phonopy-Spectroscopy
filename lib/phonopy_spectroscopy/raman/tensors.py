@@ -25,6 +25,7 @@ from ..utility.numpy_helper import (
     np_readonly_view,
     np_check_shape,
     np_expand_dims,
+    np_discard_imag_if_real,
 )
 
 
@@ -73,12 +74,6 @@ class RamanTensors:
         if (e < 0.0).any():
             raise ValueError("Photon energies cannot be negative.")
 
-        # Calculations assume the far from resonance approximation by
-        # default, so we must ensure that r_t includes tensors at E = 0.
-
-        if np.abs(e[0]) > ZERO_TOLERANCE:
-            raise ValueError("r_t must include Raman tensors at E = 0.")
-
         # For energy-dependent calculations, ensure the E are in
         # increasing order (needed for interpolation). This, plus the
         # condition above, also ensures that all E are positive.
@@ -90,8 +85,7 @@ class RamanTensors:
         # incur a performance penalty. If the Raman tensors are real,
         # drop the imaginary part and convert them to np.float64.
 
-        if not np.iscomplex(r_t).any():
-            r_t = np.array(r_t.real, dtype=np.float64)
+        r_t = np_discard_imag_if_real(r_t)
 
         self._e = e
         self._r_t = r_t

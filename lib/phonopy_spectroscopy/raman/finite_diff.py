@@ -22,7 +22,7 @@ from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
-from ..phonon import GammaPhonons, PolarGammaPhonons
+from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
 from ..units import nm_to_ev
 
 from ..utility.numpy_helper import (

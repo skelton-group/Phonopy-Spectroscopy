@@ -6,7 +6,7 @@
 # ---------
 
 
-"""Class for storing and working with phonon calculations."""
+"""Class for storing and working with Gamma-point phonon calculations."""
 
 
 # -------
@@ -124,7 +124,7 @@ class GammaPhonons:
     """Class for storing and working with a Gamma-point phonon
     calculation."""
 
-    def __init__(self, struct, freqs, evecs, lws=None, irreps=None):
+    def __init__(self, struct, freqs, evecs, lws=None, irreps=None, t=None):
         r"""Create a new instance of the `GammaPhonons` class.
 
         Parameters
@@ -141,6 +141,9 @@ class GammaPhonons:
         irreps : Irreps or None, optional
             `Irreps` object specifying the point group and assigning
             bands to irrep groups.
+        t : float or None, optional
+            Optional temperature at which the calculation was performed
+            (default: `None`).
         """
 
         n_a = struct.num_atoms
@@ -207,11 +210,16 @@ class GammaPhonons:
                     "phonon calculation."
                 )
 
+        if t is not None:
+            if t <= 0.0:
+                raise ValueError("If specified, t must be greater than zero.")
+
         self._struct = struct
         self._freqs = freqs
         self._evecs = evecs
         self._lws = lws
         self._irreps = irreps
+        self._t = t
 
         self._edisps = None
         self._acc_mode_inds = None
@@ -291,6 +299,12 @@ class GammaPhonons:
         """Irreps or None : `Irreps` object with the point group and
         irrep symbols and indices of band groups."""
         return self._irreps
+
+    @property
+    def temperature(self):
+        """float or None : Temperature at which the calculation was
+        performed."""
+        return self._t
 
     @property
     def num_modes(self):
@@ -396,6 +410,7 @@ class GammaPhonons:
             "eigenvectors": evecs,
             "linewidths": lws,
             "irreps": irreps,
+            "temperature": self._t,
         }
 
     @staticmethod
@@ -440,6 +455,7 @@ class GammaPhonons:
             evecs,
             lws=d["linewidths"],
             irreps=irreps,
+            t=d["temperature"],
         )
 
 
@@ -462,6 +478,7 @@ class PolarGammaPhonons(GammaPhonons):
         born_charges,
         lws=None,
         irreps=None,
+        t=None,
     ):
         r"""Create a new instance of the `PolarGammaPhonons` class.
 
@@ -484,10 +501,13 @@ class PolarGammaPhonons(GammaPhonons):
         irreps : Irreps or None, optional
             `Irreps` object specifying the point group and assigning
             bands to irrep groups.
+        t : float or None, optional
+            Optional temperature at which the calculation was performed
+            (default: `None`).
         """
 
         super(PolarGammaPhonons, self).__init__(
-            struct, freqs, evecs, lws=lws, irreps=irreps
+            struct, freqs, evecs, lws=lws, irreps=irreps, t=t
         )
 
         eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
@@ -625,13 +645,14 @@ class PolarGammaPhonons(GammaPhonons):
     @property
     def epsilon_inf(self):
         r"""numpy.ndarray : High-frequency dielectric constant \eps_inf
-        (shape: `(3, 3)`)."""
+        in units of relative permittivity (shape: `(3, 3)`)."""
         return np_readonly_view(self._eps_inf)
 
     @property
     def epsilon_ionic(self):
         r"""numpy.ndarray : Ionic contribution to dielectric constant
-        \eps_ionic (shape: `(3, 3)`)."""
+        \eps_ionic in units of relative permittivity (shape: `(3, 3)`).
+        """
 
         self._lazy_calc_epsilon_ionic()
         return np_readonly_view(self._eps_ionic)
@@ -639,14 +660,15 @@ class PolarGammaPhonons(GammaPhonons):
     @property
     def epsilon_static(self):
         r"""numpy.ndarray : Static dielectric constant
-        \eps_static = \eps_inf + \eps_ionic (shape: `(3, 3)`)."""
+        \eps_static = \eps_inf + \eps_ionic in units of relative
+        permittivity (shape: `(3, 3)`)."""
 
         self._lazy_calc_epsilon_ionic()
         return self._eps_inf + self._eps_ionic
 
     @property
     def born_effective_charges(self):
-        """numpy.ndarray : Born effective-charge tensors (shape:
+        """numpy.ndarray : Born effective-charge tensors in e (shape:
         `(N, 3, 3)`)."""
         return np_readonly_view(self._born_charges)
 
@@ -914,6 +936,7 @@ class PolarGammaPhonons(GammaPhonons):
             "born_charges": self._born_charges.tolist(),
             "linewidths": lws,
             "irreps": irreps,
+            "temperature": self._t,
         }
 
     @staticmethod
@@ -945,4 +968,5 @@ class PolarGammaPhonons(GammaPhonons):
             d["born_charges"],
             lws=d["linewidths"],
             irreps=irreps,
+            t=d["temperature"],
         )

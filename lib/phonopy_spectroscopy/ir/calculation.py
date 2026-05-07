@@ -20,15 +20,13 @@ import numpy as np
 
 from .dielectric_function import InfraredDielectricFunction
 
-from .spectrum_core import (
-    OpticalEigenmodeSpectrum,
-    EigenmodeAverageOpticalSpectrum,
-    InputPolarisedOpticalSpectrum,
+from .optical_eigenmodes import (
+    OpticalEigenmodes,
 )
 
 from ..constants import ZERO_TOLERANCE
 
-from ..phonon import (
+from ..gamma_phonons import (
     mode_effective_charges,
     mode_oscillator_strengths,
     PolarGammaPhonons,
@@ -79,7 +77,7 @@ class InfraredCalculation:
         rot=None,
         q_nac=None,
         active_only=True,
-        **kwargs
+        **kwargs,
     ):
         r"""Simulate the tensor infrared dielectric function.
 
@@ -127,7 +125,7 @@ class InfraredCalculation:
 
         if hkl is not None or rot is not None:
             r = rotation_matrix_from_vectors(
-                self._ph_calc.structure.real_space_normal(hkl, conv=True), "z"
+                self._ph_calc.structure.real_space_normal(hkl, conv=True), "-z"
             )
 
             rot = r if rot is None else np.matmul(rot, r)
@@ -223,16 +221,14 @@ class InfraredCalculation:
             **kwargs,
         )
 
-    def powder_optical_spectrum_ema(
-        self, t=1.0, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
+    def optical_eigenmodes(
+        self, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
     ):
-        """Simulate the optical spectrum of a powder using the
-        effective-medium approximation
+        """Compute and diagonalise the tensor dielectric function to
+        find the optical eigenmodes.
 
         Parameters
         ----------
-        t : float, optional
-            Sample thickness in mm (default: 1 mm).
         p_vol_frac : float, optional
             Volume fraction of material in a pellet (default: 1.0).
         p_binder_eps : float or tuple of numpy.ndarray, optional
@@ -241,113 +237,98 @@ class InfraredCalculation:
             "binder" material (default: 1.0 = vaccum ~ air).
         p_den : float, optional
             Density of the pellet (default: 1.0).
-        **kwargs : any
-            Optional arguments to `dielectric_function`.
 
         Returns
         -------
-        sp : EigenmodeAverageOpticalSpectrum
-            Simulated spectrum.
+        oe : OpticalEigenmodes
+            Optical eigenmodes.
 
         See Also
         --------
-        ir.spectrum.EigenmodeAverageOpticalSpectrum
+        dielectric_function :
+            Simulate the tensor infrared dielectric function.
+        ir.optical_eigenmodes.OpticalEigenmodes :
             Object returned by this function.
         """
 
-        eps_ir = self.dielectric_function(**kwargs)
-
-        eps_eff = None
-
-        # Average of the optical eigenmode eigenvalues.
-
-        oe_sp = OpticalEigenmodeSpectrum(
-            eps_ir.x,
-            eps_ir.epsilon,
-            x_units=eps_ir.x_units,
-            branch_tracking=False,
-        )
-
-        eps_eff = np.mean(oe_sp.mode_eigenvalues, axis=-1)
-
-        oe_sp = OpticalEigenmodeSpectrum(
-            eps_ir.x,
-            eps_eff,
-            x_units=eps_ir.x_units,
-            t=t,
-            p_vol_frac=p_vol_frac,
-            p_binder_eps=p_binder_eps,
-            p_den=p_den,
-        )
-
-        return EigenmodeAverageOpticalSpectrum(oe_sp)
-
-    def powder_optical_spectrum_eigenmode_average(
-        self, t=1.0, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
-    ):
-        """Simulate the optical spectrum of a powder by averaging the
-        properties of the optical eigenmodes.
-
-        Parameters
-        ----------
-        t : float, optional
-            Sample thickness in mm (default: 1 mm).
-        p_vol_frac : float, optional
-            Volume fraction of material in a pellet (default: 1.0).
-        p_binder_eps : float or tuple of numpy.ndarray, optional
-            Dielectric constant or tuple of `(x, eps_x)` specifying the
-            frequency-dependent dielectric function of the pellet
-            "binder" material (default: 1.0 = vaccum ~ air).
-        p_den : float, optional
-            Density of the pellet (default: 1.0).
-        **kwargs : any
-            Optional arguments to `dielectric_function`.
-
-        Returns
-        -------
-        sp : EigenmodeAverageOpticalSpectrum
-            Simulated spectrum.
-
-        See Also
-        --------
-        ir.spectrum.EigenmodeAverageOpticalSpectrum
-            Object returned by this function.
-        """
-
-        oe_sp = OpticalEigenmodeSpectrum.from_infrared_dielectric_function(
+        return OpticalEigenmodes.from_infrared_dielectric_function(
             self.dielectric_function(**kwargs),
-            t=t,
             branch_tracking=True,
             p_vol_frac=p_vol_frac,
             p_binder_eps=p_binder_eps,
             p_den=p_den,
         )
 
-        return EigenmodeAverageOpticalSpectrum(oe_sp)
-
-    def single_crystal_unpolarised_optical_spectrum(
-        self, hkl, t=1.0, rot=None, nac=False, **kwargs
+    def single_crystal_optical_eigenmodes(
+        self, hkl, rot=None, nac=False, **kwargs
     ):
-        """Simulate the optical spectrum of a single-crystal in a
-        collinear geometry along the z-axis with unpolarised incident
-        light.
+        """Compute and diagonalise the 2x2 block of the tensor
+        dielectric function accessible in a standard collinear
+        measurement geometry, with the incident/detected light along
+        +/- z, and find the optical eigenmodes.
+
+        Params
+        ------
+        hkl : array_like of int
+            Surface to orient antiparallel to the incident light
+            direction.
+        rot : array_like or None, optional
+            Optional rotation to reorient the crystal after the `hkl`
+            reorientation.
+        nac : bool, optional
+            Apply a non-analytical correction to the dynamical matrix
+            when constructing the infrared dielectric function (default:
+            `False`).
+        **kwargs : any
+            Optional arguments to `dielectric_function`.
+
+        Returns
+        -------
+        oe : OpticalEigenmodes
+            Optical eigenmodes.
+
+        See Also
+        --------
+        dielectric_function :
+            Simulate the tensor infrared dielectric function.
+        ir.optical_eigenmodes.OpticalEigenmodes :
+            Object returned by this function.
+        """
+
+        eps_ir = self.dielectric_function(
+            hkl=hkl,
+            rot=rot,
+            q_nac=(parse_direction("+z") if nac else None),
+            **kwargs,
+        )
+
+        return OpticalEigenmodes(
+            eps_ir.x,
+            eps_ir.epsilon[:, :2, :2],
+            x_units=eps_ir.x_units,
+            branch_tracking=True,
+        )
+
+    def powder_optical_spectrum_ema(
+        self,
+        t=1.0,
+        n_f=1.0,
+        n_b=1.0,
+        **kwargs,
+    ):
+        """Simulate the optical spectra of a powder by averaging the
+        polarisabilities of the eigenmodes of the infrared dielectric
+        function (effective-medium approximation).
 
         Parameters
         ----------
-        hkl : array_like of int
-            Miller index of the surface to orient antiparallel to the
-            incident direction.
         t : float, optional
             Sample thickness in mm (default: 1 mm).
-        rot : array_like or None, optional
-            Optional rotation to reorient the crystal after the `hkl`
-            rotation.
-        nac : bool, optional
-            If `True`, apply a non-analytical correction (LO/TO
-            splitting) to the phonon frequencies and eigenvectors
-            (default: `False`).
+        n_f, n_b : float, optional
+            Refractive indices of the front (indicent) and back (exit)
+            media (default: 1.0 = vacuum ~ air).
         **kwargs : any
-            Optional arguments to `dielectric_function`.
+            Optional arguments to `optical_eigenmodes`.
 
         Returns
         -------
@@ -356,75 +337,126 @@ class InfraredCalculation:
 
         See Also
         --------
-        ir.spectrum.EigenmodeAverageOpticalSpectrum
+        optical_eigenmodes :
+            Find the optical eigenmodes of the tensor dielectric
+            function.
+        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
             Object returned by this function.
         """
 
-        eps_ir = self.dielectric_function(
-            hkl=hkl, rot=rot, q_nac=("z" if nac else None), **kwargs
+        eps_ir = self.dielectric_function(**kwargs)
+
+        # Average of the optical eigenmode eigenvalues.
+
+        oe_sp = OpticalEigenmodes(
+            eps_ir.x,
+            eps_ir.epsilon,
+            x_units=eps_ir.x_units,
+            branch_tracking=False,
         )
 
-        oe_sp = OpticalEigenmodeSpectrum(
-            eps_ir.x, eps_ir.epsilon[:, :2, :2], x_units=eps_ir.x_units, t=t
+        oe_sp = OpticalEigenmodes(
+            oe_sp.x, np.mean(oe_sp.eigenvalues, axis=-1), **kwargs
         )
 
-        return EigenmodeAverageOpticalSpectrum(
-            oe_sp, eps_eels=eps_ir.epsilon[:, 2, 2]
+        return oe_sp.unpolarised_eigenmode_average_optical_spectrum(
+            t=t, n_f=n_f, n_b=n_b
         )
 
-    def single_crystal_input_polarised_optical_spectrum(
-        self, hkl, i_pol, t=1.0, rot=None, nac=False, **kwargs
+    def powder_optical_spectrum_eigenmode_average(
+        self,
+        t=1.0,
+        n_f=1.0,
+        n_b=1.0,
+        **kwargs,
     ):
-        """Simulate the optical spectrum of a single-crystal in a
-        collinear geometry along the z-axis with polarised incident
-        light.
+        """Simulate the optical spectra of a powder by averaging the
+        properties of the eigenmodes of the infrared dielectric
+        function.
+
+        Parameters
+        ----------
+        t : float, optional
+            Sample thickness in mm (default: 1 mm).
+        n_f, n_b : float, optional
+            Refractive indices of the front (indicent) and back (exit)
+            media (default: 1.0 = vacuum ~ air).
+        **kwargs : any
+            Optional arguments to `optical_eigenmodes`.
+
+        Returns
+        -------
+        sp : EigenmodeAverageOpticalSpectrum
+            Simulated spectrum.
+
+        See Also
+        --------
+        optical_eigenmodes :
+            Find the optical eigenmodes of the tensor dielectric
+            function.
+        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
+            Object returned by this function.
+        """
+
+        oe_sp = self.optical_eigenmodes(
+            **kwargs,
+        )
+
+        return oe_sp.unpolarised_eigenmode_average_optical_spectrum(
+            t=t, n_f=n_f, n_b=n_b
+        )
+
+    def single_crystal_eigenmode_projection(
+        self,
+        hkl,
+        i_pol=None,
+        d_pol=None,
+        t=1.0,
+        n_f=1.0,
+        n_b=1.0,
+        **kwargs,
+    ):
+        """Simulate the optical spectrum of a single crystal by
+        projecting an incident and detected polarisation onto the
+        optical eigenmodes of the 2x2 block of the infrared dielectric
+        function accessible in a standard collinear measurement
+        geometry, with the incident/detected light along +/- z.
 
         Parameters
         ----------
         hkl : array_like of int
-            Miller index of the surface to orient antiparallel to the
-            incident direction.
-        i_pol : Polarisation
-            Polarisation of incident light.
-        t : float, optional
-            Sample thickness in mm (default: 1 mm).
-        rot : array_like or None, optional
-            Optional rotation to reorient the crystal after the `hkl`
-            rotation.
-        nac : bool, optional
-            If `True`, apply a non-analytical correction (LO/TO
-            splitting) to the phonon frequencies and eigenvectors
-            (default: `False`).
+            Surface to orient antiparallel to the incident light
+            direction.
+        i_pol, d_pol : Polarisation or None, optional
+            Polarisations of incident and detected light (default:
+            `None` = unpolarised incident/detected light).
+        t : float, optonal
+            Thickness in mm (default: 1 mm).
+        n_f, n_b : float, optional
+            Refractive indices of the front (indicent) and back (exit)
+            media (default: 1.0 = vacuum ~ air).
         **kwargs : any
-            Optional arguments to `dielectric_function`.
+            Optional arguments to `single_crystal_optical_eigenmodes`.
 
         Returns
         -------
-        sp : InputPolarisedOpticalSpectrum
+        sp : EigenmodeAverageOpticalSpectrum
             Simulated spectrum.
-
-        Notes
-        -----
-        This routine assumes a collinear measurement geometry with the
-        incident and collected light along the z-axis. The polarisation
-        must therefore be defined in the x/y plane.
 
         See Also
         --------
-        ir.spectrum.InputPolarisedOpticalSpectrum
+        single_crystal_optical_eigenmodes :
+            Find the optical eigenmodes of the 2x2 block of the tensor
+            dielectric function accessible in a standard collinear
+            geometry.
+        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
             Object returned by this function.
         """
 
-        eps_ir = self.dielectric_function(
-            hkl=hkl, rot=rot, q_nac=("z" if nac else None), **kwargs
-        )
+        oe_sp = self.single_crystal_optical_eigenmodes(hkl, **kwargs)
 
-        oe_sp = OpticalEigenmodeSpectrum(
-            eps_ir.x, eps_ir.epsilon[:, :2, :2], x_units=eps_ir.x_units, t=t
-        )
-
-        return InputPolarisedOpticalSpectrum(
-            oe_sp, i_pol, eps_eels=eps_ir.epsilon[:, 2, 2]
+        return oe_sp.standard_polarised_eigenmode_average_optical_spectrum(
+            i_pol=i_pol, d_pol=d_pol, t=t, n_f=n_f, n_b=n_b
         )
 
     def to_dict(self):

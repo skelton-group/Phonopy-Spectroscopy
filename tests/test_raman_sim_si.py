@@ -152,9 +152,9 @@ class TestRamanSimulation(unittest.TestCase):
 
         sp = self._calc.single_crystal_crystal_rotation(
             (0, 0, 1),
-            self._geom,
-            pol,
-            pol,
+            geom=self._geom,
+            i_pol=pol,
+            s_pol=pol,
             phi_start=0.0,
             phi_end=360.0,
             phi_step=2.5,
@@ -201,12 +201,13 @@ class TestRamanSimulation(unittest.TestCase):
         i_pol = Polarisation.from_direction("x")
 
         sp = self._calc.powder_polarisation_rotation(
-            self._geom,
-            i_pol,
-            "rot",
+            geom=self._geom,
+            i_pol=i_pol,
+            s_pol="rot",
             chi_start=0.0,
             chi_end=360.0,
             chi_step=2.5,
+            e_rt=0.0,
         )
 
         s_pols = Polarisation.from_rotation(

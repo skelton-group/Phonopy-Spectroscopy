@@ -50,6 +50,22 @@ _RAMAN_INTENSITY_PREFACTOR = (
     * ((1.0e-10**4) / AMU_TO_KG)
 )
 
+"""float : Prefactor for converting Raman intensities to cross sections.
+"""
+
+
+_RAMAN_CROSS_SECTION_TEXT_LABEL = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
+
+"""str : Cross section unit label suitable for plain-text output."""
+
+
+_RAMAN_CROSS_SECTION_PLOT_LABEL = (
+    r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
+)
+
+"""str : Intensity unit label suitable for plotting (contains TeX
+strings)."""
+
 
 # ---------
 # Functions
@@ -151,9 +167,9 @@ def adjust_gamma_phonons_for_spectrum_type(
     raise ValueError('Unsupported spectrum_type="{0}".'.format(spectrum_type))
 
 
-def modulate_intensities(freqs, ints, w=None, t=None):
+def modulate_intensities(freqs, ints, w, t):
     """Modulate Raman band intensities for a measurement wavelength
-    and/or temperature.
+    and temperature.
 
     Parameters
     ----------
@@ -162,7 +178,7 @@ def modulate_intensities(freqs, ints, w=None, t=None):
     ints : array_like
         Intensities for `N` bands (shape: `(N,)` or `N` modes and `M`
         calculations (shape: `(N, M)`).
-    w, t : float, optional
+    w, t : float
         Measurement wavelength in nm and temperature in K.
 
     Returns
@@ -178,35 +194,33 @@ def modulate_intensities(freqs, ints, w=None, t=None):
 
     ints, n_dim_add = np_expand_dims(np.asarray(ints), (len(freqs), None))
 
-    if w is not None:
-        if w <= 0.0:
-            raise ValueError("If supplied, w must be non-zero and positive.")
+    if w <= 0.0:
+        raise ValueError("w must be > 0.")
 
-        f_i = nm_to_thz(w)
+    f_i = nm_to_thz(w)
 
-        scale = _RAMAN_INTENSITY_PREFACTOR * (
-            ((1.0e12 * (f_i - freqs)) ** 4) / (1.0e12 * np.abs(freqs))
-        )
+    scale = _RAMAN_INTENSITY_PREFACTOR * (
+        ((1.0e12 * (f_i - freqs)) ** 4) / (1.0e12 * np.abs(freqs))
+    )
 
-        ints *= scale[:, np.newaxis]
+    ints *= scale[:, np.newaxis]
 
-    if t is not None:
-        if t <= 0.0:
-            raise ValueError("If supplied, t must be non-zero and positive.")
+    if t <= 0.0:
+        raise ValueError("t must be > 0.")
 
-        occ_nums = phonon_occupation_number(np.abs(freqs), t)
+    occ_nums = phonon_occupation_number(np.abs(freqs), t)
 
-        mask = freqs >= 0.0
-        inv_mask = np.logical_not(mask)
+    mask = freqs >= 0.0
+    inv_mask = np.logical_not(mask)
 
-        # The weighting factors are different for Stokes and
-        # anti-Stokes branches.
+    # The weighting factors are different for Stokes and
+    # anti-Stokes branches.
 
-        if mask.any():
-            ints[mask, :] *= occ_nums[mask, np.newaxis] + 1.0
+    if mask.any():
+        ints[mask, :] *= occ_nums[mask, np.newaxis] + 1.0
 
-        if inv_mask.any():
-            ints[inv_mask, :] *= occ_nums[inv_mask, np.newaxis]
+    if inv_mask.any():
+        ints[inv_mask, :] *= occ_nums[inv_mask, np.newaxis]
 
     return ints if n_dim_add == 0 else ints.reshape((-1,))
 
@@ -225,13 +239,13 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         freqs,
         ints,
         lws,
+        w,
+        t,
         irreps=None,
-        w=None,
-        t=None,
         spectrum_type="stokes",
         **kwargs
     ):
-        r"""Create a new instance of the `RamanSpectrum` class.
+        """Create a new instance of the `RamanSpectrum` class.
 
         Parameters
         ----------
@@ -242,14 +256,10 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             spectra, or `(N, M)` for 2D spectra).
         lws : array_like
             Linewidths in THz (shape: `(N,)`).
+        w, t : float
+            Measurement wavelength in nm and temperature in K.
         irreps : Irreps or None, optional
             `Irreps` object assigning bands to irrep groups.
-        w : float or None, optional
-            Measurement wavelength in nm to calculate intensity
-            modulation envelope (default: None).
-        t : float or None, optional
-            Temperature in K to calculate phonon occupation numbers for
-            intensity modulation envelope (default: None)
         spectrum_type : {"stokes", "anti-stokes", "both"}
             Type of spectrum (default: "stokes").
         **kwargs : any
@@ -284,18 +294,22 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         if not np_check_shape(lws, (len(freqs),)):
             raise ValueError("lws must be an array_like with shape `(N,)`.")
 
+        if w < 0.0:
+            raise ValueError("w must be > 0.")
+
+        if t < 0.0:
+            raise ValueError("t must be > 0.")
+
         # If we have any imaginary modes with non-zero intensity, it
         # not cause issues in the calculations but it may give
-        # unphysical results in some cases.
+        # unphysical results.
 
         mask = np.logical_and(freqs < 0.0, np.abs(freqs) > ZERO_TOLERANCE)
 
         if (np.abs(ints[mask, :]) > ZERO_TOLERANCE).any():
             warnings.warn(
                 "Imaginary modes with non-zero intensity may lead to "
-                "unphysical results, particularly if applying "
-                "temperature modulation to the intensities and/or "
-                "simulating anti-Stokes spectra.",
+                "unphysical results.",
                 UserWarning,
             )
 
@@ -333,9 +347,9 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             spectrum_type=spectrum_type,
         )
 
-        # Apply intensity modulation.
+        # Convert band intensities to cross sections.
 
-        ints = modulate_intensities(freqs, ints, w, t)
+        cross_sects = modulate_intensities(freqs, ints, w, t)
 
         # Call the GammaPhononSpectrumBase constructor to handle
         # "x-axis"-related intialisation.
@@ -347,6 +361,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         # Store additional parameters.
 
         self._ints = ints
+        self._cross_sects = cross_sects
 
         self._w = w
         self._t = t
@@ -363,15 +378,17 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         if self._sp is None:
             x = self.x
 
-            _, num_sp = self._ints.shape
+            _, num_sp = self._cross_sects.shape
 
             sp = np.zeros((len(x), num_sp), dtype=np.float64)
 
-            for sp_idx in range(self._ints.shape[1]):
-                for f, i, lw in zip(
-                    self.raman_shifts, self._ints[:, sp_idx], self.linewidths
+            for sp_idx in range(self._cross_sects.shape[1]):
+                for f, s, lw in zip(
+                    self.raman_shifts,
+                    self._cross_sects[:, sp_idx],
+                    self.linewidths,
                 ):
-                    sp[:, sp_idx] += lorentzian(x, i, f, lw)
+                    sp[:, sp_idx] += lorentzian(x, s, f, lw)
 
             self._sp = sp
 
@@ -416,33 +433,6 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         """float or None : Measurement temperature."""
         return self._t
 
-    @property
-    def _intensity_unit_text_label(self):
-        """str : Intensity unit label suitable for plain-text output."""
-
-        # If a measurement wavelength was set, the intensities are
-        # converted to differential cross sections. If not, the
-        # intensities are "raw" values.
-
-        return (
-            "d(sigma)/d(omega) / (Ang^2 sr^-1)"
-            if self._w is not None
-            else "I^Raman / (Ang^4 amu^-1)"
-        )
-
-    @property
-    def _intensity_unit_plot_label(self):
-        """str : Intensity unit label suitable for plotting (may contain
-        TeX strings)."""
-
-        # (See comment on _intensity_unit_text_label.)
-
-        return (
-            r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
-            if self._w is not None
-            else r"$I^\mathrm{Raman}$ / ($\mathrm{AA}^4$ amu$^{-1}$)"
-        )
-
     def _get_data_frame_column_headers(self):
         """Return a set of column headers for the `pandas.DataFrame`
         objects created by `peak_table()` and `spectrum()`.
@@ -453,7 +443,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             Column headers.
         """
 
-        hdr_base = "cross_sect" if self._w is not None else "int"
+        hdr_base = "cross_sect"
 
         if self._ints.shape[1] == 1:
             return [hdr_base]
@@ -516,9 +506,9 @@ class RamanSpectrum1D(RamanSpectrumBase):
         freqs,
         ints,
         lws,
+        w,
+        t,
         irreps=None,
-        w=None,
-        t=None,
         spectrum_type="stokes",
         x_range=None,
         x_res=None,
@@ -535,14 +525,10 @@ class RamanSpectrum1D(RamanSpectrumBase):
             Band intensities in Ang^4 / sqrt(amu) (shape: `(N,)`).
         lws : array_like
             Linewidths in THz (shape: `(N,)`).
+        w, t : float
+            Measurement wavelength in nm and temperature in K.
         irreps : Irreps or None, optional
             `Irreps` object assigning bands to irrep groups.
-        w : float or None, optional
-            Measurement wavelength in nm to calculate intensity
-            modulation envelope (default: None).
-        t : float or None, optional
-            Temperature in K to calculate phonon occupation numbers for
-            intensity modulation envelope (default: None)
         spectrum_type : {"stokes", "anti-stokes", "both"}
             Type of spectrum (default: "stokes").
         x_range : tuple of float or None, optional
@@ -563,9 +549,9 @@ class RamanSpectrum1D(RamanSpectrumBase):
             freqs,
             ints,
             lws,
+            w,
+            t,
             irreps=irreps,
-            w=w,
-            t=t,
             spectrum_type=spectrum_type,
             x_range=x_range,
             x_res=x_res,
@@ -583,8 +569,15 @@ class RamanSpectrum1D(RamanSpectrumBase):
 
     @property
     def intensities(self):
-        """numpy.ndarray : Band intensities (shape: `(N,)`)."""
+        """numpy.ndarray : Band intensities in Ang^4 / amu (shape:
+        `(N,)`)."""
         return np_readonly_view(self._ints.reshape((-1,)))
+
+    @property
+    def cross_sections(self):
+        """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
+        `(N,)`)."""
+        return np_readonly_view(self._cross_sects.reahspe((-1,)))
 
     @property
     def y(self):
@@ -595,13 +588,13 @@ class RamanSpectrum1D(RamanSpectrumBase):
     @property
     def y_unit_text_label(self):
         """str : y-axis label suitable for plain-text output."""
-        return self._intensity_unit_text_label
+        return _RAMAN_CROSS_SECTION_TEXT_LABEL
 
     @property
     def y_unit_plot_label(self):
         """str: y-axis label suitable for plotting (may contain TeX
         strings)."""
-        return self._intensity_unit_plot_label
+        return _RAMAN_CROSS_SECTION_PLOT_LABEL
 
 
 # ---------------------
@@ -618,11 +611,11 @@ class RamanSpectrum2D(RamanSpectrumBase):
         freqs,
         ints,
         lws,
+        w,
+        t,
         d2_axis_vals,
         d2_unit_text_label,
         irreps=None,
-        w=None,
-        t=None,
         spectrum_type="stokes",
         x_range=None,
         x_res=None,
@@ -641,6 +634,8 @@ class RamanSpectrum2D(RamanSpectrumBase):
             Band intensities in Ang^4 / sqrt(amu) (shape: `(N,)`).
         lws : array_like
             Linewidths in THz (shape: `(N,)`).
+        w, t : float
+            Measurement wavelength in nm and temperature in K.
         d2_axis_vals : array_like
             Values of secondary axis (shape: `(M,)`).
         d2_unit_text_label : str
@@ -679,9 +674,9 @@ class RamanSpectrum2D(RamanSpectrumBase):
             freqs,
             ints,
             lws,
+            w,
+            t,
             irreps=irreps,
-            w=w,
-            t=t,
             spectrum_type=spectrum_type,
             x_range=x_range,
             x_res=x_res,
@@ -732,12 +727,17 @@ class RamanSpectrum2D(RamanSpectrumBase):
         if self._d2_col_hdrs is not None:
             return self._d2_col_hdrs
 
-        return super()._get_data_frame_column_headers()
-
     @property
     def intensities(self):
-        """numpy.ndarray : Band intensities (shape: `(N, M)`)."""
+        """numpy.ndarray : Band intensities in Ang^4 / amu (shape:
+        `(N, M)`)."""
         return np_readonly_view(self._ints)
+
+    @property
+    def cross_sections(self):
+        """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
+        `(N, M)`)."""
+        return np_readonly_view(self._cross_sects)
 
     @property
     def y(self):
@@ -765,10 +765,10 @@ class RamanSpectrum2D(RamanSpectrumBase):
     @property
     def z_unit_text_label(self):
         """str : z-axis unit label suitable for plain-text output."""
-        return self._intensity_unit_text_label
+        return _RAMAN_CROSS_SECTION_TEXT_LABEL
 
     @property
     def z_unit_plot_label(self):
-        """str : z-axis unit label suitable for plotting (may contain
-        TeX strings)."""
-        return self._intensity_unit_plot_label
+        """str : z-axis unit label suitable for plotting (contains TeX
+        strings)."""
+        return _RAMAN_CROSS_SECTION_PLOT_LABEL

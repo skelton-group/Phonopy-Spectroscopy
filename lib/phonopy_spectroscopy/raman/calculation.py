@@ -30,7 +30,8 @@ from .spectrum import RamanSpectrum1D, RamanSpectrum2D
 from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
-from ..phonon import GammaPhonons, PolarGammaPhonons
+from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
+from ..instrument import Geometry
 from ..units import nm_to_ev
 
 from ..utility.geometry import (
@@ -160,26 +161,27 @@ class RamanCalculation:
         return np.array(list(range(len(self._band_inds))), dtype=int)
 
     def _get_calc_params(
-        self, geom, i_pols, s_pols, w, e_rt, lw, band_grp_inds
+        self, geom, i_pols, s_pols, w, t, e_rt, lw, band_grp_inds
     ):
         """Determine parameters for Raman calculations.
 
         Parameters
         ----------
-        geom : Geometry
+        geom : Geometry or None
             Measurement geometry.
-        i_pols, s_pols : str, Polarisation or array_like
-            Incident and scattered light polarisation(s). `s_pol` may be
-            specified by one of {"parallel", "cross", "sum"}.
+        i_pols, s_pols : str, Polarisation, array_like or None
+            Incident and scattered light polarisation(s).
         lw : float or None
-            Uniform linewidth or scale factor for calculated linewidths,
-            depending on whether calculation has linewidths.
+            Uniform linewidth to be used if the underlying phonon
+            calculation does not have linewidths.
         w : float or None
-            Measurement wavelength (default: None).
+            Measurement wavelength (defaults to 785 nm if `None`).
+        t : float or None
+            Measurement temperature (defaults to 300 K if `None`;
+            overridden with the calculation temperature of the
+            underlying phonon calculation if set).
         e_rt : float or None
-            Photon energy for evaluating Raman tensors (default:
-            calculated from `w` if set, and if energy-dependent Raman
-            tensors are available, otherwise E = 0.)
+            Photon energy for evaluating Raman tensors.
         band_grp_inds : array_like or None
             Indices of band groups to include in the calculation.
 
@@ -208,40 +210,25 @@ class RamanCalculation:
 
         params["frequencies"] = self.frequencies[band_inds]
 
-        # Raman tensors.
-
-        if e_rt is None:
-            e_rt = 0.0
-
-            if w is not None:
-                if self._r_t.is_energy_dependent:
-                    e_rt = nm_to_ev(w)
-                else:
-                    warnings.warn(
-                        "A measurement wavelength was specified but the "
-                        "calculation is not using energy-dependent Raman "
-                        "tensors. Raman intensities will be calculated "
-                        "using the far from resonance approximation and "
-                        "the wavelength will only be used to apply "
-                        "intensity modulation.",
-                        RuntimeWarning,
-                    )
-
-        r_t = self._r_t.get_tensors_at_energy(e_rt)
-        params["raman_tensors"] = r_t[band_inds]
-
         # Linewidths.
 
-        if lw is None:
-            # Default value.
-
-            lw = 1.0 if self._ph_calc.has_linewidths else 0.5
-        else:
+        if lw is not None:
             if lw < ZERO_TOLERANCE:
-                raise ValueError("lw cannot be zero or negative.")
+                raise ValueError("lw must be > 0.")
+
+            if self._ph_calc.has_linewidths:
+                warnings.warn(
+                    "Specified uniform linewidth lw = {0:.3e} will be "
+                    "overridden by the calculated per-mode linewidths "
+                    "stored with the underlying phonon calculation."
+                    "".format(lw),
+                    UserWarning,
+                )
+        else:
+            lw = 0.5
 
         params["linewidths"] = (
-            lw * self.linewidths[band_inds]
+            self.linewidths[band_inds]
             if self.linewidths is not None
             else lw * np.ones((len(band_inds),), dtype=np.float64)
         )
@@ -254,7 +241,58 @@ class RamanCalculation:
             else None
         )
 
+        # Laser wavelength.
+
+        if w < 0.0:
+            raise ValueError("w must be > 0.")
+
+        params["laser_wavelength"] = w
+
+        # Temperature.
+
+        if t is not None:
+            if t <= 0.0:
+                raise ValueError("t must be > 0.")
+
+            if (
+                self._ph_calc.temperature is not None
+                and np.abs(t - self._ph_calc.temperature) > ZERO_TOLERANCE
+            ):
+                warnings.warn(
+                    "Speficied temperature t = {0:.2f} will be "
+                    "overriden by phonon_calculation.temperature = "
+                    "{1:.2f}.".format(t, self._ph_calc.temperature),
+                    UserWarning,
+                )
+        else:
+            t = 300.0
+
+        params["temperature"] = (
+            self._ph_calc.temperature
+            if self._ph_calc.temperature is not None
+            else t
+        )
+
+        # Raman tensors.
+
+        if e_rt is None:
+            e_rt = nm_to_ev(w) if self._r_t.is_energy_dependent else 0.0
+
+        r_t = self._r_t.get_tensors_at_energy(e_rt)
+        params["raman_tensors"] = r_t[band_inds]
+
         # Geometry and incident/scattered polarisations.
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
+
+        if i_pols is None:
+            i_pols = Polarisation.conventional_horizontal(
+                geom.incident_direction
+            )
+
+        if s_pols is None:
+            s_pols = "cross"
 
         i_pols, i_pols_n_dim_add = np_expand_dims(
             np.asarray(i_pols, dtype=object), (None,)
@@ -354,11 +392,11 @@ class RamanCalculation:
     def single_crystal(
         self,
         hkl,
-        geom,
-        i_pol,
-        s_pol,
+        geom=None,
+        i_pol=None,
+        s_pol=None,
         rot=None,
-        w=None,
+        w=785.0,
         t=None,
         lw=None,
         e_rt=None,
@@ -372,26 +410,34 @@ class RamanCalculation:
         hkl : array_like of int
             Miller index of the crystal surface to orient antiparallel
             to the incident direction.
-        geom : Geometry
-            Measurement geometry.
-        i_pol, s_pol : str, Polarisation or list of Polarisation
+        geom : Geometry or None, optional
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : str, Polarisation, array_like or None, optional
             Polarisations of the incident and scattered light. The
-            scattered polarisation may also be specified by one of
-            {"parallel", "cross", "sum"}.
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
+            to the equivalent of horizontal polarisation in a
+            conventional backscattering geometry, and `s_pol` defaults
+            to `"sum"`.
         rot : array_like or None, optional
             Rotation matrix or set of matrices to realign the crystal
             after the `hkl` rotation.
-        w, t : float or None, optional
-            Measurement wavelength and temperature.
+        w : float or None, optional
+            Measurement wavelength (default: 785 nm).
+        t : float or None, optional
+            Measurement temperature (default: 300 K, overridden by the
+            temperature of the underlying phonon calculation if
+            available).
         e_rt : float or None, optional
             Photon energy for evaluating the Raman tensors in energy-
             dependent Raman calculations (default: calculated from `w`
             if set and if energy-dependent Raman tensors are available,
             otherwise E = 0.)
         lw : float or None, optional
-            Uniform linewidth or scale factor for calculated linewidths
-            (defaults: 0.5 THz uniform linewidth or scale factor of
-            1.0, depending on whether the calculation has linewidths).
+            Uniform linewidth (default: 0.5 THz, overridden by per-mode
+            linewidths from the underlying phonon calculation if
+            available).
         band_grp_inds : array_like or None, optional
             Indices of "band groups" to include in the calculation
             (default: all groups). Groups are defined by irreps if
@@ -408,9 +454,9 @@ class RamanCalculation:
 
         See Also
         --------
-        num_band_groups
+        num_band_groups :
             Number of band groups in the calculation.
-        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D
+        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D :
             Objects returned by this function.
 
         Notes
@@ -437,7 +483,7 @@ class RamanCalculation:
         """
 
         params = self._get_calc_params(
-            geom, i_pol, s_pol, w, e_rt, lw, band_grp_inds
+            geom, i_pol, s_pol, w, t, e_rt, lw, band_grp_inds
         )
 
         is_2d = params["is_2d_spectrum"]
@@ -524,11 +570,11 @@ class RamanCalculation:
                 params["frequencies"],
                 ints,
                 params["linewidths"],
+                params["laser_wavelength"],
+                params["temperature"],
                 kwargs.pop("d2_axis_vals"),
                 kwargs.pop("d2_unit_text_label"),
                 irreps=params["irreps"],
-                w=w,
-                t=t,
                 **kwargs
             )
         else:
@@ -536,18 +582,18 @@ class RamanCalculation:
                 params["frequencies"],
                 ints,
                 params["linewidths"],
+                params["laser_wavelength"],
+                params["temperature"],
                 irreps=params["irreps"],
-                w=w,
-                t=t,
                 **kwargs
             )
 
     def single_crystal_polarisation_rotation(
         self,
         hkl,
-        geom,
-        i_pol,
-        s_pol,
+        geom=None,
+        i_pol=None,
+        s_pol=None,
         chi_start=0.0,
         chi_end=360.0,
         chi_step=2.5,
@@ -563,13 +609,17 @@ class RamanCalculation:
         hkl : array_like of int
             Miller index of the crystal surface to orient antiparallel
             to the incident direction.
-        geom : Geometry
-            Measurement geometry.
-        i_pol, s_pol : str or Polarisation
+        geom : Geometry or None, optional
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : str, Polarisation or None, optional
             Polarisations of the incident and scattered light. The
-            polarisation to be rotated can be specified by "rot". The
-            scattered polarisation may also be specified by one of
-            {"parallel", "cross", "sum"}.
+            polarisation to be rotated can be specified by `"rot"`. The
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
+            to the equivalent of horizontal polarisation in a
+            conventional backscattering geometry, and `s_pol` defaults
+            to `"sum"`.
         chi_start, chi_end, chi_step : float, optional
             Start/end angle and angle step for polarisation rotation in
             degrees (defaults: 0 -> 360 deg in 2.5 deg steps).
@@ -598,6 +648,12 @@ class RamanCalculation:
                 "chi_end = {1:.2f} with chi_step = {2:.2f}."
                 "".format(chi_start, chi_end, chi_step)
             )
+
+        # Geometry needs to be defined to determine the polarisation
+        # rotation.
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
 
         i_pol_str = str(i_pol).lower()
         s_pol_str = str(s_pol).lower()
@@ -628,9 +684,9 @@ class RamanCalculation:
     def single_crystal_crystal_rotation(
         self,
         hkl,
-        geom,
-        i_pol,
-        s_pol,
+        geom=None,
+        i_pol=None,
+        s_pol=None,
         phi_start=0.0,
         phi_end=360.0,
         phi_step=2.5,
@@ -645,12 +701,16 @@ class RamanCalculation:
         hkl : array_like of int
             Miller index of the crystal surface to orient antiparallel
             to the incident direction.
-        geom : Geometry
-            Measurement geometry.
-        i_pol, s_pol : str or Polarisation
+        geom : Geometry or None, optional
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : str, Polarisation or None, optional
             Polarisations of the incident and scattered light. The
-            scattered polarisation may also be specified by one of
-            {"parallel", "cross", "sum"}.
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
+            to the equivalent of horizontal polarisation in a
+            conventional backscattering geometry, and `s_pol` defaults
+            to `"sum"`.
         phi_start, phi_end, phi_step : float, optional
             Start/end angle and angle step for crystal rotation in
             degrees (defaults: 0 -> 360 deg in 2.5 deg steps).
@@ -681,6 +741,9 @@ class RamanCalculation:
                 "rotation(s) with phi_start, phi_end and phi_step "
                 "instead."
             )
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
 
         rot_axis = str(rot_axis).lower()
 
@@ -720,12 +783,12 @@ class RamanCalculation:
 
     def powder(
         self,
-        geom,
-        i_pol,
-        s_pol,
+        geom=None,
+        i_pol=None,
+        s_pol=None,
         po_hkl=None,
         po_eta=0.0,
-        w=None,
+        w=785.0,
         t=None,
         e_rt=None,
         lw=None,
@@ -739,28 +802,36 @@ class RamanCalculation:
 
         Parameters
         ----------
-        geom : Geometry
-            Measurement geometry.
-        i_pol, s_pol : str, Polarisation or array_like of Polarisation
+        geom : Geometry or None, optional
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : str, Polarisation, array_like or None, optional
             Polarisations of the incident and scattered light. The
-            scattered polarisation may also be specified by one of
-            {"parallel", "cross", "sum"}.
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
+            to the equivalent of horizontal polarisation in a
+            conventional backscattering geometry, and `s_pol` defaults
+            to `"sum"`.
         po_hkl : array_like of int or None, optional
             Miller index of the preferred orientation (default: None).
         po_eta : float, optional
             Fraction of crystallites with the preferred orientation
             (default: 0.0)
-        w, t : float or None, optional
-            Measurement wavelength and temperature.
+        w : float or None, optional
+            Measurement wavelength (default: 785 nm).
+        t : float or None, optional
+            Measurement temperature (default: 300 K, overridden by the
+            temperature of the underlying phonon calculation if
+            available).
         e_rt : float or None, optional
             Photon energy for evaluating the Raman tensors in energy-
             dependent Raman calculations (default: calculated from `w`
             if set and if energy-dependent Raman tensors are available,
             otherwise E = 0.)
         lw : float or None, optional
-            Uniform linewidth or scale factor for calculated linewidths
-            (defaults: 0.5 THz uniform linewidth or scale factor of
-            1.0, depending on whether calculation has linewidths).
+            Uniform linewidth (default: 0.5 THz, overridden by per-mode
+            linewidths from the underlying phonon calculation if
+            available).
         band_grp_inds : array_like or None, optional
             Indices of "band groups" to include in the calculation
             (default: all groups). Groups are defined by irreps if
@@ -782,12 +853,12 @@ class RamanCalculation:
 
         See Also
         --------
-        num_band_groups
+        num_band_groups :
             Number of band groups in the calculation.
-        raman.intensity.calculate_powder_raman_intensities
+        raman.intensity.calculate_powder_raman_intensities :
             Lower-level API function used to calculate powder Raman
             intensities.
-        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D
+        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D :
             Objects returned by this function.
 
         Notes
@@ -807,7 +878,7 @@ class RamanCalculation:
         """
 
         params = self._get_calc_params(
-            geom, i_pol, s_pol, w, e_rt, lw, band_grp_inds
+            geom, i_pol, s_pol, w, t, e_rt, lw, band_grp_inds
         )
 
         if method.lower() == "best":
@@ -889,11 +960,11 @@ class RamanCalculation:
                 params["frequencies"],
                 ints,
                 params["linewidths"],
+                params["laser_wavelength"],
+                params["temperature"],
                 kwargs.pop("d2_axis_vals"),
                 kwargs.pop("d2_unit_text_label"),
                 irreps=params["irreps"],
-                w=w,
-                t=t,
                 **kwargs
             )
         else:
@@ -901,17 +972,17 @@ class RamanCalculation:
                 params["frequencies"],
                 ints,
                 params["linewidths"],
+                params["laser_wavelength"],
+                params["temperature"],
                 irreps=params["irreps"],
-                w=w,
-                t=t,
                 **kwargs
             )
 
     def powder_polarisation_rotation(
         self,
-        geom,
-        i_pol,
-        s_pol,
+        geom=None,
+        i_pol=None,
+        s_pol=None,
         chi_start=0.0,
         chi_end=360.0,
         chi_step=None,
@@ -923,13 +994,17 @@ class RamanCalculation:
 
         Parameters
         ----------
-        geom : Geometry
-            Measurement geometry.
-        i_pol, s_pol : str or Polarisation
+        geom : Geometry or None, optional
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : str, Polarisation or None, optional
             Polarisations of the incident and scattered light. The
             polarisation to be rotated can be specified by "rot". The
-            scattered polarisation may also be specified by one of
-            {"parallel", "cross", "sum"}.
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
+            to the equivalent of horizontal polarisation in a
+            conventional backscattering geometry, and `s_pol` defaults
+            to `"sum"`.
         chi_start, chi_end : float, optional
             Start/end angle for polarisation rotation in degrees
             (defaults: 0 -> 360 deg).
@@ -967,6 +1042,9 @@ class RamanCalculation:
                 "chi_end = {1:.2f} with chi_step = {2:.2f}."
                 "".format(chi_start, chi_end, chi_step)
             )
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
 
         i_pol_str = str(i_pol).lower()
         s_pol_str = str(s_pol).lower()

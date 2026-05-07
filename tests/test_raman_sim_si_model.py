@@ -214,7 +214,7 @@ class TestRamanSimulation(unittest.TestCase):
             self.assertTrue(np.allclose(ints, ints_ref))
 
     def test_powder_1(self):
-        """Test a powder chi rotation with the analytical formula and=
+        """Test a powder chi rotation with the analytical formula and
         numerical integration."""
 
         # Generate a list of Polarisation objects for a rotation around

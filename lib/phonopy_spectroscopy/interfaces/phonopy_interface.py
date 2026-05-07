@@ -37,7 +37,7 @@ except ImportError:
 
 from ..constants import ZERO_TOLERANCE
 from ..irreps import Irreps
-from ..phonon import GammaPhonons, PolarGammaPhonons
+from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
 from ..structure import Structure
 from ..utility.io_helper import load_yaml
 
@@ -223,6 +223,8 @@ def gamma_phonons_from_phono3py(
     if irreps_file is not None:
         irreps = irreps_from_irreps_yaml(irreps_file)
 
+    t = lws_t if lws is not None else None
+
     if born_file is not None:
         # Read BORN file and return a PolarGammaPhonons object.
 
@@ -231,12 +233,19 @@ def gamma_phonons_from_phono3py(
         )
 
         return PolarGammaPhonons(
-            struct, freqs, evecs, eps_inf, born_charges, lws=lws, irreps=irreps
+            struct,
+            freqs,
+            evecs,
+            eps_inf,
+            born_charges,
+            lws=lws,
+            irreps=irreps,
+            t=t,
         )
 
     # Return a GammaPhonons object.
 
-    return GammaPhonons(struct, freqs, evecs, lws=lws, irreps=irreps)
+    return GammaPhonons(struct, freqs, evecs, lws=lws, irreps=irreps, t=t)
 
 
 # ----------

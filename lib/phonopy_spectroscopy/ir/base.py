@@ -6,7 +6,7 @@
 # ---------
 
 
-"""Routines for simulating optical spectra."""
+"""Low-level functions and base classes for simulating optical spectra."""
 
 
 # -------
@@ -18,6 +18,7 @@ import abc
 import warnings
 
 import numpy as np
+import pandas as pd
 
 from ..constants import (
     ZERO_TOLERANCE,
@@ -25,24 +26,29 @@ from ..constants import (
     VACUUM_PERMITIVITY,
 )
 
+from ..spectrum_base import SpectrumBase
+
 from ..units import convert_frequency_units
 
 from ..utility.numpy_helper import (
     np_expand_dims,
     np_check_shape,
+    np_readonly_view,
+    np_discard_imag_if_real,
 )
 
 from ..utility.diagonalisation import reorder_with_branch_tracking
 
 
-# -------------------
-# Optical eigenvalues
-# -------------------
+# ------------------
+# Optical eigenmodes
+# ------------------
 
 
-def diagonalise_epsilon(eps, branch_tracking=True):
+def optical_eigenmodes_from_epsilon(eps, branch_tracking=True):
     """Diagonalise a frequency-dependent D-dimensional dielectric
-    function and return the eigenvalues and eigenvectors.
+    function and return the eigenvalues and eigenvectors (optical
+    eigenmodes) with optional branch tracking.
 
     Parameters
     ----------
@@ -96,15 +102,14 @@ def diagonalise_epsilon(eps, branch_tracking=True):
     # If the eigenvectors are real, strip out the complex part for
     # efficiency.
 
-    if not np.iscomplex(evecs).any():
-        evecs = np.array(evecs.real, dtype=np.float64)
+    evecs = np_discard_imag_if_real(evecs)
 
     return (evals, evecs)
 
 
-# -------------
-# Pellet models
-# -------------
+# -------------------
+# Multiphase mixtures
+# -------------------
 
 
 def _validate_setup_multiphase_mixture_calcs(eps, fracs):
@@ -512,10 +517,10 @@ def _validate_setup_optical_property_cals(opt_props, x=None, x_units="thz"):
     return (opt_props, x)
 
 
-def optical_spectra_from_epsilon(x, eps, x_units):
-    r"""Calculate the optical spectra for a frequency-dependent
+def optical_properties_from_epsilon(x, eps, x_units):
+    r"""Calculate the optical properties for a frequency-dependent
     dielectric function `eps`: complex refractive index, absorption
-    coefficient, reflectivity, optical conductivity and energy loss
+    coefficient, optical conductivity and electron energy loss
     function.
 
     Parameters
@@ -529,16 +534,15 @@ def optical_spectra_from_epsilon(x, eps, x_units):
     x_units : str
         Frequency unit.
 
-
     Returns
     -------
     res : tuple of numpy.ndarray
-        Tuple of `(n_t, a, r, s, l)` (all same shape as `eps`; `a` in
+        Tuple of `(n_t, a, s, l)` (all same shape as `eps`; `a` in
         cm^-1, `s` in S cm^-1).
 
     Notes
     -----
-    The optical spectra are calculated using the formulae below.
+    The optical properties are calculated using the formulae below.
 
     Complex refractive index:
 
@@ -551,12 +555,6 @@ def optical_spectra_from_epsilon(x, eps, x_units):
     .. math::
 
         \alpha(\omega) = \frac{2 \omega}{c} k(\omega)
-
-    Reflectivity at normal incidence:
-
-    .. math::
-
-        R(\omega) = \left| \frac{\tilde{n} - 1}{\tilde{n} + 1} \right|^2
 
     Optical conductivity:
 
@@ -583,10 +581,6 @@ def optical_spectra_from_epsilon(x, eps, x_units):
 
     a = 1.0e-2 * (2.0 * 1.0e12 * x * n_t.imag) / SPEED_OF_LIGHT
 
-    # Reflectivity at normal incidence.
-
-    r = np.abs((n_t - 1) / (n_t + 1)) ** 2
-
     # Optical conductivity:
 
     s = 1.0e-2 * -1.0j * 1.0e12 * x * VACUUM_PERMITIVITY * (eps - 1.0)
@@ -595,165 +589,236 @@ def optical_spectra_from_epsilon(x, eps, x_units):
 
     l = (-1.0 / eps).imag
 
-    return (n_t, a, r, s, l)
+    return (n_t, a, s, l)
 
 
-def complex_phase_factor(x, n_t, t, x_units="thz"):
-    r"""Calculate the complex phase factor from a complex refractive
-    index and sample thickness.
+def optical_spectra_from_optical_properties(n_t, a, t, n_f=1.0, n_b=1.0):
+    r"""Calculate the "standard" optical properties from a complex
+    refractive index, absorption coefficient, sample thickness and
+    refractive indices of the front/back (entrance/exit)
+    media: intrinsic (Beer-Lambert) absorbance, incoherent "single"
+    (infinite bulk) and total reflectivity at normal incidence, and
+    incoherent transmission.
 
-    Params
-    ------
-    x : array_like
-        Frequencies in `x_units` (shape: `(O,)`).
+    Parameters
+    ----------
     n_t : array_like
-        Complex refractive index (shape: `(O,)`).
-    t : float
-        Sample thickness in mm.
-    x_units : st, optional
-        Units of `x` (default: "thz").
-
-    Returns
-    -------
-    phi : array_like
-        Complex phase factor (shape: `(O,)`).
-
-    Notes
-    -----
-    The complex phase factor is calculated as:
-
-    .. math::
-
-        \phi(\omega) = \exp \left[ \frac{i \omega t}{c} \tilde{n}(\omega) \right]
-    """
-
-    (n_t,), x = _validate_setup_optical_property_cals(
-        [n_t], x=x, x_units=x_units
-    )
-
-    return np.exp(-1.0j * ((1.0e12 * x * t * 1.0e-3) / SPEED_OF_LIGHT) * n_t)
-
-
-def intrinsic_transmission_absorbance(a, t):
-    r"""Calculate the "intrinsic" (Beer-Lambert) transmission and
-    absorbance from an absorption coefficient and sample thickness.
-
-    Params
-    ------
+        Complex refractive index.
     a : array_like
-        Frequency-dependent absorption coefficient (shape: `(O,)` or
-        `(O, D)`).
+        Absorption coefficient (cm^-1).
     t : float
-        Sample thickness (same distance units as `a`).
+        Sample thickness (mm).
+    n_f, n_b : float, optional
+        Refractive indices of the front and back media (default: 1.0 =
+        vacuum ~ air).
 
     Returns
     -------
     res : tuple of numpy.ndarray
-        Tuple of `(trans_t, abs_t)` (shape: `(O,)`).
+        Tuple of `(a_int, r_s, r_t, t)` (all same shape as `a`/`n_t`).
 
     Notes
     -----
-    The intrinsic absorbance and transmission are calculated as follows:
+    The optical spectra are calculated using the formulae below:
+
+    Intrinsic absorbance:
 
     .. math::
 
-         A(\omega) = \alpha(\omega) t
+        A_\mathrm{int} = \exp \left[- \alpha t \right]
+
+    Relectivity from the front and back surfaces at normal incidence:
 
     .. math::
 
-         T(\omega) = \exp \left[ - A(\omega) \right ]
+        R_\mathrm{f} = \left| \frac{n_f - \tilde{n}}{n_f + \tilde{n}} \right|^2
+
+    .. math::
+
+        R_\mathrm{b} = \left| \frac{\tilde{n} - n_b}{\tilde{n} + n_b} \right|^2
+
+    Incoherent "single" reflectivity:
+
+    .. math::
+
+        R_\mathrm{s} = R_\mathrm{f}
+
+    Incoherent total reflectivity:
+
+    .. math::
+
+        R_\mathrm{t} = R_\mathrm{f} + \frac{(1 - R_\mathrm{f})^2 R_\mathrm{b} A_\mathrm{int}^2}{1 - R_\mathrm{f} R_\mathrm{b} A_\mathrm{int}^2}
+
+    Incoherent total transmission:
+
+    .. math::
+
+        T = \frac{(1 - R_\mathrm{f}) (1 - R_\mathrm{b}) A_\mathrm{int}}{1 - R_\mathrm{f} R_\mathrm{b} A_\mathrm{int}^2}
     """
 
-    (a,), _ = _validate_setup_optical_property_cals([a])
+    (n_t, a), _ = _validate_setup_optical_property_cals([n_t, a])
 
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
+    # Reflectivity of the front and back surfaces at normal incidence.
 
-    abs_t = a * t
-    trans_t = np.exp(-1.0 * abs_t)
+    r_f = np.abs((n_f - n_t) / (n_f + n_t)) ** 2
+    r_b = np.abs((n_t - n_b) / (n_t + n_b)) ** 2
 
-    return (trans_t, abs_t)
+    # Incoherent reflectivity, transmission and absorptance.
 
+    a_int = np.exp(-1.0 * a * 1.0e-1 * t)
 
-def normal_transmission_absorbance(a, r, t):
-    r"""Calculate the "normal" (single reflection) transmission and
-    absorbance from an absorption coefficient, reflectivity and sample
-    thickness.
-
-    Params
-    ------
-    a, r : array_like
-        Frequency-dependent absorption coefficient and reflectivity
-        (shape: `(O,)` or `(O, D)`).
-    t : float
-        Sample thickness (same distance units as `a`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(abs_t, trans_t)` (shape: `(O,)`).
-
-    Notes
-    -----
-    The normal transmission and absorbance are calculated as follows:
-
-    .. math::
-
-         T(\omega) = \left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]
-
-    .. math::
-
-         A(\omega) = -  \log_{10} \left[T(\omega) \right]
-    """
-
-    (a, r), _ = _validate_setup_optical_property_cals([a, r])
-
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
-
-    trans_t = (1.0 - r) ** 2 * np.exp(-1.0 * a * t)
-
-    return (trans_t, -1.0 * np.log10(trans_t))
-
-
-def incoherent_transmission_absorbance(a, r, t):
-    r"""Calculate the "incoherent" (multiple reflection) transmission
-    and absorbance from an absorption coefficient, reflectivity and
-    sample thickness.
-
-    Params
-    ------
-    a, r : array_like
-        Frequency-dependent absorption coefficient and reflectivity
-        (shape: `(O,)` or `(O, D)`).
-    t : float
-        Sample thickness (same distance units as `a`).
-
-    Returns
-    -------
-    res : tuple of numpy.ndarray
-        Tuple of `(abs_t, trans_t)` (shape: `(O,)`).
-
-    Notes
-    -----
-    The transmission and absorbance are calculated as follows:
-
-    .. math::
-
-         T(\omega) = \frac{\left[ 1 - R(\omega) \right]^2 \exp \left[ -\alpha(\omega) t \right ]}{1 - R^2(\omega) \exp \left[ -2 \alpha(\omega) t \right]}
-
-    .. math::
-
-         A(\omega) = -  \log_{10} \left[T(\omega) \right]
-    """
-
-    (a, r), _ = _validate_setup_optical_property_cals([a, r])
-
-    if t <= 0.0:
-        raise ValueError("t must be >= 0.")
-
-    trans_t = ((1.0 - r) ** 2 * np.exp(-1.0 * a * t)) / (
-        1.0 - r**2 * np.exp(-2.0 * a * t)
+    r_incoh = r_f + (
+        ((1.0 - r_f) ** 2 * r_b * a_int**2) / (1.0 - r_f * r_b * a_int**2)
     )
 
-    return (trans_t, -1.0 * np.log10(trans_t))
+    t_incoh = ((1.0 - r_f) * (1.0 - r_b) * a_int) / (
+        1.0 - r_f * r_b * a_int**2
+    )
+
+    return (a_int, r_f, r_incoh, t_incoh)
+
+
+# -------------------------
+# OpticalSpectrumBase class
+# -------------------------
+
+
+# -------------------------
+# OpticalSpectrumBase class
+# -------------------------
+
+
+class OpticalSpectrumBase(SpectrumBase, abc.ABC):
+    """Abstract base class for optical spectra."""
+
+    def __init__(self, x, x_units="thz", t=1.0, n_f=1.0, n_b=1.0):
+        """Create a new instance of the `OpticalSpectrumBase` class.
+
+        Parameters
+        ----------
+        t : float, optonal
+            Thickness in mm (default: 1 mm).
+        n_f, n_b : float, optional
+            Refractive indices of the front (indicent) and back (exit)
+            media (default: 1.0 = vacuum ~ air).
+        """
+
+        super(OpticalSpectrumBase, self).__init__(x=x, x_units=x_units)
+
+        if t <= 0.0:
+            raise ValueError("t must be > 0.")
+
+        self._t = t
+        self._n_f = n_f
+        self._n_b = n_b
+
+        self._ref_s = None
+        self._ref_t = None
+        self._trans = None
+        self._aps = None
+        self._abs = None
+
+    @abc.abstractmethod
+    def _init_single_reflectivity(self):
+        """Set the `_r_s` field."""
+
+        raise NotImplementedError(
+            "_init_single_reflectivity() must be implemented in "
+            "derived classes."
+        )
+
+    @abc.abstractmethod
+    def _init_total_reflectivity_and_transmission(self):
+        """Set the `_ref_t` and `_trans` fields."""
+
+        raise NotImplementedError(
+            "_init_total_reflectivity_and_transmission() must be "
+            "implemented in derived classes."
+        )
+
+    def _lazy_init_single_reflectivity(self):
+        """Lazy initialisation of single reflectivity."""
+
+        if self._ref_s is not None:
+            self._init_single_reflectivity()
+
+    def _lazy_init_total_reflectivity_and_transmission(self):
+        """Lazy initialisation of total reflectivity, transission, and
+        associated quantities."""
+
+        if self._ref_t is not None:
+            self._init_total_reflectivity_and_transmission()
+
+            self._aps = 1.0 - (self._ref_t + self._trans)
+            self._abs = -1.0 * np.log10(self._trans)
+
+    @property
+    def sample_thickness(self):
+        """float : Sample thickness in mm."""
+        return self._t
+
+    @property
+    def front_medium_refractive_index(self):
+        """float : Refractive index of the incident (front) medium."""
+        return self._n_f
+
+    @property
+    def back_medium_refractive_index(self):
+        """float : Refractive index of the exit (back) medium."""
+        return self._n_b
+
+    @property
+    def single_reflectivity(self):
+        """numpy.ndarray : Single (infinite bulk) reflectivity (shape:
+        `(O,)`)."""
+
+        self._lazy_init_single_reflectivity()
+        return np_readonly_view(self._ref_s)
+
+    @property
+    def total_reflectivity(self):
+        """numpy.ndarray : Total reflectivity (shape: `(O,)`)."""
+
+        self._lazy_init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._ref_t)
+
+    @property
+    def transmission(self):
+        """numpy.ndarray : Transmission (shape: `(O,)`)."""
+
+        self._lazy_init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._trans)
+
+    @property
+    def absorptance(self):
+        """numpy.ndarray : Absorptance (shape: `(O,)`)."""
+
+        self._lazy_init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._aps)
+
+    @property
+    def absorbance(self):
+        """numpy.ndarray : Decadic absorbance (shape: `(O,)`)."""
+
+        self._lazy_init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._abs)
+
+    def spectrum(self):
+        """Return the optical spectra as a Pandas `DataFrame`.
+
+        Returns
+        -------
+        df : pandas.DataFrame
+            `DataFrame` containing the optical spectra.
+        """
+
+        d = {
+            "freq_energy": self._x,
+            "single_reflectivity": self.single_reflectivity,
+            "total_reflectivity": self.total_reflectivity,
+            "transmission": self.transmission,
+            "absorptance": self.absorptance,
+            "absorbance": self.absorbance,
+        }
+
+        return pd.DataFrame(d)
