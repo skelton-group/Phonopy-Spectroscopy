@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for input/output."""
-
 
 # -------
 # Imports
 # -------
-
 
 import json
 
@@ -26,7 +22,6 @@ try:
     from yaml import CLoader as Loader
 except ImportError:
     from yaml import Loader
-
 
 # ---------
 # Functions

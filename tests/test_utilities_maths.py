@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Tests for the the maths routines in phonopy_spectroscopy.utilities."""
-
 
 # -------
 # Imports
 # -------
-
 
 import itertools
 import unittest
@@ -36,7 +32,6 @@ from phonopy_spectroscopy.utility.quadrature import (
     unit_sphere_lebedev_quad_available_precs,
     unit_sphere_lebedev_quad_rule,
 )
-
 
 # ----------------
 # Helper functions
@@ -290,7 +285,6 @@ class TestQuadrature(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

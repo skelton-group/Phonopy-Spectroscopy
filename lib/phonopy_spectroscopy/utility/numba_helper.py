@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Helper routines for working with Numba."""
-
 
 # ------------------
 # "Dummy" attributes

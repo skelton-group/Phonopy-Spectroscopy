@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
-
 
 """Test routines for Raman simulations with a complete calculation on
 Si.
@@ -19,11 +17,9 @@ tensors from:
 and powder results obtained with these tensors.)
 """
 
-
 # -------
 # Imports
 # -------
-
 
 import os
 import unittest
@@ -40,7 +36,7 @@ from phonopy_spectroscopy.interfaces.phonopy_interface import (
     gamma_phonons_from_phono3py,
 )
 
-from phonopy_spectroscopy.raman.finite_diff import (
+from phonopy_spectroscopy.raman.calculators import (
     FiniteDisplacementRamanTensorCalculator,
 )
 
@@ -58,13 +54,13 @@ from phonopy_spectroscopy.utility.geometry import (
 
 from io_helper import generate_fd_raman_dielectric_input_file_list
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SI = r"../example/si"
+
+"""Path to Si example directory."""
 
 
 # ---------------------------
@@ -120,7 +116,7 @@ class TestRamanSimulation(unittest.TestCase):
         # Obtain a RamanCalculation object for performing test Raman
         # simulations.
 
-        self._calc = fd_calc.calculate_raman_tensors(eps_e, e)
+        self._calc = fd_calc.get_raman_calculation(eps_e, e)
 
         # Define an "empty" structure and set of model Raman tensors.
 
@@ -238,7 +234,6 @@ class TestRamanSimulation(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

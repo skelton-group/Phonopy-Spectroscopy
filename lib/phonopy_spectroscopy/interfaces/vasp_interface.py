@@ -9,7 +9,6 @@
 """Routines for interfacing with the Vienna Ab initio Simulation Package
 (VASP) code."""
 
-
 # -------
 # Imports
 # -------
@@ -21,7 +20,6 @@ import numpy as np
 
 from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
-
 
 # ------------
 # POSCAR Files
@@ -265,8 +263,9 @@ def _parse_dielectric_function(file_path, parent):
     -------
     eps : tuple of numpy.ndarray
         Tuple of `(e, eps_e)` containing a complex dielectric function
-        (shapes: `(N,)`, `(N, 3, 3)`).
+        (shapes: `(O,)`, `(O, 3, 3)`).
     """
+
     # We should have real and imaginary parts containing arrays of
     # values.
 
@@ -370,7 +369,7 @@ def dielectric_from_vasprun_xml(
     -------
     dielectrics : tuple of numpy.ndarray
         Extracted dielectric constant/function as a tuple of
-        `(e, eps)` with shapes `(N,)` and `(N, 3, 3)`. For a
+        `(e, eps)` with shapes `(O,)` and `(O, 3, 3)`. For a
         high-frequency dielectric constant calculation, the energy is
         assumed to be E = 0.
     """

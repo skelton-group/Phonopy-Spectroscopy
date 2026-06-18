@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
-
 
 """High-level `InfraredCalculation` object providing an API for
 generating simulated infrared (IR) dielectric functions and optical
 spectra."""
 
-
 # -------
 # Imports
 # -------
 
+import warnings
 
 import numpy as np
 
@@ -37,7 +35,6 @@ from ..utility.geometry import (
     rotation_matrix_from_vectors,
     rotate_tensors,
 )
-
 
 # -------------------------
 # InfraredCalculation class
@@ -84,9 +81,9 @@ class InfraredCalculation:
         Parameters
         ----------
         lw : float or None, optional
-            Uniform linewidth or scale factor for calculated linewidths
-            (defaults: 0.5 THz uniform linewidth or scale factor of
-            1.0, depending on whether calculation has linewidths).
+            Uniform linewidth (default: 0.5 THz, overridden by per-mode
+            linewidths from the underlying phonon calculation if
+            available).
         hkl : array_like of int or None, optional
             Reorient crystal so the normal of the surface with the
             specified Miller index is oriented antiparallel to the
@@ -99,8 +96,9 @@ class InfraredCalculation:
             correction (NAC) to the phonon frequencies and eigenvectors.
         active_only : bool, optional
             If `True`, and if the underlying Gamma-point phonon
-            calculation has irreps, calculate the POP frequency using
-            only the infrared-active modes (default: `True`).
+            calculation has irreps, calculate the dielectric function
+            using only the infrared-active optic modes (default:
+            `True`).
         **kwargs : any
             Keyword arguments to the `InfraredDielectricFunction`
             constructor.
@@ -118,7 +116,7 @@ class InfraredCalculation:
         Notes
         -----
         `q_nac` is specified in real-space coordinates. If `hkl` and/or
-        `rot` are set, `q_nac` is specified in the rotated frame.
+        `rot` are set, `q_nac` is specified for the rotated frame.
         """
 
         # Determine rotation matrix.
@@ -178,21 +176,17 @@ class InfraredCalculation:
 
         # Linewidths.
 
-        if lw is not None and lw < ZERO_TOLERANCE:
-            raise ValueError("lw cannot be zero or negative.")
-
-        lws = None
-
-        if ph_calc.has_linewidths:
-            lws = ph_calc.linewidths[band_inds]
-
-            if lw is not None:
-                lws = lw * lws
+        if lw is not None:
+            if lw < ZERO_TOLERANCE:
+                raise ValueError("lw cannot be > 0.")
         else:
-            if lw is None:
-                lw = 0.5
+            lw = 0.5
 
-            lws = lw * np.ones((len(band_inds),), dtype=np.float64)
+        lws = (
+            ph_calc.linewidths[band_inds]
+            if ph_calc.has_linewidths
+            else lw * np.ones((len(band_inds),), dtype=np.float64)
+        )
 
         # \eps_inf.
 
@@ -221,22 +215,21 @@ class InfraredCalculation:
             **kwargs,
         )
 
-    def optical_eigenmodes(
-        self, p_vol_frac=1.0, p_binder_eps=1.0, p_den=1.0, **kwargs
-    ):
+    def optical_eigenmodes(self, m_f=1.0, m_eps=1.0, m_rho=1.0, **kwargs):
         """Compute and diagonalise the tensor dielectric function to
         find the optical eigenmodes.
 
         Parameters
         ----------
-        p_vol_frac : float, optional
-            Volume fraction of material in a pellet (default: 1.0).
-        p_binder_eps : float or tuple of numpy.ndarray, optional
+        m_f : float, optional
+            Volume fraction of material in a multiphase mixture
+            (default: 1.0).
+        m_eps : float or tuple of numpy.ndarray, optional
             Dielectric constant or tuple of `(x, eps_x)` specifying the
-            frequency-dependent dielectric function of the pellet
-            "binder" material (default: 1.0 = vaccum ~ air).
-        p_den : float, optional
-            Density of the pellet (default: 1.0).
+            frequency-dependent dielectric function of a second phase
+            (default: 1.0 = vacuum ~ air).
+        m_rho : float, optional
+            Material density (default: 1.0).
 
         Returns
         -------
@@ -254,23 +247,31 @@ class InfraredCalculation:
         return OpticalEigenmodes.from_infrared_dielectric_function(
             self.dielectric_function(**kwargs),
             branch_tracking=True,
-            p_vol_frac=p_vol_frac,
-            p_binder_eps=p_binder_eps,
-            p_den=p_den,
+            m_f=m_f,
+            m_eps=m_eps,
+            m_rho=m_rho,
         )
 
     def single_crystal_optical_eigenmodes(
-        self, hkl, rot=None, nac=False, **kwargs
+        self,
+        hkl,
+        rot=None,
+        nac=False,
+        m_f=1.0,
+        m_eps=1.0,
+        m_rho=1.0,
+        **kwargs,
     ):
         """Compute and diagonalise the 2x2 block of the tensor
-        dielectric function accessible in a standard collinear
-        measurement geometry, with the incident/detected light along
-        +/- z, and find the optical eigenmodes.
+        dielectric function accessible for an oriented single crystal or
+        polycrystalline powder in a standard collinear measurement
+        geometry, with the incident/detected light along +/- z, and find
+        the optical eigenmodes.
 
         Params
         ------
         hkl : array_like of int
-            Surface to orient antiparallel to the incident light
+            Crystal surface to orient antiparallel to the incident light
             direction.
         rot : array_like or None, optional
             Optional rotation to reorient the crystal after the `hkl`
@@ -279,6 +280,15 @@ class InfraredCalculation:
             Apply a non-analytical correction to the dynamical matrix
             when constructing the infrared dielectric function (default:
             `False`).
+        m_f : float, optional
+            Volume fraction of material in a multiphase mixture
+            (default: 1.0).
+        m_eps : float or tuple of numpy.ndarray, optional
+            Dielectric constant or tuple of `(x, eps_x)` specifying the
+            frequency-dependent dielectric function of a second phase
+            (default: 1.0 = vacuum ~ air).
+        m_rho : float, optional
+            Material density (default: 1.0).
         **kwargs : any
             Optional arguments to `dielectric_function`.
 
@@ -295,6 +305,14 @@ class InfraredCalculation:
             Object returned by this function.
         """
 
+        if "q_nac" in kwargs:
+            warnings.warn(
+                "q_nac will be overridden by the nac keyword.",
+                UserWarning,
+            )
+
+            del kwargs["q_nac"]
+
         eps_ir = self.dielectric_function(
             hkl=hkl,
             rot=rot,
@@ -307,6 +325,9 @@ class InfraredCalculation:
             eps_ir.epsilon[:, :2, :2],
             x_units=eps_ir.x_units,
             branch_tracking=True,
+            m_f=m_f,
+            m_eps=m_eps,
+            m_rho=m_rho,
         )
 
     def powder_optical_spectrum_ema(
@@ -343,6 +364,14 @@ class InfraredCalculation:
         ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
             Object returned by this function.
         """
+
+        if "q_nac" in kwargs:
+            warnings.warn(
+                "Non-analytical corrections should not be specified "
+                "with q_nac because this function does not perform "
+                "explicit orientational averaging.",
+                UserWarning,
+            )
 
         eps_ir = self.dielectric_function(**kwargs)
 
@@ -397,6 +426,14 @@ class InfraredCalculation:
         ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
             Object returned by this function.
         """
+
+        if "q_nac" in kwargs:
+            warnings.warn(
+                "Non-analytical corrections should not be specified "
+                "with q_nac because this function does not perform "
+                "explicit orientational averaging.",
+                UserWarning,
+            )
 
         oe_sp = self.optical_eigenmodes(
             **kwargs,

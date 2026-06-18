@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Test routines for infrared simulations on Pnma SnSe."""
-
 
 # -------
 # Imports
 # -------
-
 
 import os
 import unittest
@@ -33,28 +29,28 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
 
 from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
-from phonopy_spectroscopy.ir.base import (
+from phonopy_spectroscopy.ir.multiphase_mixture import (
+    bruggeman_two_phase_scalar,
+    bruggeman_three_phase_scalar,
+    bruggeman_multiphase_scalar,
+)
+
+from phonopy_spectroscopy.ir.optical_eigenmodes import (
     optical_spectra_from_optical_properties,
-    bruggeman_two_phase_mixture,
-    bruggeman_three_phase_mixture,
-    bruggeman_multiphase_mixture,
 )
 
 from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
 from phonopy_spectroscopy.instrument import Polarisation
-from phonopy_spectroscopy.utility.geometry import (
-    parse_direction,
-    rotation_matrix_from_vectors,
-)
 
+from phonopy_spectroscopy.utility.geometry import parse_direction
 
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
+"""Path to SnSe (Pnma) example directory."""
 
 # ----------------
 # Helper functions
@@ -303,7 +299,7 @@ class TestInfraredSimulation(unittest.TestCase):
 
         # Pure powder with 90% theoretical denisty.
 
-        eps_eff_ld = bruggeman_two_phase_mixture(eps_snse, eps_air, 0.9, 0.1)
+        eps_eff_ld = bruggeman_two_phase_scalar(eps_snse, eps_air, 0.9, 0.1)
 
         self.assertTrue(
             verify_bruggeman_equation(
@@ -313,9 +309,7 @@ class TestInfraredSimulation(unittest.TestCase):
 
         # 5% KBr pellet.
 
-        eps_eff_kbr = bruggeman_two_phase_mixture(
-            eps_snse, eps_kbr, 0.05, 0.95
-        )
+        eps_eff_kbr = bruggeman_two_phase_scalar(eps_snse, eps_kbr, 0.05, 0.95)
 
         self.assertTrue(
             verify_bruggeman_equation(
@@ -325,7 +319,7 @@ class TestInfraredSimulation(unittest.TestCase):
 
         # 5% KBr pellet with 90% denisity.
 
-        eps_eff_kbr_ld = bruggeman_three_phase_mixture(
+        eps_eff_kbr_ld = bruggeman_three_phase_scalar(
             eps_snse, eps_kbr, eps_air, 0.9 * 0.05, 0.9 * 0.95, 0.1
         )
 
@@ -340,7 +334,7 @@ class TestInfraredSimulation(unittest.TestCase):
         # Test the implementation via keywords to
         # powder_optical_spectrum_ema().
 
-        sp_ema_ld = calc.powder_optical_spectrum_ema(p_den=0.9)
+        sp_ema_ld = calc.powder_optical_spectrum_ema(m_rho=0.9)
 
         self.assertTrue(
             np.allclose(
@@ -348,9 +342,7 @@ class TestInfraredSimulation(unittest.TestCase):
             )
         )
 
-        sp_ema_kbr = calc.powder_optical_spectrum_ema(
-            p_vol_frac=0.05, p_binder_eps=eps_kbr
-        )
+        sp_ema_kbr = calc.powder_optical_spectrum_ema(m_f=0.05, m_eps=eps_kbr)
 
         self.assertTrue(
             np.allclose(
@@ -360,7 +352,7 @@ class TestInfraredSimulation(unittest.TestCase):
         )
 
         sp_ema_kbr_ld = calc.powder_optical_spectrum_ema(
-            p_vol_frac=0.05, p_binder_eps=eps_kbr, p_den=0.9
+            m_f=0.05, m_eps=eps_kbr, m_rho=0.9
         )
 
         self.assertTrue(
@@ -381,7 +373,7 @@ class TestInfraredSimulation(unittest.TestCase):
                 eps_eff_kbr_ld,
             ),
         ]:
-            eps_eff = bruggeman_multiphase_mixture(eps, fracs)
+            eps_eff = bruggeman_multiphase_scalar(eps, fracs)
 
             self.assertTrue(verify_bruggeman_equation(eps, fracs, eps_eff))
 
@@ -394,7 +386,6 @@ class TestInfraredSimulation(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

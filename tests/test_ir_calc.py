@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Test routines for the infrared calculation workflow."""
-
 
 # -------
 # Imports
@@ -25,13 +22,13 @@ from phonopy_spectroscopy.utility.io_helper import load_json, save_json
 
 from comparison_helper import compare_infrared_calculations
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
+
+"""Path to SnSe (Pnma) example directory."""
 
 
 # ---------------------------------------
@@ -81,7 +78,6 @@ class TestInfraredCalculationWorkflow(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

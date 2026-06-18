@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for numerical integration (quadrature)."""
-
 
 # -------
 # Imports
 # -------
-
 
 import glob
 import os
@@ -23,16 +19,13 @@ from itertools import product
 
 from ..constants import ZERO_TOLERANCE
 
-
 # ---------
 # Constants
 # ---------
 
-
 _UNIT_SPHERE_LEBEDEV_QUAD_DATA_DIR = r"_data/lebedev"
 
 _UNIT_SPHERE_LEBEDEV_QUAD_DATA = None
-
 
 # -----------
 # Unit Circle

@@ -1,26 +1,21 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for working with eigenvalues and eigenvectors from
 diagonalisin matrices."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 
 from scipy.optimize import linear_sum_assignment
 
 from ..utility.numpy_helper import np_expand_dims
-
 
 # ---------------
 # Branch tracking

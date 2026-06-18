@@ -1,23 +1,18 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for comparing objects as part of unit tests."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
 
 from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
-
 
 # ---------
 # Functions

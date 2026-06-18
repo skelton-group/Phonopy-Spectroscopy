@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Test routines for the Raman calculation workflow."""
-
 
 # -------
 # Imports
 # -------
-
 
 import os
 import unittest
@@ -35,7 +31,7 @@ from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
 
 from phonopy_spectroscopy.raman.calculation import RamanCalculation
 
-from phonopy_spectroscopy.raman.finite_diff import (
+from phonopy_spectroscopy.raman.calculators import (
     FiniteDisplacementRamanTensorCalculator,
 )
 
@@ -49,15 +45,17 @@ from comparison_helper import (
 
 from io_helper import generate_fd_raman_dielectric_input_file_list
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SI = r"../example/si"
+
+"""Path to Si example directory."""
+
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
+"""Path to SnSe (Pnma) example directory."""
 
 # ------------------------------------
 # Tests for Raman calculation workflow
@@ -152,7 +150,7 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
         # Generate the displaced structures and check against reference
         # structures.
 
-        disp_struct_sets = self._calc_1.generate_displaced_structures()
+        disp_struct_sets = self._calc_1.get_displaced_structures()
 
         for band_idx, disp_structs in zip(
             self._calc_1.band_indices, disp_struct_sets
@@ -195,7 +193,7 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
 
         # Calculate and check Raman tensors.
 
-        raman_calc = self._calc_1.calculate_raman_tensors(eps_e, e)
+        raman_calc = self._calc_1.get_raman_calculation(eps_e, e)
 
         r_t = raman_calc.raman_tensors
 
@@ -240,7 +238,7 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
             file_list, self._calc_1.num_bands, self._calc_1.num_steps
         )
 
-        raman_calc = self._calc_1.calculate_raman_tensors(eps_e, e)
+        raman_calc = self._calc_1.get_raman_calculation(eps_e, e)
 
         r_t = raman_calc.raman_tensors
 
@@ -293,7 +291,7 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
             file_list, self._calc_2.num_bands, self._calc_2.num_steps
         )
 
-        raman_calc = self._calc_2.calculate_raman_tensors(eps_e, e)
+        raman_calc = self._calc_2.get_raman_calculation(eps_e, e)
 
         save_json(raman_calc.to_dict(), r"raman_calculation.json.tmp")
 
@@ -313,7 +311,6 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

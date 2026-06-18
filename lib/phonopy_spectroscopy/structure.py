@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Class and routines for storing and working with crystal structures."""
-
 
 # -------
 # Imports
@@ -45,6 +42,21 @@ except ImportError:
         RuntimeWarning,
     )
 
+_SPGLIB_AVAILABLE = True
+
+try:
+    import spglib as spg
+except ImportError:
+    try:
+        from pyspglib import spglib as spg
+    except ImportError:
+        warnings.warn(
+            "Importing spglib failed - some functions require spglib "
+            "and will raise exceptions if it is not installed.",
+            RuntimeWarning,
+        )
+
+        _SPGLIB_AVAILABLE = False
 
 # ---------
 # Functions
@@ -443,6 +455,62 @@ class Structure:
             np.repeat(self._at_m, mult),
             conv_trans=self._conv_trans,
         )
+
+    def check_centrosymmetry(self, symprec=1e-5):
+        """Determine whether the structure is in a centrosymmetric space
+        group and all atoms occupy Wyckoff sites with inversion
+        symmetry.
+
+        Params
+        ------
+        symprec : float
+            Precision for symmetry analysis (default: 1e-5).
+
+        Returns
+        -------
+        is_centrosymm : bool
+            `True` if the structure is in a centrosymmetric space group
+            and all atomic sites have inversion symmetry, otherwise
+            `False`.
+        """
+
+        if not _SPGLIB_AVAILABLE:
+            raise RuntimeError(
+                "Structure.check_centrosymmetry() requires spglib."
+            )
+
+        # Perform symmetry analysis and get symmetry operations.
+
+        d = spg.get_symmetry_dataset(
+            (self._v_latt, self._at_pos, self.atomic_numbers()),
+            symprec=symprec,
+        )
+
+        op_rs = d.rotations
+        op_ts = d.translations
+
+        # "Mask" inversion operations.
+
+        op_i = -1.0 * np.eye(3, 3)
+
+        mask = np.all(
+            np.isclose(op_rs, op_i, atol=ZERO_TOLERANCE), axis=(1, 2)
+        )
+
+        if not mask.any():
+            # No "global" inversion symmetry.
+            return False
+
+        for r, t in zip(op_rs[mask], op_ts[mask]):
+            diff = (np.matmul(r, self._at_pos.T) + t) - self._at_pos
+            diff = diff - np.round(diff)
+
+            if np.isclose(diff, 0.0, atol=ZERO_TOLERANCE).all(axis=1).all():
+                # Inversion operation maps all positions to themselves
+                # -> all atoms on sites with inversion symmetry.
+                return True
+
+        return False
 
     def to_phonopy_atoms(self, distance_unit="ang"):
         """Return the structure as a `PhonopyAtoms` instance.

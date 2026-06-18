@@ -1,20 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Core routines and a base classes for simulating spectra."""
-
 
 # -------
 # Imports
 # -------
-
-
-import math
 
 import numpy as np
 
@@ -32,7 +26,6 @@ from .utility.numpy_helper import (
     np_readonly_view,
     np_check_shape,
 )
-
 
 # ----------------------
 # Automatic x-axis range

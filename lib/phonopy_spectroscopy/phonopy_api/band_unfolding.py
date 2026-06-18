@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Wrappers for using the Phonopy Python API."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -39,7 +35,6 @@ from ..utility.structure import (
 from phonopy.structure.cells import Primitive
 from phonopy.phonon.band_structure import get_band_qpoints
 from phonopy.unfolding.core import Unfolding
-
 
 # ------------------
 # BandUnfolder class

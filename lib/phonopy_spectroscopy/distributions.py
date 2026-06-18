@@ -1,30 +1,24 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Defines (mathematical) distributions."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 
 from .constants import BOLTZMANN_CONSTANT_EV, PLANCK_CONSTANT_EV
 from .utility.numpy_helper import np_check_shape, np_expand_dims
 
-
 try:
     from numba import njit
 except ImportError:
     from .utility.numba_helper import dummy_njit as njit
-
 
 # ----------
 # Lineshapes

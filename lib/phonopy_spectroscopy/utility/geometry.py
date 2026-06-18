@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for geometry handling."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 
@@ -28,11 +24,9 @@ try:
 except ImportError:
     from .numba_helper import dummy_njit as njit
 
-
 # ---------
 # Functions
 # ---------
-
 
 _DIRECTION_STRING_LUT = {
     "x": [1.0, 0.0, 0.0],

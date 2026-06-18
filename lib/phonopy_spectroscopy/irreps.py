@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Data and routines for handling irreducible representations (irreps)."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -24,11 +20,9 @@ from .utility.numpy_helper import (
     np_check_shape,
 )
 
-
 # ----
 # Data
 # ----
-
 
 _IRREP_ACTIVITIES = {
     # Point group C_1.
@@ -220,6 +214,8 @@ _IRREP_ACTIVITIES = {
     },
 }
 
+"""Spectroscopic activities of irreps of crystallographic pointgroups.
+"""
 
 # ---------
 # Functions

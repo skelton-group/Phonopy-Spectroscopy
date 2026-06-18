@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Classes for defining instrument geometries and polarisations."""
-
 
 # -------
 # Imports
 # -------
-
 
 from itertools import product
 
@@ -35,7 +31,6 @@ from .utility.numpy_helper import (
 )
 
 from .utility.quadrature import unit_circle_quad_rule
-
 
 # --------------
 # Geometry class

@@ -1,19 +1,15 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Test routines for core functionality of the `PolarGammaPhonons`
 object."""
-
 
 # -------
 # Imports
 # -------
-
 
 import os
 import unittest
@@ -33,14 +29,13 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
     _parse_dielectric_constant,
 )
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
+"""Path to SnSe (Pnma) example directory."""
 
 # -----------------------------------
 # Tests for  PolarGammaPhonons object
@@ -164,7 +159,6 @@ class TestPolarGammaPhonons(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

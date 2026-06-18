@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Toutines for input/output as part of unit tests."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
-
 
 # ---------
 # Functions

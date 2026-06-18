@@ -1,25 +1,20 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for analysing phonon calculations on structures with
 defects."""
-
 
 # -------
 # Imports
 # -------
 
-
 import warnings
 
 import numpy as np
 
-from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
 
 from ..utility.numpy_helper import np_check_shape, np_expand_dims
@@ -30,7 +25,6 @@ from ..utility.structure import (
     map_atom_positions,
     invert_atom_map,
 )
-
 
 # ---------------
 # Helper routines

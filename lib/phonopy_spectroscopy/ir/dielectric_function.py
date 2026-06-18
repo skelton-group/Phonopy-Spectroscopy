@@ -1,19 +1,15 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Class implementing the calculation of the infrared dielectric
 function."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 import pandas as pd
@@ -30,15 +26,12 @@ from ..utility.numpy_helper import (
     np_check_shape,
 )
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EPSILON_UNIT_TEXT_LABEL = r"\eps / \eps_0"
 _EPSILON_UNIT_PLOT_LABEL = r"$\epsilon$ / $\epsilon_0$"
-
 
 # --------------------------------
 # InfraredDielectricFunction class

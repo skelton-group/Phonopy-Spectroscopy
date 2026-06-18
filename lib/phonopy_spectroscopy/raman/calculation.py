@@ -1,19 +1,15 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """High-level `RamanCalculation` object providing an API for generating
 simulated Raman spectra."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -45,7 +41,6 @@ from ..utility.numpy_helper import (
     np_check_shape,
     np_expand_dims,
 )
-
 
 # ----------------------
 # RamanCalculation class
@@ -121,48 +116,7 @@ class RamanCalculation:
         self._band_inds = band_inds
         self._irreps = irreps
 
-    def _get_band_inds_from_grp_inds(self, band_grp_inds):
-        """Determine the band indices for a set of band groups.
-
-        Parameters
-        ----------
-        band_grp_inds : array_like or None
-            Band groups.
-
-        Returns
-        -------
-        band_inds : numpy.ndarray
-            Band indices.
-        """
-
-        if band_grp_inds is not None:
-            for idx in band_grp_inds:
-                if idx < 0 or idx >= self.num_band_groups:
-                    raise ValueError(
-                        "One or more band group indices are not "
-                        "compatible with the number of irrep groups or "
-                        "the number of bands in the calculation."
-                    )
-
-            if self.irreps is not None:
-                # Band group indices map to irrep groups.
-
-                band_inds = []
-
-                for idx in band_grp_inds:
-                    band_inds.extend(self.irreps.irrep_band_indices[idx])
-
-                return np.array(band_inds, dtype=int)
-            else:
-                # Band group indices map to individual bands.
-
-                return np.array(band_grp_inds, dtype=int)
-
-        return np.array(list(range(len(self._band_inds))), dtype=int)
-
-    def _get_calc_params(
-        self, geom, i_pols, s_pols, w, t, e_rt, lw, band_grp_inds
-    ):
+    def _get_calc_params(self, geom, i_pols, s_pols, w, t, e_rt, lw):
         """Determine parameters for Raman calculations.
 
         Parameters
@@ -182,8 +136,6 @@ class RamanCalculation:
             underlying phonon calculation if set).
         e_rt : float or None
             Photon energy for evaluating Raman tensors.
-        band_grp_inds : array_like or None
-            Indices of band groups to include in the calculation.
 
         Returns
         -------
@@ -200,15 +152,11 @@ class RamanCalculation:
                 }`
         """
 
-        # Determine band indices to include in the calculation.
-
-        band_inds = self._get_band_inds_from_grp_inds(band_grp_inds)
-
         params = {}
 
         # Frequencies.
 
-        params["frequencies"] = self.frequencies[band_inds]
+        params["frequencies"] = self.frequencies
 
         # Linewidths.
 
@@ -228,18 +176,14 @@ class RamanCalculation:
             lw = 0.5
 
         params["linewidths"] = (
-            self.linewidths[band_inds]
+            self.linewidths
             if self.linewidths is not None
-            else lw * np.ones((len(band_inds),), dtype=np.float64)
+            else lw * np.ones((len(self._band_inds),), dtype=np.float64)
         )
 
         # Irreps.
 
-        params["irreps"] = (
-            self.irreps.get_subset(band_inds, reset_inds=True)
-            if self.irreps is not None
-            else None
-        )
+        params["irreps"] = self.irreps
 
         # Laser wavelength.
 
@@ -278,8 +222,7 @@ class RamanCalculation:
         if e_rt is None:
             e_rt = nm_to_ev(w) if self._r_t.is_energy_dependent else 0.0
 
-        r_t = self._r_t.get_tensors_at_energy(e_rt)
-        params["raman_tensors"] = r_t[band_inds]
+        params["raman_tensors"] = self._r_t.get_tensors_at_energy(e_rt)
 
         # Geometry and incident/scattered polarisations.
 
@@ -377,18 +320,6 @@ class RamanCalculation:
         """RamanTensors : Underlying `RamanTensors` object."""
         return self._r_t
 
-    @property
-    def num_band_groups(self):
-        """int : Number of band groups in the calculation. Band groups
-        are equivalent to irrep groups if the underlying phonon
-        calculation has irreps, or to the number of bands in the
-        calculation otherwise."""
-
-        if self.irreps is not None:
-            return len(self.irreps.irrep_band_indices)
-
-        return len(self._band_inds)
-
     def single_crystal(
         self,
         hkl,
@@ -400,7 +331,6 @@ class RamanCalculation:
         t=None,
         lw=None,
         e_rt=None,
-        band_grp_inds=None,
         **kwargs
     ):
         """Simulate a single-crystal Raman measurement.
@@ -438,10 +368,6 @@ class RamanCalculation:
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
             linewidths from the underlying phonon calculation if
             available).
-        band_grp_inds : array_like or None, optional
-            Indices of "band groups" to include in the calculation
-            (default: all groups). Groups are defined by irreps if
-            available, or the band indices in the calculation otherwise.
         **kwargs : any
             Keyword arguments to the `RamanSpectrum1D` and
             `RamanSpectrum2D` constructors (some of these may be
@@ -454,8 +380,6 @@ class RamanCalculation:
 
         See Also
         --------
-        num_band_groups :
-            Number of band groups in the calculation.
         raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D :
             Objects returned by this function.
 
@@ -468,23 +392,12 @@ class RamanCalculation:
           values, the function returns an 2D spectrum.
         * A single function call cannot combine multiple polarisations
           and multiple rotations.
-        * The `e_rt` parameter is provided so that the intensity
-          modulation "envelope" due to the laser wavelength and changes
-          in intensity due energy-dependent polarisability can be
-          modelled separately.
-        * The indices in `band_grp_inds` correspond directly to the
-          entries in the peak tables in the `RamanSpectrum` objects
-          produced with the default `band_grp_inds=None`). The number of
-          band groups can be obtained with the `num_band_groups`
-          property.
         * If called with multiple polarisations to generate a 2D
           spectrum, additional keyword args to the `RamanSpectrum2D`
           constructor will need to be specified.
         """
 
-        params = self._get_calc_params(
-            geom, i_pol, s_pol, w, t, e_rt, lw, band_grp_inds
-        )
+        params = self._get_calc_params(geom, i_pol, s_pol, w, t, e_rt, lw)
 
         is_2d = params["is_2d_spectrum"]
 
@@ -792,7 +705,6 @@ class RamanCalculation:
         t=None,
         e_rt=None,
         lw=None,
-        band_grp_inds=None,
         method="best",
         lc_prec=5,
         **kwargs
@@ -832,10 +744,6 @@ class RamanCalculation:
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
             linewidths from the underlying phonon calculation if
             available).
-        band_grp_inds : array_like or None, optional
-            Indices of "band groups" to include in the calculation
-            (default: all groups). Groups are defined by irreps if
-            available, or the band indices in the calculation otherwise.
         method : {"nquad", "leb+circ", "best"}, optional
             Method for powder averaging (default: `"best"`).
         lc_prec : int, optional
@@ -853,8 +761,6 @@ class RamanCalculation:
 
         See Also
         --------
-        num_band_groups :
-            Number of band groups in the calculation.
         raman.intensity.calculate_powder_raman_intensities :
             Lower-level API function used to calculate powder Raman
             intensities.
@@ -863,23 +769,12 @@ class RamanCalculation:
 
         Notes
         -----
-        * The `w_rt` parameter is provided so that the intensity
-          modulation "envelope" due to the laser wavelength and changes
-          in intensity due energy-dependent polarisability can be
-          modelled separately.
-        * The indices in `band_grp_inds` correspond directly to the
-          entries in the peak tables in the `RamanSpectrum` objects
-          produced with the default `band_grp_inds=None`). The number of
-          band groups can be obtained with the `num_band_groups`
-          property.
         * If called with multiple polarisations to generate a 2D
           spectrum, additional keyword args to the `RamanSpectrum2D`
           constructor will need to be specified.
         """
 
-        params = self._get_calc_params(
-            geom, i_pol, s_pol, w, t, e_rt, lw, band_grp_inds
-        )
+        params = self._get_calc_params(geom, i_pol, s_pol, w, t, e_rt, lw)
 
         if method.lower() == "best":
             # method="best" will use an analytical formula if

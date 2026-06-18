@@ -1,25 +1,20 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for working with crystal structures."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
 import numpy as np
 
 from ..utility.numpy_helper import np_check_shape, np_expand_dims
-
 
 # ---------------
 # Helper routines

@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for analysing phonon modes."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -21,7 +17,6 @@ import numpy as np
 from ..constants import ZERO_TOLERANCE
 
 from ..utility.numpy_helper import np_expand_dims
-
 
 # ---------
 # Functions

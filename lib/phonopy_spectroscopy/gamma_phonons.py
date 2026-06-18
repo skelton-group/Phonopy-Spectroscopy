@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Class for storing and working with Gamma-point phonon calculations."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -50,7 +46,6 @@ except ImportError:
         "and will raise exceptions if it is not installed.",
         RuntimeWarning,
     )
-
 
 # ---------
 # Functions
@@ -381,7 +376,7 @@ class GammaPhonons:
             )
 
         evecs_ref = self._evecs.reshape((n, n))
-        evecs_cmp = gamma_ph.eigenvectors.reshape(gamma_ph, (n, n))
+        evecs_cmp = gamma_ph.eigenvectors.reshape((n, n))
 
         return np.inner(evecs_ref.conj(), evecs_cmp)
 

@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Class for storing and interpolating energy-dependent Raman tensors."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 
@@ -27,7 +23,6 @@ from ..utility.numpy_helper import (
     np_expand_dims,
     np_discard_imag_if_real,
 )
-
 
 # ------------------
 # RamanTensors class
@@ -97,7 +92,8 @@ class RamanTensors:
 
     @property
     def raman_tensors(self):
-        """numpy.ndarray : Raman tensors (shape: `(N, M, 3, 3)`)."""
+        """numpy.ndarray : Raman tensors in Ang^2 / sqrt(amu) (shape:
+        `(N, M, 3, 3)`)."""
         return np_readonly_view(self._r_t)
 
     @property

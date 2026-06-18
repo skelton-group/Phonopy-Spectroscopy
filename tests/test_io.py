@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Test routines for the core I/O."""
-
 
 # -------
 # Imports
 # -------
-
 
 import os
 import unittest
@@ -43,15 +39,17 @@ from comparison_helper import (
     compare_polar_gamma_phonons,
 )
 
-
 # ---------
 # Constants
 # ---------
 
-
 _EXAMPLE_BASE_DIR_SI = r"../example/si"
+
+"""Path to Si example directory."""
+
 _EXAMPLE_BASE_DIR_SNSE = r"../example/snse-pnma"
 
+"""Path to SnSe (Pnma) example directory."""
 
 # -------------
 # Tests for I/O
@@ -332,7 +330,6 @@ class TestIO(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

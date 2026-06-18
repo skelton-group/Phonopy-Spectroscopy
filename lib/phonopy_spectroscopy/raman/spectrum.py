@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Classes and routines for simulating Raman spectra."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -37,11 +33,9 @@ from ..utility.numpy_helper import (
     np_expand_dims,
 )
 
-
 # ---------
 # Constants
 # ---------
-
 
 _RAMAN_INTENSITY_PREFACTOR = (
     (1.0e10**2)
@@ -53,11 +47,9 @@ _RAMAN_INTENSITY_PREFACTOR = (
 """float : Prefactor for converting Raman intensities to cross sections.
 """
 
-
 _RAMAN_CROSS_SECTION_TEXT_LABEL = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
 
 """str : Cross section unit label suitable for plain-text output."""
-
 
 _RAMAN_CROSS_SECTION_PLOT_LABEL = (
     r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
@@ -124,6 +116,7 @@ def adjust_gamma_phonons_for_spectrum_type(
 
     if spectrum_type == "stokes":
         # Nothing to do - return input data.
+
         return (
             freqs,
             ints if n_dim_add == 0 else ints.reshape((-1,)),
@@ -192,7 +185,7 @@ def modulate_intensities(freqs, ints, w, t):
     if not np_check_shape(freqs, (None,)):
         raise ValueError("freqs must be an array_like with shape (N,).")
 
-    ints, n_dim_add = np_expand_dims(np.asarray(ints), (len(freqs), None))
+    ints, n_dim_add = np_expand_dims(np_asarray_copy(ints), (len(freqs), None))
 
     if w <= 0.0:
         raise ValueError("w must be > 0.")
@@ -252,7 +245,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         freqs : array_like
             Frequencies in THz (shape: `(N,)`).
         ints : array_like
-            Band intensities in Ang^4 / sqrt(amu) (shape: `(N,)` for 1D
+            Band intensities in Ang^4 / amu (shape: `(N,)` for 1D
             spectra, or `(N, M)` for 2D spectra).
         lws : array_like
             Linewidths in THz (shape: `(N,)`).
@@ -577,7 +570,7 @@ class RamanSpectrum1D(RamanSpectrumBase):
     def cross_sections(self):
         """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
         `(N,)`)."""
-        return np_readonly_view(self._cross_sects.reahspe((-1,)))
+        return np_readonly_view(self._cross_sects.reshape((-1,)))
 
     @property
     def y(self):

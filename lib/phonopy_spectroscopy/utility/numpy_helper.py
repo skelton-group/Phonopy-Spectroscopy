@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Helper routines for working with NumPy."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
-
 
 # ---------
 # Functions

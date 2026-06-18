@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
-
 
 """Test routines for parts of the phonopy_spectroscopy.raman package
 using a set of model Raman tensors for Si and (in part) results from the
@@ -30,11 +28,9 @@ formula in the original work in:
     10.1103/PhysRevB.54.7830
 """
 
-
 # -------
 # Imports
 # -------
-
 
 import unittest
 
@@ -53,7 +49,6 @@ from phonopy_spectroscopy.utility.geometry import (
     rotation_matrix_from_vectors,
     rotation_matrix_from_axis_angle,
 )
-
 
 # ----------------
 # Helper functions
@@ -382,7 +377,6 @@ class TestRamanSimulation(unittest.TestCase):
 # ----
 # Main
 # ----
-
 
 if __name__ == "__main__":
     unittest.main()

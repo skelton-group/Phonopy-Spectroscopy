@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines implementing single-crystal and powder Raman simulations."""
-
 
 # -------
 # Imports
 # -------
-
 
 import warnings
 
@@ -36,15 +32,13 @@ try:
 except ImportError:
     from ..utility.numba_helper import dummy_njit as njit
 
-
 # ---------
 # Constants
 # ---------
 
 _EIGHT_PI_SQUARED = 8.0 * np.pi**2
 
-"""Value of 8 * pi^2. """
-
+"""Value of 8 * pi^2."""
 
 # ----------------
 # Helper functions

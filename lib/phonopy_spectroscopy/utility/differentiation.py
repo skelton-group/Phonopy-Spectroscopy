@@ -1,26 +1,20 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for numerical differentiation."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
-
 
 # --------------
 # Data/Constants
 # --------------
-
 
 _CENTRAL_DIFF_COEFFS = {
     1: {
@@ -55,7 +49,6 @@ _CENTRAL_DIFF_COEFFS = {
         ),
     }
 }
-
 
 # -------------------
 # Central differences
