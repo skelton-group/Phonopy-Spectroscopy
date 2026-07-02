@@ -243,15 +243,13 @@ class GammaPhonons:
 
             sq_res = np.sum((self._edisps - mean_disps) ** 2, axis=(1, 2))
 
-            # Norms of the residuals.
+            # Combine the sum of square residuals with the squared
+            # frequencies into a consolidated score where a lower
+            # value indicates a more "acoustic-like" mode - i.e. all
+            # the atoms have similar displacements, and the frequency is
+            # close to zero.
 
-            res_norms = np.linalg.norm(mean_disps.reshape(-1, 3), axis=1)
-
-            # Combine all three into a consolidated "score".
-
-            score = (
-                sq_res + self._freqs**2 + 1.0 / (res_norms + ZERO_TOLERANCE)
-            )
+            score = sq_res + self._freqs**2
 
             acc_mode_inds = np.argsort(score)[:3]
 
@@ -324,7 +322,7 @@ class GammaPhonons:
         divided by sqrt(mass)) (shape: `(3N, N, 3)`)."""
 
         self._lazy_calc_eigendisplacements()
-        return self._edisps
+        return np_readonly_view(self._edisps)
 
     @property
     def acoustic_mode_indices(self):
