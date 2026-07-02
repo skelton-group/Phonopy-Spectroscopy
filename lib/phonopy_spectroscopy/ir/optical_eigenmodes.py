@@ -267,9 +267,9 @@ def optical_spectra_from_optical_properties(n_t, a, t, n_f=1.0, n_b=1.0):
     r"""Calculate the "standard" optical properties from a complex
     refractive index, absorption coefficient, sample thickness and
     refractive indices of the front/back (entrance/exit)
-    media: intrinsic (Beer-Lambert) absorbance, incoherent "single"
+    media: incoherent intrinsic (Beer-Lambert) transmission, "single"
     (infinite bulk) and total reflectivity at normal incidence, and
-    incoherent transmission.
+    (total) transmission.
 
     Parameters
     ----------
@@ -286,17 +286,17 @@ def optical_spectra_from_optical_properties(n_t, a, t, n_f=1.0, n_b=1.0):
     Returns
     -------
     res : tuple of numpy.ndarray
-        Tuple of `(a_int, r_s, r_t, t)` (all same shape as `a`/`n_t`).
+        Tuple of `(t_int, r_s, r_t, t)` (all same shape as `a`/`n_t`).
 
     Notes
     -----
     The optical spectra are calculated using the formulae below:
 
-    Intrinsic absorbance:
+    Intrinsic transmission:
 
     .. math::
 
-        A_\mathrm{int} = \exp \left[- \alpha t \right]
+        T_\mathrm{int} = \exp \left[- \alpha t \right]
 
     Relectivity at the front and back surfaces at normal incidence:
 
@@ -318,13 +318,13 @@ def optical_spectra_from_optical_properties(n_t, a, t, n_f=1.0, n_b=1.0):
 
     .. math::
 
-        R_\mathrm{t} = R_\mathrm{f} + \frac{(1 - R_\mathrm{f})^2 R_\mathrm{b} A_\mathrm{int}^2}{1 - R_\mathrm{f} R_\mathrm{b} A_\mathrm{int}^2}
+        R_\mathrm{t} = R_\mathrm{f} + \frac{(1 - R_\mathrm{f})^2 R_\mathrm{b} T_\mathrm{int}^2}{1 - R_\mathrm{f} R_\mathrm{b} T_\mathrm{int}^2}
 
     Incoherent total transmission:
 
     .. math::
 
-        T = \frac{(1 - R_\mathrm{f}) (1 - R_\mathrm{b}) A_\mathrm{int}}{1 - R_\mathrm{f} R_\mathrm{b} A_\mathrm{int}^2}
+        T = \frac{(1 - R_\mathrm{f}) (1 - R_\mathrm{b}) T_\mathrm{int}}{1 - R_\mathrm{f} R_\mathrm{b} T_\mathrm{int}^2}
     """
 
     (n_t, a), _ = _validate_setup_optical_property_cals([n_t, a])
@@ -334,19 +334,18 @@ def optical_spectra_from_optical_properties(n_t, a, t, n_f=1.0, n_b=1.0):
     r_f = np.abs((n_f - n_t) / (n_f + n_t)) ** 2
     r_b = np.abs((n_t - n_b) / (n_t + n_b)) ** 2
 
-    # Incoherent reflectivity, transmission and absorptance.
+    # Incoherent intrinsic transmission, total reflectivity and
+    # transmission.
 
-    a_int = np.exp(-1.0 * a * 1.0e-1 * t)
+    t_i = np.exp(-1.0 * a * 1.0e-1 * t)
 
-    r_incoh = r_f + (
-        ((1.0 - r_f) ** 2 * r_b * a_int**2) / (1.0 - r_f * r_b * a_int**2)
+    r_t = r_f + (
+        ((1.0 - r_f) ** 2 * r_b * t_i**2) / (1.0 - r_f * r_b * t_i**2)
     )
 
-    t_incoh = ((1.0 - r_f) * (1.0 - r_b) * a_int) / (
-        1.0 - r_f * r_b * a_int**2
-    )
+    t_t = ((1.0 - r_f) * (1.0 - r_b) * t_i) / (1.0 - r_f * r_b * t_i**2)
 
-    return (a_int, r_f, r_incoh, t_incoh)
+    return (t_i, r_f, r_t, t_t)
 
 
 # -----------------------
@@ -639,6 +638,8 @@ class OpticalEigenmodes(SpectrumBase):
             quantities.
         """
 
+        self._lazy_init_optical_properties()
+
         d = {"freq_energy": self._x}
 
         for i in range(self.num_dims):
@@ -825,14 +826,16 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
         self._oe_sp = oe_sp
         self._ave_w = ave_w
 
+        self._trans_int = None
+        self._aps_int = None
         self._abs_int = None
 
     def _init_optical_spectra(self):
-        """Set the `a_int` and base class `_r_s`, `_r_t` and `_t`
-        fields."""
+        """Set the `_trans_int`, `abs_int` and `aps_int` fields, and the
+        base class `_r_s`, `_r_t` and `_trans` fields."""
 
-        if self._abs_int is None:
-            a_int, r_s, r_t, t = optical_spectra_from_optical_properties(
+        if self._trans_int is None:
+            t_i, r_s, r_t, t_t = optical_spectra_from_optical_properties(
                 self._oe_sp.refractive_index,
                 self._oe_sp.absorption_coefficient,
                 self._t,
@@ -840,10 +843,10 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
                 self._n_b,
             )
 
-            self._abs_int = (a_int * self._ave_w).sum(axis=1)
+            self._trans_int = (t_i * self._ave_w).sum(axis=1)
             self._ref_s = (r_s * self._ave_w).sum(axis=1)
             self._ref_t = (r_t * self._ave_w).sum(axis=1)
-            self._trans = (t * self._ave_w).sum(axis=1)
+            self._trans = (t_t * self._ave_w).sum(axis=1)
 
     def _init_single_reflectivity(self):
         """Implements the base class `_init_single_reflectivity()`
@@ -858,6 +861,10 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
 
         self._init_optical_spectra()
 
+        if self._aps_int is None:
+            self._aps_int = 1.0 - self._trans_int
+            self._abs_int = -1.0 * np.log10(self._trans_int)
+
     @property
     def optical_eigenmodes(self):
         """OpticalEigenmodes : Optical eigenmodes used to generate the
@@ -871,9 +878,25 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
         return np_readonly_view(self._ave_w)
 
     @property
+    def intrinsic_transmission(self):
+        """numpy.ndarray : Intrinsic (Beer-Lambert) transmission (shape:
+        `(O,)`.)."""
+
+        self._init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._trans_int)
+
+    @property
+    def intrinsic_absorptance(self):
+        """numpy.ndarray : Intrinsic (Beer-Lambert) absorptance (shape:
+        `(O,)`)."""
+
+        self._init_total_reflectivity_and_transmission()
+        return np_readonly_view(self._aps_int)
+
+    @property
     def intrinsic_absorbance(self):
         """numpy.ndarray : Intrinsic (Beer-Lambert) absorbance (shape:
-        `(O,)`.)."""
+        `(O,)`."""
 
         self._init_total_reflectivity_and_transmission()
         return np_readonly_view(self._abs_int)
@@ -887,10 +910,13 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
             `DataFrame` containing the optical spectra.
         """
 
-        # Insert additional intrinsic_absorbance column into DataFrame
+        # Insert additional intrinsic_transmission column into DataFrame
         # generated by base class method.
 
         df = super(EigenmodeAverageOpticalSpectrum, self).spectrum()
-        df.insert(0, "intrinsic_absorbance", self.intrinsic_absorbance)
+
+        df.insert(1, "intrinsic_transmission", self.intrinsic_transmission)
+        df.insert(2, "intrinsic_absorptance", self.intrinsic_absorptance)
+        df.insert(3, "intrinsic_absorbance", self.intrinsic_absorbance)
 
         return df

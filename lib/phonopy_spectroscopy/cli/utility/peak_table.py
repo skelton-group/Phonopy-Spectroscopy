@@ -9,7 +9,6 @@
 """Helper routines for outputting peak tables and spectra to plain-text
 files, for implementing the command-line interface."""
 
-
 # -------
 # General
 # -------
@@ -28,7 +27,7 @@ def df_to_txt(df, file_path, col_fmts, preamble_lines=None):
     col_fmts : list of str
         Format specifiers for columns.
     file_path : str
-        File to write to.
+        File path.
     """
 
     if len(col_fmts) != len(df.columns):
@@ -78,7 +77,7 @@ def infrared_peak_table_to_txt(eps_ir, file_path):
     eps_ir : InfraredDielectricFunction
         Dielectric function.
     file_path : str
-        File to write data to.
+        File path.
     """
 
     df = eps_ir.peak_table()
@@ -103,7 +102,7 @@ def infrared_dielectric_function_to_txt(eps_ir, file_path):
     eps_ir : InfraredDielectricFunction
         Dielectric function.
     file_path : str
-        File to write data to.
+        File path.
     """
 
     df = eps_ir.spectrum()
@@ -118,26 +117,47 @@ def infrared_dielectric_function_to_txt(eps_ir, file_path):
     df_to_txt(df, file_path, col_fmts, preamble_lines=preamble_lines)
 
 
-def optical_spectrum_to_txt(sp, file_path):
-    """Write the quantities from an `OpticalEigenmodeSpectrum`,
-    `OpticalSpectrum`, or derived class to a plain-text file.
+def optical_eigenmodes_to_txt(oe, file_path):
+    """Write the quantities from an `OpticalEigenmodes` object to a
+    plain-text file.
 
     Parameters
     ----------
-    sp : OpticalEigenmodeSpectrum or OpticalSpectrum
-        Spectrum.
+    oe : OpticalEigenmodes
+        Optical eigenmodes.
     file_path : str
-        File to write data to.
+        File path.
+    """
+
+    df = oe.spectrum()
+
+    preamble_lines = [
+        "x : {0}".format(oe.x_unit_text_label),
+        "y (epsilon) : {0}".format(oe.eigenvalue_unit_text_label),
+        "y (abs. c.) : {0}".format(oe.absorption_coefficient_unit_text_label),
+        "y (cond.) : {0}".format(oe.optical_conductivity_unit_text_label),
+    ]
+
+    col_fmts = ["{0: >12.5f}"] + ["{0: >12.5e}"] * (len(df.columns) - 1)
+
+    df_to_txt(df, file_path, col_fmts, preamble_lines=preamble_lines)
+
+
+def optical_spectrum_to_txt(sp, file_path):
+    """Write the optical spectra from an object derived from the
+    `OpticalSpectrumBase` class to a plain-text file.
+
+    Parameters
+    ----------
+    sp : OpticalSpectrumBase
+        Optical spectrum.
+    file_path : str
+        File path.
     """
 
     df = sp.spectrum()
 
-    preamble_lines = [
-        "x : {0}".format(sp.x_unit_text_label),
-        "y (epsilon) : {0}".format(sp.epsilon_unit_text_label),
-        "y (abs. c.) : {0}".format(sp.absorption_coefficient_unit_text_label),
-        "y (cond.) : {0}".format(sp.optical_conductivity_unit_text_label),
-    ]
+    preamble_lines = ["x : {0}".format(sp.x_unit_text_label)]
 
     col_fmts = ["{0: >12.5f}"] + ["{0: >12.5e}"] * (len(df.columns) - 1)
 
@@ -177,7 +197,7 @@ def _raman_get_preamble_lines(sp):
 
 
 def raman_peak_table_to_txt(sp, file_path):
-    """Write a peak table from a  a `RamanSpectrum1D` or
+    """Write the peak table(s) from a `RamanSpectrum1D` or
     `RamanSpectrum2D` object to a plain-text file.
 
     Parameters
@@ -185,7 +205,7 @@ def raman_peak_table_to_txt(sp, file_path):
     sp : RamanSpectrum1D or RamanSpectrum2D
         Raman spectrum.
     file_path : str
-        File to write data to.
+        File path.
     """
 
     df = sp.peak_table()
@@ -199,15 +219,15 @@ def raman_peak_table_to_txt(sp, file_path):
 
 
 def raman_spectrum_to_txt(sp, file_path):
-    """Write a spectrum from a  a `RamanSpectrum1D` or `RamanSpectrum2D`
-    object to a plain-text file.
+    """Write the spectrum/spectra from a `RamanSpectrum1D` or
+    `RamanSpectrum2D` object to a plain-text file.
 
     Parameters
     ----------
     sp : RamanSpectrum1D or RamanSpectrum2D
         Raman spectrum.
     file_path : str
-        File to write data to.
+        File path.
     """
 
     df = sp.spectrum()

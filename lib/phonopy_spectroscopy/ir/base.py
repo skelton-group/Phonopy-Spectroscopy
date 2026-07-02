@@ -75,16 +75,17 @@ class OpticalSpectrumBase(SpectrumBase, abc.ABC):
     def _lazy_init_single_reflectivity(self):
         """Lazy initialisation of single reflectivity."""
 
-        if self._ref_s is not None:
+        if self._ref_s is None:
             self._init_single_reflectivity()
 
     def _lazy_init_total_reflectivity_and_transmission(self):
         """Lazy initialisation of total reflectivity, transission, and
         associated quantities."""
 
-        if self._ref_t is not None:
+        if self._ref_t is None:
             self._init_total_reflectivity_and_transmission()
 
+        if self._aps is None:
             self._aps = 1.0 - (self._ref_t + self._trans)
             self._abs = -1.0 * np.log10(self._trans)
 
