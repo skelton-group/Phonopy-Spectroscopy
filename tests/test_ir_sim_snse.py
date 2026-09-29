@@ -270,7 +270,7 @@ class TestInfraredSimulation(unittest.TestCase):
         ):
             idx = mapping.index(i)
 
-            a_int, r_s, r_t, t = optical_spectra_from_optical_properties(
+            t_i, r_s, r_t, t_t = optical_spectra_from_optical_properties(
                 oes.refractive_index[:, idx],
                 oes.absorption_coefficient[:, idx],
                 t=1.0e-3,
@@ -280,10 +280,13 @@ class TestInfraredSimulation(unittest.TestCase):
                 hkl, i_pol=i_pol, t=1.0e-3
             )
 
-            self.assertTrue(np.allclose(sp.intrinsic_absorbance, a_int))
+            self.assertTrue(
+                np.allclose(sp.intrinsic_absorbance, -1.0 * np.log10(t_i))
+            )
+
             self.assertTrue(np.allclose(sp.single_reflectivity, r_s))
             self.assertTrue(np.allclose(sp.total_reflectivity, r_t))
-            self.assertTrue(np.allclose(sp.transmission, t))
+            self.assertTrue(np.allclose(sp.transmission, t_t))
 
     def test_bruggeman_multiphase(self):
         """Test the implementation of the Bruggeman multiphase models."""

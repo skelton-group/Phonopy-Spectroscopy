@@ -24,7 +24,7 @@ from ..constants import (
 
 from ..distributions import lorentzian, phonon_occupation_number
 from ..spectrum_base import GammaPhononSpectrumBase
-from ..units import nm_to_thz
+from ..units import convert_frequency_units, nm_to_thz
 
 from ..utility.numpy_helper import (
     np_asarray_copy,
@@ -47,15 +47,19 @@ _RAMAN_INTENSITY_PREFACTOR = (
 """float : Prefactor for converting Raman intensities to cross sections.
 """
 
-_RAMAN_CROSS_SECTION_TEXT_LABEL = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
+_RAMAN_INTENSITY_UNIT_TEXT_LABEL = "I / (Ang^4 amu)"
+
+"""str : Intensity unit label suitable for plain-text output."""
+
+_RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
 
 """str : Cross section unit label suitable for plain-text output."""
 
-_RAMAN_CROSS_SECTION_PLOT_LABEL = (
+_RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL = (
     r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
 )
 
-"""str : Intensity unit label suitable for plotting (contains TeX
+"""str : Cross section unit label suitable for plotting (contains TeX
 strings)."""
 
 
@@ -160,62 +164,70 @@ def adjust_gamma_phonons_for_spectrum_type(
     raise ValueError('Unsupported spectrum_type="{0}".'.format(spectrum_type))
 
 
-def modulate_intensities(freqs, ints, w, t):
-    """Modulate Raman band intensities for a measurement wavelength
-    and temperature.
+def modulate_spectrum(x, y, w, t, x_units="thz"):
+    """Modulate Raman intensities for a measurement wavelength and
+    temperature.
 
     Parameters
     ----------
-    freqs : array_like
-        Frequencies (shape: `(N,)`).
-    ints : array_like
-        Intensities for `N` bands (shape: `(N,)` or `N` modes and `M`
-        calculations (shape: `(N, M)`).
+    x : array_like
+        Frequencies (shape: `(O,)`).
+    y : array_like
+        Intensities (shape: `(O,)` or `(M,)`.
     w, t : float
         Measurement wavelength in nm and temperature in K.
+    x_units : str, optional
+        Units of `x` (default: "thz").
 
     Returns
     -------
-    mod_ints : numpy.ndarray
-        Modulated intensities (same shape as `ints`).
+    mod_y : numpy.ndarray
+        Modulated intensities (same shape as `y`).
+
+    See Also
+    --------
+    units.get_supported_frequency_units : Get supported values of
+        `x_units`.
     """
 
-    freqs = np.asarray(freqs)
+    x = np.asarray(x)
 
-    if not np_check_shape(freqs, (None,)):
-        raise ValueError("freqs must be an array_like with shape (N,).")
+    if not np_check_shape(x, (None,)):
+        raise ValueError("x must be an array_like with shape (O,).")
 
-    ints, n_dim_add = np_expand_dims(np_asarray_copy(ints), (len(freqs), None))
+    y, n_dim_add = np_expand_dims(np_asarray_copy(y), (len(x), None))
 
     if w <= 0.0:
         raise ValueError("w must be > 0.")
 
+    x = convert_frequency_units(x, x_units, "thz")
+
     f_i = nm_to_thz(w)
 
     scale = _RAMAN_INTENSITY_PREFACTOR * (
-        ((1.0e12 * (f_i - freqs)) ** 4) / (1.0e12 * np.abs(freqs))
+        ((1.0e12 * (f_i - x)) ** 4) / (1.0e12 * np.abs(x))
     )
 
-    ints *= scale[:, np.newaxis]
+    y = y * scale[:, np.newaxis]
 
     if t <= 0.0:
         raise ValueError("t must be > 0.")
 
-    occ_nums = phonon_occupation_number(np.abs(freqs), t)
+    occ_nums = phonon_occupation_number(np.abs(x), t)
 
-    mask = freqs >= 0.0
+    mask = x >= 0.0
     inv_mask = np.logical_not(mask)
 
     # The weighting factors are different for Stokes and
-    # anti-Stokes branches.
+    # anti-Stokes measurements.
 
     if mask.any():
-        ints[mask, :] *= occ_nums[mask, np.newaxis] + 1.0
+        y[mask, :] *= occ_nums[mask, np.newaxis] + 1.0
 
     if inv_mask.any():
-        ints[inv_mask, :] *= occ_nums[inv_mask, np.newaxis]
+        y[inv_mask, :] *= occ_nums[inv_mask, np.newaxis]
 
-    return ints if n_dim_add == 0 else ints.reshape((-1,))
+    return y if n_dim_add == 0 else y.reshape((-1,))
 
 
 # -----------------------
@@ -294,7 +306,7 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             raise ValueError("t must be > 0.")
 
         # If we have any imaginary modes with non-zero intensity, it
-        # not cause issues in the calculations but it may give
+        # will not cause issues in the calculations but it may give
         # unphysical results.
 
         mask = np.logical_and(freqs < 0.0, np.abs(freqs) > ZERO_TOLERANCE)
@@ -340,10 +352,6 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             spectrum_type=spectrum_type,
         )
 
-        # Convert band intensities to cross sections.
-
-        cross_sects = modulate_intensities(freqs, ints, w, t)
-
         # Call the GammaPhononSpectrumBase constructor to handle
         # "x-axis"-related intialisation.
 
@@ -354,12 +362,16 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         # Store additional parameters.
 
         self._ints = ints
-        self._cross_sects = cross_sects
 
         self._w = w
         self._t = t
 
-        self._spectrum_type = spectrum_type
+        # Populate the _xsects field with (approximate) band cross
+        # sections.
+
+        self._x_sects = modulate_spectrum(
+            self._freqs, self._ints, self._w, self._t, x_units=self._x_units
+        )
 
         # Set _sp to default value.
 
@@ -371,17 +383,23 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         if self._sp is None:
             x = self.x
 
-            _, num_sp = self._cross_sects.shape
+            _, num_sp = self._ints.shape
 
             sp = np.zeros((len(x), num_sp), dtype=np.float64)
 
-            for sp_idx in range(self._cross_sects.shape[1]):
+            for sp_idx in range(self._ints.shape[1]):
                 for f, s, lw in zip(
                     self.raman_shifts,
-                    self._cross_sects[:, sp_idx],
+                    self._ints[:, sp_idx],
                     self.linewidths,
                 ):
                     sp[:, sp_idx] += lorentzian(x, s, f, lw)
+
+            # Apply laser power/tempertaure modulation.
+
+            sp = modulate_spectrum(
+                x, sp, self._w, self._t, x_units=self._x_units
+            )
 
             self._sp = sp
 
@@ -412,11 +430,6 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         return super(RamanSpectrumBase, self).frequencies
 
     @property
-    def spectrum_type(self):
-        """{"stokes", "anti-stokes", "both"} : Type of spectrum."""
-        return self._spectrum_type
-
-    @property
     def measurement_wavelength(self):
         """float or None : Measurement wavelength."""
         return self._w
@@ -426,25 +439,10 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         """float or None : Measurement temperature."""
         return self._t
 
-    def _get_data_frame_column_headers(self):
-        """Return a set of column headers for the `pandas.DataFrame`
-        objects created by `peak_table()` and `spectrum()`.
-
-        Returns
-        -------
-        col_hdrs : list of str
-            Column headers.
-        """
-
-        hdr_base = "cross_sect"
-
-        if self._ints.shape[1] == 1:
-            return [hdr_base]
-        else:
-            return [
-                "{0}_{1}".format(hdr_base, i + 1)
-                for i in range(self._ints.shape[1])
-            ]
+    @property
+    def intensity_unit_text_label(self):
+        """str : Intensity unit label suitable for plain-text output."""
+        return _RAMAN_INTENSITY_UNIT_TEXT_LABEL
 
     def peak_table(self):
         """Return the peak table as a Pandas `DataFrame`.
@@ -461,8 +459,26 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
             "irrep": self._irrep_syms,
         }
 
-        for i, h in enumerate(self._get_data_frame_column_headers()):
+        col_h_i, col_h_xs = None, None
+
+        if self._ints.shape[1] == 1:
+            col_h_i = ["int"]
+            col_h_xs = ["cross_sect"]
+        else:
+            col__i = [
+                "int_{0}".format(i + 1) for i in range(self._ints.shape[1])
+            ]
+
+            col_h_xs = [
+                "cross_sect_{0}".format(i + 1)
+                for i in range(self._x_sects.shape[1])
+            ]
+
+        for i, h in enumerate(col_h_i):
             d[h] = self._ints[:, i]
+
+        for i, h in enumerate(col_h_xs):
+            d[h] = self._x_sects[:, i]
 
         return pd.DataFrame(d)
 
@@ -479,7 +495,17 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
 
         d = {"freq_energy": self.x}
 
-        for i, h in enumerate(self._get_data_frame_column_headers()):
+        col_h = None
+
+        if self._sp.shape[1] == 1:
+            col_h = ["cross_sect"]
+        else:
+            col_h = [
+                "cross_sect_{1}".format(i + 1)
+                for i in range(self._ints.shape[1])
+            ]
+
+        for i, h in enumerate(col_h):
             d[h] = self._sp[:, i]
 
         return pd.DataFrame(d)
@@ -570,7 +596,7 @@ class RamanSpectrum1D(RamanSpectrumBase):
     def cross_sections(self):
         """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
         `(N,)`)."""
-        return np_readonly_view(self._cross_sects.reshape((-1,)))
+        return np_readonly_view(self._x_sects.reshape((-1,)))
 
     @property
     def y(self):
@@ -581,13 +607,13 @@ class RamanSpectrum1D(RamanSpectrumBase):
     @property
     def y_unit_text_label(self):
         """str : y-axis label suitable for plain-text output."""
-        return _RAMAN_CROSS_SECTION_TEXT_LABEL
+        return _RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL
 
     @property
     def y_unit_plot_label(self):
         """str: y-axis label suitable for plotting (may contain TeX
         strings)."""
-        return _RAMAN_CROSS_SECTION_PLOT_LABEL
+        return _RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL
 
 
 # ---------------------
@@ -730,7 +756,7 @@ class RamanSpectrum2D(RamanSpectrumBase):
     def cross_sections(self):
         """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
         `(N, M)`)."""
-        return np_readonly_view(self._cross_sects)
+        return np_readonly_view(self._x_sects)
 
     @property
     def y(self):
@@ -758,10 +784,10 @@ class RamanSpectrum2D(RamanSpectrumBase):
     @property
     def z_unit_text_label(self):
         """str : z-axis unit label suitable for plain-text output."""
-        return _RAMAN_CROSS_SECTION_TEXT_LABEL
+        return _RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL
 
     @property
     def z_unit_plot_label(self):
         """str : z-axis unit label suitable for plotting (contains TeX
         strings)."""
-        return _RAMAN_CROSS_SECTION_PLOT_LABEL
+        return _RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL

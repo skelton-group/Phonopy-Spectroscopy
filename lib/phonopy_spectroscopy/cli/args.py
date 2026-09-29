@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines implementing command-line argument handling."""
-
 
 # -------
 # Imports
 # -------
 
-
 from argparse import ArgumentParser
-
 
 # ------------
 # Parser setup
@@ -123,10 +118,6 @@ def parser_update_raman(parser):
 # ------------------
 # Default parameters
 # ------------------
-
-
-
-
 
 # ---------------
 # Post processing

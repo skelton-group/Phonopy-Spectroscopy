@@ -452,15 +452,132 @@ class GammaPhonons:
         )
 
 
+# ---------------------------
+# PolarGammaPhononsBase class
+# ---------------------------
+
+
+class PolarGammaPhononsBase(GammaPhonons):
+    """Base class for the `PolarGammaPhonons` object."""
+
+    def __init__(
+        self,
+        struct,
+        freqs,
+        evecs,
+        eps_inf,
+        born_charges,
+        lws=None,
+        irreps=None,
+        t=None,
+    ):
+        r"""Create a new instance of the `PolarGammaPhononsBase` class.
+
+        Parameters
+        ----------
+        struct : Structure
+            Crystal structure.
+        freqs : array_like
+            Phonon frequencies in THz (shape: `(3N,)`).
+        evecs : array_like
+            Phonon eigenvectors in mass-weighted units of sqrt(amu)
+            (shape: `(3N, N, 3)`).
+        eps_inf : array_like
+            High-frequency dielectric constant \eps_inf (shape:
+            `(3, 3)`).
+        born_charges : array_like
+            Born effective charge tensors (shape: `(N, 3, 3)`).
+        lws : array_like or None, optional
+            Phonon linewidths in THz (shape: `(3N,)`) or `None`.
+        irreps : Irreps or None, optional
+            `Irreps` object specifying the point group and assigning
+            bands to irrep groups.
+        t : float or None, optional
+            Optional temperature at which the calculation was performed
+            (default: `None`).
+        """
+
+        super(PolarGammaPhononsBase, self).__init__(
+            struct, freqs, evecs, lws=lws, irreps=irreps, t=t
+        )
+
+        eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
+
+        if not np_check_shape(eps_inf, (3, 3)):
+            raise ValueError(
+                "eps_inf must be an array_like with shape (3, 3)."
+            )
+
+        born_charges = np_asarray_copy(born_charges, dtype=np.float64)
+
+        if not np_check_shape(born_charges, (self._struct.num_atoms, 3, 3)):
+            raise ValueError(
+                "born_charges must be an array_like with shape (N, 3, 3)."
+            )
+
+        self._eps_inf = eps_inf
+        self._born_charges = born_charges
+
+        self._mode_eff_chg = None
+        self._mode_osc_str = None
+
+    def _lazy_calc_mode_effective_charges(self):
+        """Calculate the mode effective charges on first call to
+        `mode_effective_charges`, `pop_frequency` or
+        `_lazy_calc_mode_oscillator_strengths`."""
+
+        self._lazy_calc_eigendisplacements()
+
+        if self._mode_eff_chg is None:
+            self._mode_eff_chg = mode_effective_charges(
+                self._edisps, self._born_charges
+            )
+
+    def _lazy_calc_mode_oscillator_strengths(self):
+        """Calculate the mode oscillator strengths on first call to
+        `mode_oscillator_strengths` or `dielectric_function`."""
+
+        if self._mode_osc_str is None:
+            self._lazy_calc_mode_effective_charges()
+            self._mode_osc_str = mode_oscillator_strengths(self._mode_eff_chg)
+
+    @property
+    def epsilon_inf(self):
+        r"""numpy.ndarray : High-frequency dielectric constant \eps_inf
+        in units of relative permittivity (shape: `(3, 3)`)."""
+        return np_readonly_view(self._eps_inf)
+
+    @property
+    def born_effective_charges(self):
+        """numpy.ndarray : Born effective-charge tensors in e (shape:
+        `(N, 3, 3)`)."""
+        return np_readonly_view(self._born_charges)
+
+    @property
+    def mode_effective_charges(self):
+        """numpy.ndarray : Mode effective charges in e / sqrt(amu)
+        (shape: `(3N, 3)`)."""
+
+        self._lazy_calc_mode_effective_charges()
+        return np_readonly_view(self._mode_eff_chg)
+
+    @property
+    def mode_oscillator_strengths(self):
+        """numpy.ndarray : Mode oscillator strengths in e^2 / amu
+        (shape: `(3N, 3, 3)`)."""
+
+        self._lazy_calc_mode_oscillator_strengths()
+        return np_readonly_view(self._mode_osc_str)
+
+
 # -----------------------
 # PolarGammaPhonons class
 # -----------------------
 
 
-class PolarGammaPhonons(GammaPhonons):
+class PolarGammaPhonons(PolarGammaPhononsBase):
     """Class for storing and working with a Gamma-point phonon
-    calculation, including non-analytical corrections in polar
-    compounds."""
+    calculation on a polar crystal."""
 
     def __init__(
         self,
@@ -500,28 +617,17 @@ class PolarGammaPhonons(GammaPhonons):
         """
 
         super(PolarGammaPhonons, self).__init__(
-            struct, freqs, evecs, lws=lws, irreps=irreps, t=t
+            struct,
+            freqs,
+            evecs,
+            eps_inf,
+            born_charges,
+            lws=lws,
+            irreps=irreps,
+            t=t,
         )
 
-        eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
-
-        if not np_check_shape(eps_inf, (3, 3)):
-            raise ValueError(
-                "eps_inf must be an array_like with shape (3, 3)."
-            )
-
-        born_charges = np_asarray_copy(born_charges, dtype=np.float64)
-
-        if not np_check_shape(born_charges, (self._struct.num_atoms, 3, 3)):
-            raise ValueError(
-                "born_charges must be an array_like with shape (N, 3, 3)."
-            )
-
-        self._eps_inf = eps_inf
-        self._born_charges = born_charges
-
-        self._mode_eff_chg = None
-        self._mode_osc_str = None
+        self._eps_ionic = None
 
     def _get_dynmat_evecs_evals(self):
         r"""Reconstruct the eigenvalues and eigengectors of the
@@ -544,26 +650,6 @@ class PolarGammaPhonons(GammaPhonons):
         evecs = np.reshape(self._evecs, (dim, dim)).T
 
         return (evals, evecs)
-
-    def _lazy_calc_mode_effective_charges(self):
-        """Calculate the mode effective charges on first call to
-        `mode_effective_charges`, `pop_frequency` or
-        `_lazy_calc_mode_oscillator_strengths`."""
-
-        self._lazy_calc_eigendisplacements()
-
-        if self._mode_eff_chg is None:
-            self._mode_eff_chg = mode_effective_charges(
-                self._edisps, self._born_charges
-            )
-
-    def _lazy_calc_mode_oscillator_strengths(self):
-        """Calculate the mode oscillator strengths on first call to
-        `mode_oscillator_strengths` or `dielectric_function`."""
-
-        if self._mode_osc_str is None:
-            self._lazy_calc_mode_effective_charges()
-            self._mode_osc_str = mode_oscillator_strengths(self._mode_eff_chg)
 
     def _lazy_calc_epsilon_ionic(self):
         r"""Calculate the ionic contribution to the static dielectric
@@ -636,12 +722,6 @@ class PolarGammaPhonons(GammaPhonons):
         )
 
     @property
-    def epsilon_inf(self):
-        r"""numpy.ndarray : High-frequency dielectric constant \eps_inf
-        in units of relative permittivity (shape: `(3, 3)`)."""
-        return np_readonly_view(self._eps_inf)
-
-    @property
     def epsilon_ionic(self):
         r"""numpy.ndarray : Ionic contribution to dielectric constant
         \eps_ionic in units of relative permittivity (shape: `(3, 3)`).
@@ -658,28 +738,6 @@ class PolarGammaPhonons(GammaPhonons):
 
         self._lazy_calc_epsilon_ionic()
         return self._eps_inf + self._eps_ionic
-
-    @property
-    def born_effective_charges(self):
-        """numpy.ndarray : Born effective-charge tensors in e (shape:
-        `(N, 3, 3)`)."""
-        return np_readonly_view(self._born_charges)
-
-    @property
-    def mode_effective_charges(self):
-        """numpy.ndarray : Mode effective charges in e / sqrt(amu)
-        (shape: `(3N, 3)`)."""
-
-        self._lazy_calc_mode_effective_charges()
-        return np_readonly_view(self._mode_eff_chg)
-
-    @property
-    def mode_oscillator_strengths(self):
-        """numpy.ndarray : Mode oscillator strengths in e^2 / amu
-        (shape: `(3N, 3, 3)`)."""
-
-        self._lazy_calc_mode_oscillator_strengths()
-        return np_readonly_view(self._mode_osc_str)
 
     def pop_frequency(self, lebedev_prec=53, active_only=True):
         """Calculate the so-called polar-optic phonon (POP) frequency
@@ -745,7 +803,7 @@ class PolarGammaPhonons(GammaPhonons):
 
         # Vectors and weights for numerical integration.
 
-        q_v, q_w = unit_sphere_lebedev_quad_rule(lebedev_prec, ret="vectors")
+        q_v, q_w = unit_sphere_lebedev_quad_rule(lebedev_prec, angles=False)
 
         mode_w = np.zeros(len(band_inds), dtype=np.float64)
 
@@ -878,10 +936,12 @@ class PolarGammaPhonons(GammaPhonons):
 
         evecs_new = evecs_new.T.reshape(self._evecs.shape)
 
-        gamma_ph = GammaPhonons(
+        gamma_ph = PolarGammaPhononsBase(
             self._struct,
             freqs_new,
             evecs_new,
+            self._eps_inf,
+            self._born_charges,
             lws=lws_new.real,
             irreps=None,
         )
@@ -962,4 +1022,37 @@ class PolarGammaPhonons(GammaPhonons):
             lws=d["linewidths"],
             irreps=irreps,
             t=d["temperature"],
+        )
+
+    @staticmethod
+    def from_gamma_phonons(gamma_ph, eps_inf, born_charges):
+        r"""Create a new `PolarGammaPhonons` instance from a
+        `GammaPhonons` object and a high-frequency dielectric constant
+        and a set of Born charges.
+
+        Parameters
+        ----------
+        gamma_ph : GammaPhonons
+            `GammaPhonons` object.
+        eps_inf : array_like
+            High-frequency dielectric constant \eps_inf (shape:
+            `(3, 3)`).
+        born_charges : array_like
+            Born effective charge tensors (shape: `(N, 3, 3)`).
+
+        Returns
+        -------
+        polar_gamma_ph : PolarGammaPhonons
+            `PolarGammaPhonons` object.
+        """
+
+        return PolarGammaPhonons(
+            gamma_ph.structure,
+            gamma_ph.frequencies,
+            gamma_ph.eigenvectors,
+            eps_inf,
+            born_charges,
+            gamma_ph.linewidths,
+            gamma_ph.irreps,
+            gamma_ph.temperature,
         )

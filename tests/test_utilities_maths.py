@@ -29,7 +29,7 @@ from phonopy_spectroscopy.utility.differentiation import (
 
 from phonopy_spectroscopy.utility.quadrature import (
     unit_circle_quad_rule,
-    unit_sphere_lebedev_quad_available_precs,
+    unit_sphere_lebedev_quad_rule_available_precs,
     unit_sphere_lebedev_quad_rule,
 )
 
@@ -255,7 +255,7 @@ class TestQuadrature(unittest.TestCase):
 
         num_pts = 16
 
-        vecs, w = unit_circle_quad_rule(num_pts, ret="vectors_2d")
+        vecs, w = unit_circle_quad_rule(num_pts, angles=False)
 
         ang_inc = (2.0 * np.pi) / num_pts
 
@@ -274,8 +274,8 @@ class TestQuadrature(unittest.TestCase):
         """Test integration over the surface of the unit sphere using
         `unit_sphere_levedev_quad_rule`."""
 
-        for p in unit_sphere_lebedev_quad_available_precs():
-            vecs, w = unit_sphere_lebedev_quad_rule(p, ret="vectors")
+        for n in unit_sphere_lebedev_quad_rule_available_precs():
+            vecs, w = unit_sphere_lebedev_quad_rule(n, angles=False)
 
             a = 4.0 * np.pi * sum(w * _sphere(*v) for v, w in zip(vecs, w))
 

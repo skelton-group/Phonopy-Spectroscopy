@@ -331,7 +331,7 @@ class RamanCalculation:
         t=None,
         lw=None,
         e_rt=None,
-        **kwargs
+        **kwargs,
     ):
         """Simulate a single-crystal Raman measurement.
 
@@ -488,7 +488,7 @@ class RamanCalculation:
                 kwargs.pop("d2_axis_vals"),
                 kwargs.pop("d2_unit_text_label"),
                 irreps=params["irreps"],
-                **kwargs
+                **kwargs,
             )
         else:
             return RamanSpectrum1D(
@@ -498,7 +498,7 @@ class RamanCalculation:
                 params["laser_wavelength"],
                 params["temperature"],
                 irreps=params["irreps"],
-                **kwargs
+                **kwargs,
             )
 
     def single_crystal_polarisation_rotation(
@@ -510,7 +510,7 @@ class RamanCalculation:
         chi_start=0.0,
         chi_end=360.0,
         chi_step=2.5,
-        **kwargs
+        **kwargs,
     ):
         """Simulate a single-crystal polarisation (chi) rotation
         measurement where one of the incident or scattered polarisations
@@ -591,7 +591,7 @@ class RamanCalculation:
             d2_unit_text_label="chi / deg",
             d2_unit_plot_label=r"$\chi$ / $^\circ$",
             d2_col_hdrs=["chi_{0:.2f}".format(a) for a in angles],
-            **kwargs
+            **kwargs,
         )
 
     def single_crystal_crystal_rotation(
@@ -604,7 +604,7 @@ class RamanCalculation:
         phi_end=360.0,
         phi_step=2.5,
         rot_axis="incident",
-        **kwargs
+        **kwargs,
     ):
         """Simulate a single-crystal crystal (phi) rotation measurement
         where the crystal is rotated about the incident direction.
@@ -691,7 +691,7 @@ class RamanCalculation:
             d2_unit_text_label="phi / deg",
             d2_unit_plot_label=r"$\phi$ / $^\circ$",
             d2_col_hdrs=["phi_{0:.2f}".format(a) for a in angles],
-            **kwargs
+            **kwargs,
         )
 
     def powder(
@@ -700,14 +700,12 @@ class RamanCalculation:
         i_pol=None,
         s_pol=None,
         po_hkl=None,
-        po_eta=0.0,
+        po_r=1.0,
         w=785.0,
         t=None,
         e_rt=None,
         lw=None,
-        method="best",
-        lc_prec=5,
-        **kwargs
+        **kwargs,
     ):
         """Simulate a powder Raman spectrum with optional preferred
         orientation.
@@ -726,9 +724,9 @@ class RamanCalculation:
             to `"sum"`.
         po_hkl : array_like of int or None, optional
             Miller index of the preferred orientation (default: None).
-        po_eta : float, optional
-            Fraction of crystallites with the preferred orientation
-            (default: 0.0)
+        po_r : float or None, optional
+            r parameter for March-Dollase distribution used to model
+            preferred orientation (default: `None`)
         w : float or None, optional
             Measurement wavelength (default: 785 nm).
         t : float or None, optional
@@ -744,11 +742,6 @@ class RamanCalculation:
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
             linewidths from the underlying phonon calculation if
             available).
-        method : {"nquad", "leb+circ", "best"}, optional
-            Method for powder averaging (default: `"best"`).
-        lc_prec : int, optional
-            Precision of the Lebedev + circle numerical quadrature
-            scheme (default: 5).
         **kwargs : any
             Keyword arguments to the `RamanSpectrum1D` and
             `RamanSpectrum2D` constructors (some of these may be
@@ -776,40 +769,10 @@ class RamanCalculation:
 
         params = self._get_calc_params(geom, i_pol, s_pol, w, t, e_rt, lw)
 
-        if method.lower() == "best":
-            # method="best" will use an analytical formula if
-            # possible. If multiple incident polarisations are
-            # supplied and could result in a mix of analytical and
-            # numerical methods being used, raise a warning.
-
-            may_use_analytical = (
-                np.abs(po_eta) < ZERO_TOLERANCE
-                and not np.iscomplex(params["raman_tensors"]).any()
-            )
-
-            if may_use_analytical:
-                count = 0
-
-                c_dir = params["geometry"].collection_direction
-
-                for p in params["incident_polarisations"]:
-                    if p.check_perpendicular(c_dir):
-                        count += 1
-
-                if count < len(params["incident_polarisations"]):
-                    warnings.warn(
-                        "The given set of incident polarisatios may "
-                        "result in a mix of calculations with "
-                        "analytical and numerical methods with method "
-                        '= "best". To avoid this warning, set method = '
-                        '"lebedev+circle" instead.',
-                        RuntimeWarning,
-                    )
-
-        po_surf_norm = None
+        po_norm = None
 
         if po_hkl is not None:
-            po_surf_norm = self._ph_calc.structure.real_space_normal(
+            po_norm = self._ph_calc.structure.real_space_normal(
                 po_hkl, conv=True
             )
 
@@ -832,10 +795,8 @@ class RamanCalculation:
                 params["geometry"],
                 i_pol,
                 s_pol,
-                po_eta=po_eta,
-                po_surf_norm=po_surf_norm,
-                method=method,
-                lc_prec=lc_prec,
+                po_r=po_r,
+                po_norm=po_norm,
             )
 
         ints = np.array(ints, dtype=np.float64).T
@@ -860,7 +821,7 @@ class RamanCalculation:
                 kwargs.pop("d2_axis_vals"),
                 kwargs.pop("d2_unit_text_label"),
                 irreps=params["irreps"],
-                **kwargs
+                **kwargs,
             )
         else:
             return RamanSpectrum1D(
@@ -870,7 +831,7 @@ class RamanCalculation:
                 params["laser_wavelength"],
                 params["temperature"],
                 irreps=params["irreps"],
-                **kwargs
+                **kwargs,
             )
 
     def powder_polarisation_rotation(
@@ -880,8 +841,8 @@ class RamanCalculation:
         s_pol=None,
         chi_start=0.0,
         chi_end=360.0,
-        chi_step=None,
-        **kwargs
+        chi_step=2.5,
+        **kwargs,
     ):
         """Simulate a powder polarisation (chi) rotation measurement
         where one of the incident or scattered polarisations are rotated
@@ -900,12 +861,9 @@ class RamanCalculation:
             to the equivalent of horizontal polarisation in a
             conventional backscattering geometry, and `s_pol` defaults
             to `"sum"`.
-        chi_start, chi_end : float, optional
+        chi_start, chi_end, chi_step : float, optional
             Start/end angle for polarisation rotation in degrees
-            (defaults: 0 -> 360 deg).
-        chi_step : float or None, optional
-            Angle step for polarisation rotation in degrees (defaults:
-            2.5 deg, or 22.5 deg with preferred orientation).
+            (defaults: 0 -> 360 deg in 2.5 deg steps).
         **kwargs : any
             Optional arguments to `powder`.
 
@@ -922,12 +880,6 @@ class RamanCalculation:
         -----
         See `powder` for optional keyword arguments.
         """
-
-        if chi_step is None:
-            chi_step = 2.5
-
-            if "po_eta" in kwargs and kwargs["po_eta"] > 0.0:
-                chi_step = 22.5
 
         angles = np.arange(chi_start, chi_end + chi_step / 10.0, chi_step)
 
@@ -963,7 +915,7 @@ class RamanCalculation:
             d2_unit_text_label="chi / deg",
             d2_unit_plot_label=r"$\chi$ / $^\circ$",
             d2_col_hdrs=["chi_{0:.2f}".format(a) for a in angles],
-            **kwargs
+            **kwargs,
         )
 
     def to_dict(self):

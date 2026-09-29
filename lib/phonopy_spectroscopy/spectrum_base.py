@@ -147,7 +147,10 @@ class SpectrumBase:
 
         See Also
         --------
-        auto_x : Function used to set `x` if not specified.
+        units.get_supported_frequency_units : Get supported values of
+            `x_units`.
+        auto_x : Algorithm used to automatically determine `x_range`
+            and/or `x_res` if not specified.
         """
 
         if x is not None:
@@ -235,7 +238,6 @@ class GammaPhononSpectrumBase(SpectrumBase):
         x_res=None,
         x=None,
         x_units="thz",
-        **kwargs
     ):
         """Create a new instance of the SpectrumBase class.
 
@@ -262,9 +264,9 @@ class GammaPhononSpectrumBase(SpectrumBase):
 
         See Also
         --------
-        `units.get_supported_frequency_units` : Get supported
-            values of `units`.
-        `auto_x` : Algorithm used to automatically determine `x_range`
+        units.get_supported_frequency_units : Get supported values of
+            `x_units`.
+        auto_x : Algorithm used to automatically determine `x_range`
             and/or `x_res` if not specified.
         """
 

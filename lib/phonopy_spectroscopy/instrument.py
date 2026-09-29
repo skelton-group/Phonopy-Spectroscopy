@@ -211,7 +211,7 @@ class PolarisationBase:
         ----------
         v : array_like
             D-dimensional polarisation vector (shape: `(D,)`) or vectors
-            (shape: `(D, 3)`).
+            (shape: `(N, D)`).
         w : array_like or None, optional
             Weights for summing/averaging multiple `v` (shape: `(N,)`).
 
@@ -356,8 +356,7 @@ class Polarisation(PolarisationBase):
         Parameters
         ----------
         v : array_like
-            D-dimensional polarisation vector (shape: `(D,)`) or vectors
-            (shape: `(D, 3)`).
+            3D polarisation vector(s) (shapes: `(3,)` or `(N, 3)`).
         w : array_like or None, optional
             Weights for summing/averaging multiple `v` (shape: `(N,)`).
 

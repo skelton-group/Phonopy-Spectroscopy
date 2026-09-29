@@ -72,11 +72,11 @@ class InfraredCalculation:
         lw=None,
         hkl=None,
         rot=None,
-        q_nac=None,
+        nac=False,
         active_only=True,
         **kwargs,
     ):
-        r"""Simulate the tensor infrared dielectric function.
+        r"""Calculate the tensor infrared dielectric function.
 
         Parameters
         ----------
@@ -87,13 +87,13 @@ class InfraredCalculation:
         hkl : array_like of int or None, optional
             Reorient crystal so the normal of the surface with the
             specified Miller index is oriented antiparallel to the
-            incident direction (default: `None`).
+            z axis (default: `None`).
         rot : array_like or None, optional
             Optional rotation to reorient the crystal - if `hkl` is also
             set, the rotation is applied after the `hkl` reorientation.
-        q_nac : array_like or None, optional
-            Optional "approach direction" for applying a non-analytical
-            correction (NAC) to the phonon frequencies and eigenvectors.
+        nac : bool, optional
+            Apply a non-analytical correction (NAC) to the phonon
+            frequencies and eigenvectors (default: `False`).
         active_only : bool, optional
             If `True`, and if the underlying Gamma-point phonon
             calculation has irreps, calculate the dielectric function
@@ -115,8 +115,8 @@ class InfraredCalculation:
 
         Notes
         -----
-        `q_nac` is specified in real-space coordinates. If `hkl` and/or
-        `rot` are set, `q_nac` is specified for the rotated frame.
+        The calculation assumes a standard experimental geometry where
+        light is incident along the z axis.
         """
 
         # Determine rotation matrix.
@@ -128,17 +128,16 @@ class InfraredCalculation:
 
             rot = r if rot is None else np.matmul(rot, r)
 
-        # If q_nac is set, generate a new phonon calculation with LO/TO
+        # If nac is set, generate a new phonon calculation with LO/TO
         # splitting.
 
         ph_calc = self._ph_calc
 
-        if q_nac is not None:
-            # If we are applying a rotation matrix, we need to apply
-            # the reverse rotation to q to convert it to the crystal
-            # reference frame.
+        if nac:
+            # If we are applying a rotation matrix, we need to convert
+            # the incident direction to the crystal reference frame.
 
-            q_nac = parse_direction(q_nac)
+            q_nac = parse_direction("z")
 
             if rot is not None:
                 q_nac = np.matmul(rot.T, q_nac)
@@ -167,12 +166,7 @@ class InfraredCalculation:
 
         # Oscillator strengths.
 
-        osc_strs = mode_oscillator_strengths(
-            mode_effective_charges(
-                ph_calc.eigendisplacements[band_inds],
-                self._ph_calc.born_effective_charges,
-            )
-        )
+        osc_strs = ph_calc.mode_oscillator_strengths[band_inds]
 
         # Linewidths.
 
@@ -279,7 +273,7 @@ class InfraredCalculation:
         nac : bool, optional
             Apply a non-analytical correction to the dynamical matrix
             when constructing the infrared dielectric function (default:
-            `False`).
+            `True`).
         m_f : float, optional
             Volume fraction of material in a multiphase mixture
             (default: 1.0).
@@ -305,18 +299,10 @@ class InfraredCalculation:
             Object returned by this function.
         """
 
-        if "q_nac" in kwargs:
-            warnings.warn(
-                "q_nac will be overridden by the nac keyword.",
-                UserWarning,
-            )
-
-            del kwargs["q_nac"]
-
         eps_ir = self.dielectric_function(
             hkl=hkl,
             rot=rot,
-            q_nac=(parse_direction("+z") if nac else None),
+            nac=nac,
             **kwargs,
         )
 
@@ -335,6 +321,9 @@ class InfraredCalculation:
         t=1.0,
         n_f=1.0,
         n_b=1.0,
+        m_f=1.0,
+        m_eps=1.0,
+        m_rho=1.0,
         **kwargs,
     ):
         """Simulate the optical spectra of a powder by averaging the
@@ -348,8 +337,17 @@ class InfraredCalculation:
         n_f, n_b : float, optional
             Refractive indices of the front (indicent) and back (exit)
             media (default: 1.0 = vacuum ~ air).
+        m_f : float, optional
+            Volume fraction of material in a multiphase mixture
+            (default: 1.0).
+        m_eps : float or tuple of numpy.ndarray, optional
+            Dielectric constant or tuple of `(x, eps_x)` specifying the
+            frequency-dependent dielectric function of a second phase
+            (default: 1.0 = vacuum ~ air).
+        m_rho : float, optional
+            Material density (default: 1.0).
         **kwargs : any
-            Optional arguments to `optical_eigenmodes`.
+            Optional arguments to `dielectric_function`.
 
         Returns
         -------
@@ -365,11 +363,10 @@ class InfraredCalculation:
             Object returned by this function.
         """
 
-        if "q_nac" in kwargs:
+        if "nac" in kwargs:
             warnings.warn(
                 "Non-analytical corrections should not be specified "
-                "with q_nac because this function does not perform "
-                "explicit orientational averaging.",
+                "with nac for the effective-medium approximation.",
                 UserWarning,
             )
 
@@ -385,7 +382,12 @@ class InfraredCalculation:
         )
 
         oe_sp = OpticalEigenmodes(
-            oe_sp.x, np.mean(oe_sp.eigenvalues, axis=-1), **kwargs
+            oe_sp.x,
+            np.mean(oe_sp.eigenvalues, axis=-1),
+            oe_sp.x_units,
+            m_f=m_f,
+            m_eps=m_eps,
+            m_rho=m_rho,
         )
 
         return oe_sp.unpolarised_eigenmode_average_optical_spectrum(
@@ -427,10 +429,10 @@ class InfraredCalculation:
             Object returned by this function.
         """
 
-        if "q_nac" in kwargs:
+        if "nac" in kwargs:
             warnings.warn(
                 "Non-analytical corrections should not be specified "
-                "with q_nac because this function does not perform "
+                "with nac because this function does not perform "
                 "explicit orientational averaging.",
                 UserWarning,
             )

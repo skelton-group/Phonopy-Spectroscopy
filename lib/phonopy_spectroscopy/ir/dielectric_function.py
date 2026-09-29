@@ -143,7 +143,7 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
 
         if self._eps is None:
             # The conversion factor to relative permittivity assumes
-            # oscillator strengths in e^2 / amu, volumes in Ang^2 and
+            # oscillator strengths in e^2 / amu, volumes in Ang^3 and
             # frequencies in THz.
 
             x, freqs, lws = self.x, self.frequencies, self.linewidths

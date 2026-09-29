@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+
+
 class CodeInterface:
     def __init__(self):
         pass

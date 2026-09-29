@@ -12,7 +12,12 @@
 
 import numpy as np
 
-from .constants import BOLTZMANN_CONSTANT_EV, PLANCK_CONSTANT_EV
+from .constants import (
+    BOLTZMANN_CONSTANT_EV,
+    PLANCK_CONSTANT_EV,
+    ZERO_TOLERANCE,
+)
+
 from .utility.numpy_helper import np_check_shape, np_expand_dims
 
 try:
@@ -186,7 +191,7 @@ def phonon_occupation_number(nu, t):
 # ---------------------
 
 
-@njit
+@njit(fastmath=True, inline="always")
 def march_dollase(alpha, r):
     r"""Evaluate the March-Dollase distribution function with the
     supplied angle `alpha` and March parameter `r`.
@@ -212,42 +217,64 @@ def march_dollase(alpha, r):
         f(\alpha, r) = \left[ r^2 \cos^2 \alpha + \frac{1}{r} \sin^2 \alpha \right]^{-3/2}
     """
 
-    return (r**2 * np.cos(alpha) ** 2 + (1.0 / r) * np.sin(alpha) ** 2) ** (
-        -3.0 / 2.0
-    )
+    if r < ZERO_TOLERANCE:
+        raise ValueError("r must be > 0.")
+
+    # Using identity cos^2(x) + sin^2(x) = 1.
+
+    c2_a = np.cos(alpha) ** 2
+    s2_a = 1.0 - c2_a
+
+    return (r**2 * c2_a + (1.0 / r) * s2_a) ** (-3.0 / 2.0)
+
+
+def march_dollase_r_to_eta(r):
+    r"""Calculate the excess fraction of crystallites \eta in a
+    preferred orientation for a given value of the March parameter r.
+
+    Parameters
+    ----------
+    r : float
+        March parameter.
+
+    Returns
+    -------
+    eta : float
+        Excess crystallite fraction.
+    """
+
+    if r < ZERO_TOLERANCE:
+        raise ValueError("r must be > 0.")
+
+    if np.abs(r - 1.0) < ZERO_TOLERANCE:
+        return 0.0
+
+    return np.sqrt((1.0 - r) ** 3 / (1.0 - r**3))
 
 
 def march_dollase_eta_to_r(eta):
-    r"""Convert a crystallte excess fraction `eta` to the corresponding
-     March parameter `r` in the March-Dollase distribution function.
+    r"""Calculate the two values of the March parameter r that give the
+    fraction of crystallites \eta in a preferred orientation.
 
     Parameters
     ----------
     eta : float
-        Crystallite fraction.
+        Excess crystallite fraction.
 
     Returns
     -------
-    r : float
-        March parameter.
-
-    Notes
-    -----
-    The conversion between `eta` and `r` is given by:
-
-    ..math::
-
-        \frac{1}{\eta^2 - 1} \left[ -\frac{1}{2} \eta^2 + \sqrt{3} \times \eta \times \sqrt{1 - \frac{1}{4}\eta} - 1 \right]
+    r_vals : tuple of float
+        March parameter r with r < 1 and r > 1 that give \eta.
     """
 
-    if eta < 0.0 or eta >= 1.0:
-        raise ValueError(
-            "eta must be >= 0 and < 1. eta = 1 causes the "
-            "March-Dollase function to diverge."
-        )
+    r_1 = (
+        (-(eta**2) / 2.0) + (eta * np.sqrt(12.0 - 3.0 * eta**2) / 2.0) - 1.0
+    ) / (eta**2 - 1.0)
 
-    return (
-        (-0.5 * eta**2)
-        + (np.sqrt(3.0) * eta * np.sqrt(1.0 - 0.25 * eta**2))
+    r_2 = (
+        (-1.0 * eta**2 / 2.0)
+        - (eta * np.sqrt(12.0 - 3.0 * eta**2) / 2.0)
         - 1.0
     ) / (eta**2 - 1.0)
+
+    return (r_1, r_2)

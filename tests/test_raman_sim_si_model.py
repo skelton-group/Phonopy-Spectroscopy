@@ -40,6 +40,10 @@ from phonopy_spectroscopy.instrument import Geometry, Polarisation
 
 from phonopy_spectroscopy.raman.intensity import (
     calculate_single_crystal_raman_intensities,
+    calculate_powder_raman_intensities_analytical,
+    calculate_powder_raman_intensities_quad,
+    calculate_powder_raman_intensities_leb_circ,
+    calculate_powder_raman_intensities_quad_circ,
     calculate_powder_raman_intensities,
 )
 
@@ -218,37 +222,28 @@ class TestRamanSimulation(unittest.TestCase):
         i_pol = Polarisation.from_direction("x")
         s_pols = Polarisation.from_rotation("z", step=90.0)
 
-        ints_1 = [
-            calculate_powder_raman_intensities(
+        for s_pol in s_pols:
+            ints_a = calculate_powder_raman_intensities_analytical(
                 self._r_t,
                 self._geom,
                 i_pol,
                 s_pol,
             )
-            for s_pol in s_pols
-        ]
 
-        ints_2 = [
-            calculate_powder_raman_intensities(
-                self._r_t, self._geom, i_pol, s_pol, method="quad"
+            ints_q, _, _ = calculate_powder_raman_intensities_quad(
+                self._r_t, self._geom, i_pol, s_pol
             )
-            for s_pol in s_pols
-        ]
 
-        ints_3 = [
-            calculate_powder_raman_intensities(
+            ints_lc, _, _ = calculate_powder_raman_intensities_leb_circ(
                 self._r_t,
                 self._geom,
                 i_pol,
                 s_pol,
-                method="leb+circ",
-                lc_prec=5,
+                p=5,
             )
-            for s_pol in s_pols
-        ]
 
-        self.assertTrue(np.allclose(ints_2, ints_1))
-        self.assertTrue(np.allclose(ints_3, ints_1))
+            self.assertTrue(np.allclose(ints_q, ints_a))
+            self.assertTrue(np.allclose(ints_lc, ints_a))
 
     def test_powder_2(self):
         """Test calculations of parallel and perpendicular powder
@@ -301,15 +296,15 @@ class TestRamanSimulation(unittest.TestCase):
         rho_pos = []
 
         for hkl in (1, 0, 0), (0, 1, 0), (0, 0, 1):
-            po_surf_norm = self._struct.real_space_normal(hkl)
+            po_norm = self._struct.real_space_normal(hkl)
 
             ints_par_po = calculate_powder_raman_intensities(
                 self._r_t,
                 self._geom,
                 pol_par,
                 pol_par,
-                po_surf_norm=po_surf_norm,
-                po_eta=0.1,
+                po_r=0.9,
+                po_norm=po_norm,
             )
 
             ints_per_po = calculate_powder_raman_intensities(
@@ -317,8 +312,8 @@ class TestRamanSimulation(unittest.TestCase):
                 self._geom,
                 pol_par,
                 pol_per,
-                po_surf_norm=po_surf_norm,
-                po_eta=0.1,
+                po_r=0.9,
+                po_norm=po_norm,
             )
 
             rho_po = ints_per_po / ints_par_po
@@ -337,41 +332,40 @@ class TestRamanSimulation(unittest.TestCase):
     def test_powder_with_po_2(self):
         """Test calculations of the parallel and perpenducular powder
         intensnties for a powder with a small preferred orientation
-        along (0, 0, 1) with the two numerical integration approaches.
+        along (0, 0, 1) with two numerical integration approaches.
         """
 
-        # This may need adjusting depending on the value of \eta.
-
-        lc_prec = 21
+        quad_circ_m = 8
 
         pol_par = Polarisation.from_direction("x")
         pol_per = Polarisation.from_direction("y")
 
-        po_surf_norm = self._struct.real_space_normal((0, 0, 1))
+        po_norm = self._struct.real_space_normal((0, 0, 1))
+        po_axis = -1.0 * self._geom.collection_direction
 
         for s_pol in pol_par, pol_per:
-            ints_po_nquad = calculate_powder_raman_intensities(
+            i_q, _, _ = calculate_powder_raman_intensities_quad(
                 self._r_t,
                 self._geom,
                 pol_par,
                 s_pol,
-                po_eta=0.1,
-                po_surf_norm=po_surf_norm,
-                method="quad",
+                po_r=0.9,
+                po_norm=po_norm,
+                po_axis=po_axis,
             )
 
-            ints_po_lebedev = calculate_powder_raman_intensities(
+            i_qc, _, _ = calculate_powder_raman_intensities_quad_circ(
                 self._r_t,
                 self._geom,
                 pol_par,
                 s_pol,
-                po_eta=0.1,
-                po_surf_norm=po_surf_norm,
-                method="leb+circ",
-                lc_prec=lc_prec,
+                m=quad_circ_m,
+                po_r=0.9,
+                po_norm=po_norm,
+                po_axis=po_axis,
             )
 
-            self.assertTrue(np.allclose(ints_po_lebedev, ints_po_nquad))
+            self.assertTrue(np.allclose(i_qc, i_q))
 
 
 # ----

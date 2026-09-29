@@ -88,6 +88,61 @@ def parse_direction(dirn):
     raise ValueError('Invalid direction specifier "{0}".'.format(dirn))
 
 
+def polar_to_cartesian(p, vec_3d=False):
+    r"""Convert polar angles \phi to Cartesian coordinates.
+
+    Parameters
+    ----------
+    p : float or array_like
+        Polar angle(s) (shape: `(2,)` or `(N, 2)`).
+    vec_3d : bool, optional
+        If `True`, return 3D vectors, otherwise return 2D vectors
+        (default: `False`).
+
+    Returns
+    -------
+    v : numpy.ndarray
+        Cartesian coordinates (shape: `(2,)`, `(3,)`, `(N, 2)` or
+        `(N, 3)`, depending on `phi` and `vec_3d`).
+    """
+
+    p, n_dim_add = np_expand_dims(np.asarray(p, dtype=np.float64), (None, 2))
+
+    v = np.zeros((len(p), 3 if vec_3d else 2), dtype=np.float64)
+
+    v[:, 0] = p[:, 0] * np.cos(p[:, 1])
+    v[:, 1] = p[:, 0] * np.sin(p[:, 1])
+
+    return v if n_dim_add == 0 else v[0]
+
+
+def cartesian_to_spherical_polar(v):
+    """Convert vectors in Cartesian coordinates to spherical polar
+    coordinates.
+
+    Parameters
+    ----------
+    v : array_like
+        Cartesian coordinates (shape: `(3,)` or `(N, 3)`).
+
+    Returns
+    -------
+    sp : numpy.ndarray
+        Spherical polar coordinates `(r, phi, theta)` (same shape as
+        `v`).
+    """
+
+    v, n_dim_add = np_expand_dims(np.asarray(v, dtype=np.float64), (None, 3))
+
+    sp = np.zeros_like(v, dtype=np.float64)
+
+    sp[:, 0] = np.linalg.norm(v, axis=1)
+    sp[:, 1] = np.arctan2(v[:, 1], v[:, 0])
+    sp[:, 2] = np.arccos(v[:, 2] / sp[:, 0])
+
+    return sp if n_dim_add == 0 else sp[0]
+
+
 def rotation_matrix_from_vectors(a, b):
     """Compute a 3D rotation matrix that rotates a vector `a` onto
     another vector `b`, given by a 180 degree rotation about the
@@ -182,7 +237,7 @@ def rotation_matrix_from_axis_angle(k, theta):
     )
 
 
-@njit
+@njit(fastmath=True, inline="always")
 def direction_cosine(phi, theta, psi):
     """Compute the direction cosine for the Euler angles `phi`, `theta`
     and `psi`.

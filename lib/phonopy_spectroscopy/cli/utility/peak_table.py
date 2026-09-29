@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
-
 
 """Helper routines for outputting peak tables and spectra to plain-text
 files, for implementing the command-line interface."""
@@ -186,12 +184,13 @@ def _raman_get_preamble_lines(sp):
     """
 
     preamble_lines = [
-        "x: {0}".format(sp.x_unit_text_label),
-        "y: {0}".format(sp.y_unit_text_label),
+        "x : {0}".format(sp.x_unit_text_label),
+        "y (int.) : {0}".format(sp.intensity_unit_text_label),
+        "y (cross sect.) : {0}".format(sp.cross_section_unit_plot_label),
     ]
 
     if hasattr(sp, "z"):
-        preamble_lines.append("z: {0}".format(sp.z_unit_text_label))
+        preamble_lines.append("z : {0}".format(sp.z_unit_text_label))
 
     return preamble_lines
 

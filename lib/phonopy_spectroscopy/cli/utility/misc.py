@@ -1,24 +1,19 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Miscellaneous routines for implementing the command-line interface."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
 
 from ...utility.geometry import rotation_matrix_from_vectors
 from ...utility.numpy_helper import np_check_shape
-
 
 # ---------
 # Functions
