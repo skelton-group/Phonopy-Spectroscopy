@@ -192,6 +192,9 @@ def _raman_get_preamble_lines(sp):
     if hasattr(sp, "z"):
         preamble_lines.append("z : {0}".format(sp.z_unit_text_label))
 
+    preamble_lines.append("t : {0:.2f}".format(sp.measurement_temperature))
+    preamble_lines.append("lambda : {0:.2f}".format(sp.measurement_wavelength))
+
     return preamble_lines
 
 
