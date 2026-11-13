@@ -1,22 +1,17 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Helper routines for parsing command-line arguments for implementing
 the command-line interface."""
-
 
 # -------
 # Imports
 # -------
 
-
 import numpy as np
-
 
 # ---------
 # Functions
@@ -66,7 +61,7 @@ def parse_3x3_matrix(inp):
     -----
     inp may contain one, three, six or nine values, any of which may be
     specified as fractions, which are interpreted as follows:
-      * 1 value: `xx = yy = zz = vals[0]`
+      * 1 value: `xx = yy = zz = val`
       * 3 values: `xx = vals[0]`z`, `yy = vals[1]`, `zz = vals[2]`
       * 6 values: `xx = vals[0]`, `xy = yx = vals[1]`,
         `xz = zx = vals[2]`, `yy = vals[3]`, `yz = zy = vals[4]`,
@@ -77,40 +72,29 @@ def parse_3x3_matrix(inp):
     denominator will result in incorrect parsing and/or an error.
     """
 
-    vals = [parse_frac(val) for val in inp.strip().split()]
-
-    val_inds = None
+    vals = np.array(
+        [parse_frac(v) for v in inp.strip().split()], dtype=np.float64
+    )
 
     if len(vals) == 1:
-        # Single value specified -> assume equal diagonals and
-        # zero off-diagonals.
-
-        val_inds = [(0, i, i) for i in range(3)]
+        # Uniform diagonal: xx = yy = zz.
+        return vals[0] * np.eye(3, dtype=np.float64)
 
     elif len(vals) == 3:
-        # Diagonals specified -> assume zero off-diagonals.
-        val_inds = [3 * (i,) for i in range(3)]
+        # Diagonals: xx, yy, zz.
+        return np.diag(vals)
 
     elif len(vals) == 6:
-        # Upper triangle specified -> assume symmetric about diagonal.
-        # xx, xy, xz, yy, yz, zz
+        # Upper triangle: xx, xy, xz, yy, yz, zz.
 
-        val_inds = (
-            [(0, 0, 0), (1, 0, 1), (2, 0, 2)]
-            + [(1, 1, 0), (3, 1, 1), (4, 1, 2)]
-            + [(2, 2, 0), (4, 2, 1), (5, 2, 2)]
+        xx, xy, xz, yy, yz, zz = vals
+
+        return np.array(
+            [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]], dtype=np.float64
         )
 
     elif len(vals) == 9:
-        # All elements specified.
-        val_inds = [(i, i // 3, i % 3) for i in range(9)]
-
-    if val_inds is not None:
-        mat = np.zeros((3, 3), dtype=np.float64)
-
-        for i, idx, idy in val_inds:
-            mat[idx, idy] = vals[i]
-
-        return mat
+        # All elements: xx, xy, xz, yx, yy, yz, zx, zy, zz.
+        return vals.reshape((3, 3))
 
     raise ValueError("inp must specify one, three, six or nine values.")

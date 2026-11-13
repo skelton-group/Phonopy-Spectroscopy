@@ -168,8 +168,8 @@ class TestRamanSimulation(unittest.TestCase):
             # the y and z axes, respectively.
 
             r = np.dot(
-                rotation_matrix_from_axis_angle("z", phi),
-                rotation_matrix_from_axis_angle("y", theta),
+                rotation_matrix_from_axis_angle("z", np.radians(phi)),
+                rotation_matrix_from_axis_angle("y", np.radians(theta)),
             )
 
             # Reference polarisation vectors.

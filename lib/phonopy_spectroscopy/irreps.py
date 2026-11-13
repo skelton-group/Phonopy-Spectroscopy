@@ -14,12 +14,6 @@ import warnings
 
 import numpy as np
 
-from .utility.numpy_helper import (
-    np_asarray_copy,
-    np_readonly_view,
-    np_check_shape,
-)
-
 # ----
 # Data
 # ----
@@ -213,7 +207,6 @@ _IRREP_ACTIVITIES = {
         ],
     },
 }
-
 """Spectroscopic activities of irreps of crystallographic pointgroups.
 """
 
@@ -222,55 +215,47 @@ _IRREP_ACTIVITIES = {
 # ---------
 
 
-def get_irrep_activities(point_group, irrep_type):
+def get_irrep_activities(pt_grp, ir_typ):
     """Return the spectroscopically-active active irreps for a point
     group.
 
     Parameters
     ----------
-    point_group : str
+    pt_grp : str
         Point group.
-    irrep_type : {"ir", "raman", "all"}
-        Type of irrep to return.
+    ir_typ : {"ir", "raman", "all"}
+        Irrep type to return.
 
     Returns
     -------
     irreps: tuple of (list of str or None)
         Lists of active and inactive irrep symbols for `irrep_type`.
         Returns `(None, None)` if data for `point_group` is not
-        available, or if `point_group` foes not have irreps for
+        available, or if `point_group` does not have irreps for
         `irrep_type`.
     """
 
-    point_group = str(point_group).lower()
-    irrep_type = str(irrep_type).lower()
+    pt_grp = str(pt_grp).lower()
+    ir_typ = str(ir_typ).lower()
 
-    # _IRREP_ACTIVITIES is should contain IR/Raman-active and complete
-    # irreps for all the point groups that can be associated with
-    # the crystallographic spacegroups. To help identify bugs, unknown
-    # point groups or missing irreps raise ValueErrors.
-
-    if point_group not in _IRREP_ACTIVITIES:
+    if pt_grp not in _IRREP_ACTIVITIES:
         raise ValueError(
-            'Unknown point_group="{0}" (this may be a bug).'
-            "".format(point_group)
+            f'Unknown point_group="{pt_grp}" (this may be a bug).'
         )
 
-    if irrep_type not in _IRREP_ACTIVITIES[point_group]:
+    if ir_typ not in _IRREP_ACTIVITIES[pt_grp]:
         raise ValueError(
-            'No irreps of type irrep_type="{0}" for point_group='
-            '"{1}" (this may be a bug).'.format(point_group, irrep_type)
+            f'No irreps of type "{ir_typ}" for point group "{pt_grp}" '
+            "(this may be a bug)."
         )
 
-    active_irreps = [sym for sym in _IRREP_ACTIVITIES[point_group][irrep_type]]
+    act_irs = [sym for sym in _IRREP_ACTIVITIES[pt_grp][ir_typ]]
 
-    inactive_irreps = [
-        sym
-        for sym in _IRREP_ACTIVITIES[point_group]["all"]
-        if sym not in active_irreps
+    inact_irs = [
+        sym for sym in _IRREP_ACTIVITIES[pt_grp]["all"] if sym not in act_irs
     ]
 
-    return (active_irreps, inactive_irreps)
+    return (np.array(act_irs, dtype=str), np.array(inact_irs, dtype=str))
 
 
 # ------------
@@ -290,60 +275,36 @@ class Irreps:
         pt_grp : str
             Point group symbol.
         ir_syms : array_like
-            Symbols of irrep groups (shape: `(M,)`).
+            Symbols of irrep groups (shape: `(M,)`). `"None"` or `None`
+            indicates unknown irreps.
         ir_band_inds : array_like
-            Indices of bands in irrep groups (shape: `(M, L)`, with `L`
-            potentially non-uniform).
+            Mapping of bands to irrep groups (shape: `(N,)`).
         """
 
         pt_grp = str(pt_grp).lower()
 
-        ir_syms = np.array(
-            [str(sym).capitalize() for sym in ir_syms], dtype=object
+        ir_syms = np.atleast_1d(np.array(ir_syms, dtype=str, copy=True))
+
+        for i, sym in enumerate(ir_syms):
+            if sym is not None:
+                ir_syms[i] = sym.capitalize()
+            else:
+                ir_syms[i] = "None"
+
+        ir_band_inds = np.atleast_1d(
+            np.array(ir_band_inds, dtype=int, copy=True)
         )
 
-        # In general, the sets of band indices in ir_band_inds may not
-        # be of uniform length, so we cannot store them as a 2D array of
-        # dtype=int. If the sets of indices do happen to be uniform,
-        # the array needs to be set up "manually" as below to stop
-        # NumPy from setting a single data type.
-
-        temp = np.zeros((len(ir_band_inds),), dtype=object)
-
-        for i, inds in enumerate(ir_band_inds):
-            temp[i] = np_asarray_copy(inds, dtype=int)
-
-        ir_band_inds = temp
-
-        # Check that we have a set of band indices for each irrep
-        # symbol, that each set of indices contains at least one entry,
-        # and that there are no duplicate band indices.
-
-        if len(ir_band_inds) != len(ir_syms):
+        if len(np.unique(ir_band_inds)) != len(ir_syms):
             raise ValueError(
-                "ir_band_inds must have the same length as ir_syms."
+                "The number of unique ir_band_inds is not consistent "
+                "with ir_syms."
             )
 
-        for inds in ir_band_inds:
-            if len(inds) == 0:
-                raise ValueError(
-                    "All entries in ir_band_inds must contain at least "
-                    "one band index."
-                )
-
-        band_inds = set()
-
-        for inds in ir_band_inds:
-            for idx in inds:
-                if idx in band_inds:
-                    raise ValueError(
-                        "One or more entries in ir_band_inds has "
-                        "duplicate band indices."
-                    )
-
-                band_inds.add(idx)
-
-        # If irrep data is available for the point group, check the
+        if ir_band_inds.min() < 0 or ir_band_inds.max() >= len(ir_syms):
+            raise ValueError(
+                "One or more ir_band_inds are out of bounds for ir_syms."
+            )
 
         if pt_grp in _IRREP_ACTIVITIES:
             for sym in ir_syms:
@@ -352,15 +313,15 @@ class Irreps:
                     and sym not in _IRREP_ACTIVITIES[pt_grp]["all"]
                 ):
                     raise ValueError(
-                        "{0} is not a valid irrep of point group {1}."
-                        "".format(sym, pt_grp)
+                        f'"{sym}" is not a valid irrep of point group {pt_grp}.'
                     )
         else:
-            warnings.warn(
-                'Point group "{0}" not recognised. Irrep symbols will '
-                'be verified and get_subset() with irreps="ir" or '
-                'irreps="raman" will fail.'.format(pt_grp)
-            )
+            raise ValueError(f'Point group "{pt_grp}" not recognised.')
+
+        # Make arrays readonly.
+
+        ir_syms.flags.writeable = False
+        ir_band_inds.flags.writeable = False
 
         self._pt_grp = pt_grp
         self._ir_syms = ir_syms
@@ -373,50 +334,16 @@ class Irreps:
 
     @property
     def irrep_symbols(self):
-        """numpy.ndarray : Irrep group symbols (shape: `(K,)`)."""
-        return np_readonly_view(self._ir_syms)
+        """numpy.ndarray : Irrep group symbols (shape: `(M,)`)."""
+        return self._ir_syms
 
     @property
     def irrep_band_indices(self):
-        """list of numpy.ndarray : Band indices in irrep groups (shape:
-        `(K,)`)."""
-        return [np_readonly_view(inds) for inds in self._ir_band_inds]
+        """numpy.ndarray : Mapping of bands to irrep groups (shape:
+        `(N,)`)."""
+        return self._ir_band_inds
 
-    def symbols_flat(self):
-        """Return a flat array of mode irrep symbols, with the symbols
-        for degenerate modes duplicated.
-
-        Returns
-        -------
-        irrep_syms : numpy.ndarray
-            Flat array of irrep symbols (shape: `(3N,)`),
-        """
-
-        irrep_syms = []
-
-        for sym, band_inds in zip(self._ir_syms, self._ir_band_inds):
-            irrep_syms += [sym] * len(band_inds)
-
-        return np.array(irrep_syms, dtype=object)
-
-    def band_indices_flat(self):
-        """Return a flat array of all the band indices covered by the
-        irrep groups.
-
-        Returns
-        -------
-        band_inds : numpy.ndarray
-            Flat array of band indices (shape: `(3N,)`).
-        """
-
-        band_inds = []
-
-        for inds in self._ir_band_inds:
-            band_inds.extend(inds)
-
-        return np.array(band_inds, dtype=int)
-
-    def get_subset(self, band_inds, reset_inds=False):
+    def get_subset(self, band_inds):
         """Return a new `Irreps` object for a subset of the bands
         specified by `band_inds`.
 
@@ -424,86 +351,73 @@ class Irreps:
         ----------
         band_inds : {"ir", "raman", "all"} or array_like
             Subset of bands to select.
-        reset_inds : bool, optional
-            If `True`, "reset" the band indices to be continuous from
-            zero (default: `False`).
 
         Returns
         -------
-        subset : Irreps
-            `Irreps` class containing the selected subset of bands.
+        subset : tuple
+            Tuple of `(band_inds, irreps)` containing the band indices
+            of the "parent" irreps and a new `Irreps` class for the
+            subset of bands.
         """
+
+        ir_syms = self._ir_syms
+        ir_band_inds = self._ir_band_inds
 
         # Determine which band indices to include in the subset.
 
-        subset_inds = None
+        sub_inds = None
 
-        band_inds_str = str(band_inds).lower()
+        if isinstance(band_inds, (str, np.str_)):
+            band_inds = band_inds.lower()
 
-        if band_inds_str == "all":
-            subset_inds = self.band_indices_flat()
+            match band_inds:
+                case "all":
+                    sub_inds = np.arange(0, len(ir_band_inds))
+                case "ir" | "raman":
+                    act_irs, _ = get_irrep_activities(self._pt_grp, band_inds)
 
-        elif band_inds_str == "ir" or band_inds_str == "raman":
-            # This will fail if the point group is not recognised.
+                    # Get the indices of the entries in _ir_band_inds that
+                    # point to active irreps.
 
-            active_irreps, _ = get_irrep_activities(
-                self._pt_grp, band_inds_str
-            )
+                    act_inds = np.flatnonzero(np.isin(ir_syms, act_irs))
+                    sub_inds = np.flatnonzero(np.isin(ir_band_inds, act_inds))
+                case _:
+                    raise ValueError(f'Unsupported band_inds="{band_inds}".')
+        else:
+            # Assume band_inds is an array_like.
 
-            subset_inds = []
+            sub_inds = np.atleast_1d(np.asanyarray(band_inds, dtype=int))
 
-            for ir_sym, ir_band_inds in zip(self._ir_syms, self._ir_band_inds):
-                if ir_sym in active_irreps:
-                    subset_inds.extend(ir_band_inds)
-
-        if subset_inds is None:
-            subset_inds = np.asarray(band_inds)
-
-            if not np_check_shape(subset_inds, (None,)):
+            if sub_inds.ndim != 1:
                 raise ValueError(
-                    "band_inds must have shape (N,) if specified as an "
-                    "array_like."
+                    "If specified as an array_like, band_inds must "
+                    "have shape (N,)."
                 )
 
-            if len(subset_inds) != len(set(subset_inds)):
-                raise ValueError(
-                    "band_inds contains one or more duplicate indices."
-                )
+            if len(np.unique(sub_inds)) != len(sub_inds):
+                raise ValueError("band_inds contains duplicate indices.")
 
-        # Determine which irrep groups to include.
+            if sub_inds.min() < 0 or sub_inds.max() > len(ir_band_inds):
+                raise ValueError("band_inds contains invalid indices.")
 
-        subset_ir_syms, subset_ir_band_inds = [], []
+        sub_ir_band_inds = ir_band_inds[sub_inds]
 
-        for ir_sym, ir_band_inds in zip(self._ir_syms, self._ir_band_inds):
-            test = np.isin(ir_band_inds, subset_inds)
+        # Make sure sub_inds does not include an incomplete irrep group.
 
-            if test.all():
-                subset_ir_syms.append(ir_sym)
-                subset_ir_band_inds.append(ir_band_inds)
-            else:
-                if test.sum() > 0:
-                    raise ValueError(
-                        "band_inds cannot cover partial irrep group(s)."
-                    )
+        ir_cnts = np.bincount(ir_band_inds, minlength=len(ir_syms))
+        sub_ir_cnts = np.bincount(sub_ir_band_inds, minlength=len(ir_syms))
 
-        # If required, "reset" the band indices in the subset.
+        if ((sub_ir_cnts > 0) & (sub_ir_cnts != ir_cnts)).any():
+            raise ValueError("band_inds cannot cover partial irrep group(s).")
 
-        if reset_inds:
-            # Lookup table mapping "old" to "new" band indices.
+        ir_sym_inds, new_ir_band_inds = np.unique(
+            sub_ir_band_inds, return_inverse=True
+        )
 
-            lut = {
-                old: new
-                for old, new in zip(
-                    sorted(subset_inds), range(len(subset_inds))
-                )
-            }
-
-            subset_ir_band_inds = [
-                [lut[idx] for idx in band_inds]
-                for band_inds in subset_ir_band_inds
-            ]
-
-        return Irreps(self._pt_grp, subset_ir_syms, subset_ir_band_inds)
+        return (
+            sub_inds,
+            Irreps(self._pt_grp, ir_syms[ir_sym_inds], new_ir_band_inds),
+        )
 
     def to_dict(self):
         """Return the internal data as a dictionary of native Python
@@ -518,10 +432,8 @@ class Irreps:
 
         return {
             "point_group": self._pt_grp,
-            "irrep_group_symbols": list(self._ir_syms),
-            "irrep_band_indices": list(
-                band_inds.tolist() for band_inds in self._ir_band_inds
-            ),
+            "irrep_group_symbols": self._ir_syms.tolist(),
+            "irrep_band_indices": self._ir_band_inds.tolist(),
         }
 
     @staticmethod

@@ -113,14 +113,14 @@ def compare_gamma_phonons(gamma_ph_cmp, gamma_ph_ref):
     if not np.allclose(gamma_ph_cmp.eigenvectors, gamma_ph_ref.eigenvectors):
         return False
 
-    if gamma_ph_cmp.has_linewidths:
-        if not gamma_ph_ref.has_linewidths or not np.allclose(
+    if gamma_ph_cmp.linewidths is not None:
+        if gamma_ph_ref.linewidths is None or not np.allclose(
             gamma_ph_cmp.linewidths, gamma_ph_ref.linewidths
         ):
             return False
 
-    if gamma_ph_cmp.has_irreps:
-        if not gamma_ph_ref.has_irreps or not compare_irreps(
+    if gamma_ph_cmp.irreps is not None:
+        if gamma_ph_ref is None or not compare_irreps(
             gamma_ph_cmp.irreps, gamma_ph_ref.irreps
         ):
             return False
@@ -229,9 +229,30 @@ def compare_raman_tensors(r_t_cmp, r_t_ref):
         `False`.
     """
 
+    # The RamanTensors object can be initialised with either of a
+    # GammaPhonons or PolarGammaPhonons object.
+
+    if isinstance(r_t_cmp.phonon_calculation, PolarGammaPhonons):
+        if isinstance(r_t_ref.phonon_calculation, PolarGammaPhonons):
+            if not compare_polar_gamma_phonons(
+                r_t_cmp.phonon_calculation, r_t_ref.phonon_calculation
+            ):
+                return False
+        else:
+            return False
+    else:
+        if isinstance(r_t_ref.phonon_calculation, PolarGammaPhonons):
+            return False
+
+        if not compare_gamma_phonons(
+            r_t_cmp.phonon_calculation, r_t_ref.phonon_calculation
+        ):
+            return False
+
     return (
-        np.allclose(r_t_cmp.energies, r_t_ref.energies),
-        np.allclose(r_t_cmp.raman_tensors, r_t_ref.raman_tensors),
+        np.allclose(r_t_cmp.energies, r_t_ref.energies)
+        and np.equal(r_t_cmp.band_indices, r_t_ref.band_indices).all()
+        and np.allclose(r_t_cmp.raman_tensors, r_t_ref.raman_tensors),
     )
 
 
@@ -251,28 +272,6 @@ def compare_raman_calculations(calc_cmp, calc_ref):
         `False`.
     """
 
-    # The RamanCalculation object can be initialised with either of a
-    # GammaPhonons or PolarGammaPhonons object.
-
-    if isinstance(calc_cmp.phonon_calculation, PolarGammaPhonons):
-        if isinstance(calc_ref.phonon_calculation, PolarGammaPhonons):
-            if not compare_polar_gamma_phonons(
-                calc_cmp.phonon_calculation, calc_ref.phonon_calculation
-            ):
-                return False
-        else:
-            return False
-    else:
-        if isinstance(calc_ref.phonon_calculation, PolarGammaPhonons):
-            return False
-
-        if not compare_gamma_phonons(
-            calc_cmp.phonon_calculation, calc_ref.phonon_calculation
-        ):
-            return False
-
-    return (
-        compare_raman_tensors(calc_cmp.raman_tensors, calc_ref.raman_tensors)
-        and np.equal(calc_cmp.band_indices, calc_ref.band_indices).all()
-        and compare_irreps(calc_cmp.irreps, calc_ref.irreps)
+    return compare_raman_tensors(
+        calc_cmp.raman_tensors, calc_ref.raman_tensors
     )

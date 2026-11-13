@@ -4,11 +4,13 @@
 # Docstring
 # ---------
 
-"""Defines (mathematical) distributions."""
+"""Implements mathematical distributions."""
 
 # -------
 # Imports
 # -------
+
+import warnings
 
 import numpy as np
 
@@ -18,16 +20,14 @@ from .constants import (
     ZERO_TOLERANCE,
 )
 
-from .utility.numpy_helper import np_check_shape, np_expand_dims
-
 try:
     from numba import njit
 except ImportError:
     from .utility.numba_helper import dummy_njit as njit
 
-# ----------
-# Lineshapes
-# ----------
+# ------------------
+# Spectral functions
+# ------------------
 
 
 def gaussian(x, i, mu, sigma):
@@ -38,14 +38,14 @@ def gaussian(x, i, mu, sigma):
     Parameters
     ----------
     x : array_like
-        Values at which to evaluate the function.
-    i, mu, sigma : float
-        Intensity, mean and standard deviation.
+        Values at which to evaluate the function (shape: `(O,)`).
+    i, mu, sigma : scalar or array_like
+        Intensity, mean and standard deviation (shape: `(...)`).
 
     Returns
     -------
     g_x : numpy.ndarray
-        Gaussian function evaluated at `x`.
+        Gaussian function evaluated at `x` (shape: `(..., O)`).
 
     Notes
     -----
@@ -57,26 +57,52 @@ def gaussian(x, i, mu, sigma):
         G(x) = \frac{I}{\sqrt{2\pi} \sigma} \exp{-\frac{(x - \mu)^2}{2 \sigma^2}}
     """
 
+    # Ensure x is a 1D array with shape (O,).
+
+    x = np.atleast_1d(np.asanyarray(x))
+
+    if x.ndim != 1:
+        raise ValueError("x must be an array_like with shape (O,).")
+
+    # Broadcast i, mu and sigma to a common shape (...).
+
+    i = np.asanuarray(i)
+    mu = np.asanyarray(mu)
+    sigma = np.asanyarray(sigma)
+
+    i, mu, sigma = np.broadcast_arrays(i, mu, sigma)
+
+    # Append leading "batch" dimensions to x and trailing "frequency"
+    # dimensions to i, mu and sigma.
+
+    x = x.reshape((1,) * i.ndim + (len(x),))
+
+    i = np.expand_dims(i, -1)
+    mu = np.expand_dims(mu, -1)
+    sigma = np.expand_dims(sigma, -1)
+
+    # x and i/mu/sigma should now broadcast to (..., O).
+
     return (i / (sigma * np.sqrt(2.0 * np.pi))) * np.exp(
-        -1.0 * (np.asarray(x) - mu) ** 2 / (2 * sigma**2)
+        -1.0 * (x - mu) ** 2 / (2 * sigma**2)
     )
 
 
-def lorentzian(x, i, x0, gamma):
+def lorentzian(x, i, x_0, gamma):
     r"""Evaluate the Lorentzian lineshape with intensity (peak area)
     `i`, central value `x0` and width `gamma`.
 
     Parameters
     ----------
     x : array_like
-        Values at which to evaluate the function.
-    i, x0, gamma : float
-        Intensity, central value and width.
+        Values at which to evaluate the function (shape: `(O,)`).
+    i, x_0, gamma : scalar or array_like
+        Intensities, central values and widths (shape: `(...)`).
 
     Returns
     -------
     l_x : numpy.ndarray
-        Lorentzian function evaluated at `x`.
+        Lorentzian function evaluated at `x` (shape: `(..., O)`).
 
     Notes
     -----
@@ -88,30 +114,47 @@ def lorentzian(x, i, x0, gamma):
         L(x) = \frac{I}{\pi} \frac{\frac{1}{2} \Gamma}{(x - x_0)^2 + (\frac{1}{2} \Gamma)^2}
     """
 
+    x = np.atleast_1d(np.asanyarray(x))
+
+    if x.ndim != 1:
+        raise ValueError("x must be an array_like with shape (O,).")
+
+    i = np.asanyarray(i)
+    x_0 = np.asanyarray(x_0)
+    gamma = np.asanyarray(gamma)
+
+    i, x_0, gamma = np.broadcast_arrays(i, x_0, gamma)
+
+    x = x.reshape((1,) * x_0.ndim + (len(x),))
+
+    i = np.expand_dims(i, -1)
+    x_0 = np.expand_dims(x_0, -1)
+    gamma = np.expand_dims(gamma, -1)
+
     return (i / np.pi) * (
-        (0.5 * gamma) / ((np.asarray(x) - x0) ** 2 + (0.5 * gamma) ** 2)
+        (0.5 * gamma) / ((x - x_0) ** 2 + (0.5 * gamma) ** 2)
     )
 
 
-def lorentz_oscillator(omega, s, omega_0, eta):
+def lorentz_oscillator(x, s, x_0, eta):
     r"""Evaluate the complex dielectric function for a phonon mode with
     intensity (oscillator strength) `s`, central value `x_0` and width
     ("complex shift") `eta` using the Lorentz oscillator model.
 
     Parameters
     ----------
-    omega : array_like
-        Frequencies at which to evaluate the function.
-    s : array_like or float
-        Tensor (shape: `(3, 3)`) or scalar intensity.
-    omega_0, eta : float
-        Central value and linewidth.
+    x : array_like
+        Frequencies at which to evaluate the function (shape: `(O,)`).
+    s : array_like
+        Oscillator strength (shape: `(..., 3, 3)`)`.
+    x_0, eta : scalar or array_like
+        Central frequencies/linewidths (shape: `(...)`).
 
     Returns
     -------
-    dielectric_func : numpy.ndarray
-        Complex dielectric function evaluated at `x` (shape `(N,)` for
-        scalar `s`, or `(N, 3, 3)` for tensor `s`.
+    eps : numpy.ndarray
+        Complex dielectric function evaluated at `x` (shape:
+        `(..., O, 3, 3)`).
 
     Notes
     -----
@@ -124,50 +167,62 @@ def lorentz_oscillator(omega, s, omega_0, eta):
         f(\omega) = \frac{s}{ \omega_0^2 - (\omega + i\eta)^2 }
     """
 
-    # Denominator.
+    x = np.atleast_1d(np.asanyarray(x))
 
-    denom = omega_0**2 - (np.asarray(omega) + 1.0j * eta) ** 2
+    if x.ndim != 1:
+        raise ValueError("x must be scalar or array_like with shape (O,).")
 
-    if np.ndim(s) == 0:
-        # Scalar oscillator strength.
+    # Broadcast x_0 and eta to a common shape (...).
 
-        return s / denom
+    x_0, eta = np.broadcast_arrays(x_0, eta)
 
-    if not np_check_shape(s, (3, 3)):
-        # Tensor oscillator strength.
+    s = np.asanyarray(s)
 
-        raise ValueError(
-            "s must be a scalar or an array_like with shape (3, 3)."
-        )
+    if s.ndim < 2 or s.shape[-2:] != (3, 3):
+        raise ValueError("s must be an array_like with shape (..., 3, 3).")
 
-    dielectric_func = np.zeros((len(omega), 3, 3), dtype=np.complex128)
+    # Broadcast s to (..., 3, 3).
 
-    dielectric_func += s[np.newaxis, :, :]
-    dielectric_func /= denom[:, np.newaxis, np.newaxis]
+    s = np.broadcast_to(s, x_0.shape + (3, 3))
 
-    return dielectric_func
+    # Append leading batch dimensions to x.
+
+    x = x.reshape((1,) * x_0.ndim + (len(x),))
+
+    # Append trailing frequency dimensions to x_0 and eta.
+
+    x_0 = np.expand_dims(x_0, -1)
+    eta = np.expand_dims(eta, -1)
+
+    # Insert a frequency dimension into s.
+
+    s = np.expand_dims(s, -3)
+
+    denom = x_0**2 - (x + 1.0j * eta) ** 2
+
+    return s / denom.reshape(denom.shape + (1, 1))
 
 
-# -------------
-# Bose-Einstein
-# -------------
+# --------------------------
+# Bose-Einstein distribution
+# --------------------------
 
 
-def phonon_occupation_number(nu, t):
-    r"""Evaluate the phonon occupation number for frequencies `nu` and
+def phonon_occupation_number(f, t):
+    r"""Evaluate the phonon occupation number for frequencies `f` and
     temperature `t` using the Bose-Einstein distribution.
 
     Parameters
     ----------
-    nu : float or array_like
-        Phonon frequency or frequencies in THz.
+    f : scalar or array_like
+        Phonon frequency/frequencies in THz (shape: `(...)`).
     t : float
         Temperature in K.
 
     Returns
     -------
     n : float or array_like
-        Phonon occupation number(s) (same shape as `nu`).
+        Phonon occupation number(s) (same shape as `f`).
 
     Notes
     -----
@@ -175,15 +230,33 @@ def phonon_occupation_number(nu, t):
 
     .. math::
 
-        n(\nu, T) = \frac{1}{\exp{[h \nu / k_\mathrm{B} T]} - 1}
+        n(f, T) = \frac{1}{\exp{[h f / k_\mathrm{B} T]} - 1}
     """
 
-    nu, n_dim_add = np_expand_dims(np.asarray(nu), (None,))
+    # The internal convention is that imaginary frequencies are
+    # represented by negative (real) values. Complex frequencies
+    # could be generated by some parts of the library, but if they
+    # are used here it likely indicates a bug elsewhere.
 
-    e = PLANCK_CONSTANT_EV * 1.0e12 * nu
+    f = np.real_if_close(np.asanyarray(f), tol=ZERO_TOLERANCE)
+
+    if np.iscomplexobj(f):
+        raise ValueError("f must be real.")
+
+    # This is standard practice, but we should warn about it.
+
+    if (f < 0.0).any():
+        warnings.warn(
+            "Negative frequencies will be converted to absolute values.",
+            RuntimeWarning,
+        )
+
+        f = np.abs(f)
+
+    e = PLANCK_CONSTANT_EV * 1.0e12 * f
     n = 1.0 / (np.exp(e / (BOLTZMANN_CONSTANT_EV * t)) - 1.0)
 
-    return n if n_dim_add == 0 else n[0]
+    return n
 
 
 # ---------------------
@@ -205,7 +278,7 @@ def march_dollase(alpha, r):
 
     Returns
     -------
-    v : float
+    f : numpy.ndarray
         Value of the March-Dollase function.
 
     Notes
@@ -217,7 +290,10 @@ def march_dollase(alpha, r):
         f(\alpha, r) = \left[ r^2 \cos^2 \alpha + \frac{1}{r} \sin^2 \alpha \right]^{-3/2}
     """
 
-    if r < ZERO_TOLERANCE:
+    # Numba fails to compile if we use convert r to a NumPy array and
+    # broadcast the test over elements.
+
+    if r < 0.0:
         raise ValueError("r must be > 0.")
 
     # Using identity cos^2(x) + sin^2(x) = 1.
@@ -234,16 +310,18 @@ def march_dollase_r_to_eta(r):
 
     Parameters
     ----------
-    r : float
+    r : any
         March parameter.
 
     Returns
     -------
-    eta : float
-        Excess crystallite fraction.
+    eta : numpy.ndarray
+        Excess crystallite fraction (same shape as `r`).
     """
 
-    if r < ZERO_TOLERANCE:
+    r = np.asanyarray(r)
+
+    if (r < ZERO_TOLERANCE).any():
         raise ValueError("r must be > 0.")
 
     if np.abs(r - 1.0) < ZERO_TOLERANCE:
@@ -258,14 +336,20 @@ def march_dollase_eta_to_r(eta):
 
     Parameters
     ----------
-    eta : float
+    eta : any
         Excess crystallite fraction.
 
     Returns
     -------
-    r_vals : tuple of float
-        March parameter r with r < 1 and r > 1 that give \eta.
+    r_vals : tuple of numpy.ndarray
+        March parameter r with r < 1 and r > 1 that give \eta (both
+        same shape as `eta`).
     """
+
+    eta = np.asanyarray(eta)
+
+    if (eta < 0.0).any() or (eta > 1.0).any():
+        raise ValueError("eta must be between 0 and 1.")
 
     r_1 = (
         (-(eta**2) / 2.0) + (eta * np.sqrt(12.0 - 3.0 * eta**2) / 2.0) - 1.0

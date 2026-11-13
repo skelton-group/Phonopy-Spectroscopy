@@ -13,11 +13,6 @@
 import numpy as np
 
 from ..constants import ZERO_TOLERANCE
-from .numpy_helper import (
-    np_check_shape,
-    np_expand_dims,
-    np_discard_imag_if_real,
-)
 
 try:
     from numba import njit
@@ -41,7 +36,7 @@ _DIRECTION_STRING_LUT = {
 }
 
 
-def parse_direction(dirn):
+def parse_direction(x):
     """Parse a direction and return a normalised 3D vector.
 
     Parameters
@@ -56,64 +51,74 @@ def parse_direction(dirn):
         3D direction vector.
     """
 
-    dirn_str = str(dirn).strip().lower()
+    # If x is a string type, assume it specifies one of the hard-coded
+    # directions in _DIRECTION_STRING_LUT.
 
-    if dirn_str in _DIRECTION_STRING_LUT:
-        return np.array(_DIRECTION_STRING_LUT[dirn_str], dtype=np.float64)
+    if isinstance(x, (str, np.str_)):
+        dirn_str = str(x).strip().lower()
 
-    # dirn may be a complex number; if it isn't, take the real part to
-    # avoid forcing complex arithmetic.
+        if dirn_str in _DIRECTION_STRING_LUT:
+            return np.array(_DIRECTION_STRING_LUT[dirn_str], dtype=np.float64)
+        else:
+            raise ValueError(f'Invalid string specifier "{x}".')
 
-    dirn = np_discard_imag_if_real(np.asarray(dirn, dtype=np.complex128))
+    # Otherwise, assume x is a (potentially) complex number; if it
+    # isn't, take the real part to avoid forcing complex arithmetic.
 
-    if np.ndim(dirn) == 1:
-        v = None
+    x = np.real_if_close(
+        np.asanyarray(x, dtype=np.complex128), tol=ZERO_TOLERANCE
+    )
 
-        if len(dirn) == 3:
-            v = np.array(dirn, dtype=dirn.dtype)
+    if x.ndim != 1:
+        raise ValueError("x must be a vector.")
 
-        if len(dirn) == 2:
-            x, y = dirn
-            v = np.array([x, y, 0.0], dtype=dirn.dtype)
+    if len(x) == 2:
+        x, y = x
+        x = np.array([x, y, 0.0], dtype=x.dtype)
 
-        norm = np.linalg.norm(v)
+    if len(x) != 3:
+        raise ValueError("x must specify a 2D or 3D vector.")
 
-        # Cannot normalise a zero vector.
+    norm = np.linalg.norm(x)
 
-        if norm > 0.0:
-            return v / norm
+    if np.isclose(norm, 0.0):
+        raise ValueError("x must specify a non-zero vector.")
 
-        return v
-
-    raise ValueError('Invalid direction specifier "{0}".'.format(dirn))
+    return x / norm
 
 
-def polar_to_cartesian(p, vec_3d=False):
-    r"""Convert polar angles \phi to Cartesian coordinates.
+def plane_polar_to_cartesian(p, vec_3d=False):
+    """Convert plane polar to Cartesian coordinates.
 
     Parameters
     ----------
-    p : float or array_like
-        Polar angle(s) (shape: `(2,)` or `(N, 2)`).
+    p : array_like
+        Polar coordinates `(r, theta)` (shape: `(..., 2)`).
     vec_3d : bool, optional
-        If `True`, return 3D vectors, otherwise return 2D vectors
-        (default: `False`).
+        If `True`, return 3D `(x, y, z)` vectors, otherwise return 2D
+        `(x, y)` vectors (default: `False`).
 
     Returns
     -------
     v : numpy.ndarray
-        Cartesian coordinates (shape: `(2,)`, `(3,)`, `(N, 2)` or
-        `(N, 3)`, depending on `phi` and `vec_3d`).
+        Cartesian coordinates (shape: `(..., 2)` or `(..., 3)`).
     """
 
-    p, n_dim_add = np_expand_dims(np.asarray(p, dtype=np.float64), (None, 2))
+    p = np.asanyarray(p, dtype=np.float64)
 
-    v = np.zeros((len(p), 3 if vec_3d else 2), dtype=np.float64)
+    if p.ndim < 1 or p.shape[-1] != 2:
+        raise ValueError("p must be an array_like with shape (..., 2).")
 
-    v[:, 0] = p[:, 0] * np.cos(p[:, 1])
-    v[:, 1] = p[:, 0] * np.sin(p[:, 1])
+    r, phi = p[..., 0], p[..., 1]
 
-    return v if n_dim_add == 0 else v[0]
+    x = r * np.cos(phi)
+    y = r * np.sin(phi)
+
+    if vec_3d:
+        z = np.zeros_like(x, dtype=np.float64)
+        return np.stack((x, y, z), axis=-1)
+    else:
+        return np.stack((x, y), axis=-1)
 
 
 def cartesian_to_spherical_polar(v):
@@ -123,7 +128,7 @@ def cartesian_to_spherical_polar(v):
     Parameters
     ----------
     v : array_like
-        Cartesian coordinates (shape: `(3,)` or `(N, 3)`).
+        Cartesian coordinates (shape: `(..., 3)`).
 
     Returns
     -------
@@ -132,15 +137,16 @@ def cartesian_to_spherical_polar(v):
         `v`).
     """
 
-    v, n_dim_add = np_expand_dims(np.asarray(v, dtype=np.float64), (None, 3))
+    v = np.asanyarray(v, dtype=np.float64)
 
-    sp = np.zeros_like(v, dtype=np.float64)
+    if v.ndim < 1 or v.shape[-1] != 3:
+        raise ValueError("v must be an array_like with shape (..., 3).")
 
-    sp[:, 0] = np.linalg.norm(v, axis=1)
-    sp[:, 1] = np.arctan2(v[:, 1], v[:, 0])
-    sp[:, 2] = np.arccos(v[:, 2] / sp[:, 0])
+    r = np.linalg.norm(v, axis=-1)
+    phi = np.arctan2(v[..., 1], v[..., 0])
+    theta = np.arccos(v[..., 2] / r)
 
-    return sp if n_dim_add == 0 else sp[0]
+    return np.stack((r, phi, theta), axis=-1)
 
 
 def rotation_matrix_from_vectors(a, b):
@@ -166,8 +172,6 @@ def rotation_matrix_from_vectors(a, b):
     a = parse_direction(a)
     b = parse_direction(b)
 
-    # If the vectors are parallel or orthogonal the solution is trivial.
-
     cos_theta = np.dot(a, b)
 
     if np.abs(cos_theta - 1.0) < ZERO_TOLERANCE:
@@ -175,8 +179,20 @@ def rotation_matrix_from_vectors(a, b):
         return np.identity(3)
 
     if np.abs(cos_theta + 1.0) < ZERO_TOLERANCE:
-        # cos(\theta) = -1 -> vectors antiparallel.
-        return -1.0 * np.identity(3)
+        # cos(\theta) = -1 -> vectors antiparallel. A 180 degree
+        # rotation about any vector c perpendicular to a is valid. We
+        # arbitrarily "guess" c = x and swap to c = y if a is nearly
+        # parallel to x.
+
+        c = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+        if np.abs(np.dot(a, c)) > 0.9:
+            # 0.9 is an arbitrary threshold for "nearly parallel".
+            c = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+        k = np.cross(a, c)
+
+        return rotation_matrix_from_axis_angle(k, np.pi)
 
     # Otherwise, a -> b is a 180 degree rotation around the normalised
     # vector bisecting a and b, and the required rotation matrix can be
@@ -185,7 +201,7 @@ def rotation_matrix_from_vectors(a, b):
     k = a + b
     k /= np.linalg.norm(k)
 
-    return rotation_matrix_from_axis_angle(k, 180.0)
+    return rotation_matrix_from_axis_angle(k, np.pi)
 
 
 def rotation_matrix_from_axis_angle(k, theta):
@@ -197,7 +213,7 @@ def rotation_matrix_from_axis_angle(k, theta):
     k : array_like or str
         Rotation axis.
     theta : float
-        Rotation angle.
+        Rotation angle in radians.
     
     Returns
     -------
@@ -228,13 +244,7 @@ def rotation_matrix_from_axis_angle(k, theta):
         dtype=np.float64,
     )
 
-    theta = np.radians(theta)
-
-    return (
-        np.identity(3)
-        + np.sin(theta) * w
-        + (1.0 - np.cos(theta)) * np.matmul(w, w)
-    )
+    return np.identity(3) + np.sin(theta) * w + (1.0 - np.cos(theta)) * (w @ w)
 
 
 @njit(fastmath=True, inline="always")
@@ -275,13 +285,12 @@ def direction_cosine(phi, theta, psi):
 
 
 def rotate_tensors(t, r):
-    r"""Rotate a tensor or set of tensors `t` by a rotation matrix `r`.
+    r"""Rotate tensors `t` by a rotation matrix `r`.
 
     Parameters
     ----------
     t : array_like
-        Single tensor (shape `(3, 3)`) or set of `N` tensors (shape
-        `(N, 3, 3)`).
+        Tensors (shape: `(..., 3, 3)`).
     r : array_like
         Rotation matrix (shape: `(3, 3)`).
 
@@ -298,14 +307,13 @@ def rotate_tensors(t, r):
         \textbf{T}^\prime = \textbf{R} \textbf{T} \textbf{R}^{-1}
     """
 
-    t = np.asarray(t)
-    r = np.asarray(r)
+    t = np.asanyarray(t)
+    r = np.asanyarray(r)
 
-    t, n_dim_add = np_expand_dims(t, (None, 3, 3))
+    if t.ndim < 2 or t.shape[-2:] != (3, 3):
+        raise ValueError("t must be an array_like with shape (..., 3, 3).")
 
-    if not np_check_shape(r, (3, 3)):
+    if r.shape != (3, 3):
         raise ValueError("r must be an array_like with shape (3, 3).")
 
-    t_prime = np.matmul(r, np.matmul(t, r.T))
-
-    return t_prime if n_dim_add == 0 else t_prime[0]
+    return r @ t @ r.T

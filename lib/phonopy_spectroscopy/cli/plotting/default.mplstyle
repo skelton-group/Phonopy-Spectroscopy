@@ -1,0 +1,63 @@
+# -----
+# Lines
+# -----
+
+lines.linewidth: 0.5
+lines.markeredgewidth: 0.5
+
+# -------
+# Patches
+# -------
+
+patch.linewidth: 0.5
+
+# ----
+# Font
+# ----
+
+font.family: sans-serif
+font.size: 8.0
+
+# ----
+# Axes
+# ----
+
+axes.linewidth: 0.5
+
+# -----
+# Ticks
+# -----
+
+xtick.top: True
+xtick.bottom: True
+xtick.major.width: 0.5
+xtick.minor.width: 0.5
+xtick.direction: in
+
+ytick.left: True
+ytick.right: True
+ytick.major.width: 0.5
+ytick.minor.width: 0.5
+ytick.direction: in
+
+# -----
+# Grids
+# -----
+
+grid.color: (0.5, 0.5, 0.5)
+grid.linewidth: 0.5
+
+
+# ------
+# Legend
+# ------
+
+legend.facecolor: (1.0, 1.0, 1.0, 0.5)
+legend.edgecolor: k
+legend.fancybox: False
+
+# --------------
+# Saving Figures
+# --------------
+
+savefig.dpi: 300

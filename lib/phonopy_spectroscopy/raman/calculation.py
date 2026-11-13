@@ -13,33 +13,34 @@ simulated Raman spectra."""
 
 import warnings
 
-import numpy as np
+from itertools import product
 
-from ..instrument import Polarisation
+import numpy as np
 
 from .intensity import (
     calculate_single_crystal_raman_intensities,
     calculate_powder_raman_intensities,
 )
 
-from .spectrum import RamanSpectrum1D, RamanSpectrum2D
+from .spectrum import RamanSpectrum, AngleResolvedRamanSpectrum
 from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
-from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
-from ..instrument import Geometry
-from ..units import nm_to_ev
+from ..distributions import march_dollase
+from ..gamma_phonons import FullPolarGammaPhonons
+from ..instrument import Geometry, Polarisation
+from ..units import nm_to_ev, ev_to_nm
 
 from ..utility.geometry import (
+    cartesian_to_spherical_polar,
     rotation_matrix_from_vectors,
     rotation_matrix_from_axis_angle,
+    rotate_tensors,
 )
 
-from ..utility.numpy_helper import (
-    np_readonly_view,
-    np_asarray_copy,
-    np_check_shape,
-    np_expand_dims,
+from ..utility.quadrature import (
+    unit_circle_quad_rule,
+    unit_sphere_lebedev_quad_rule,
 )
 
 # ----------------------
@@ -48,277 +49,273 @@ from ..utility.numpy_helper import (
 
 
 class RamanCalculation:
-    """Combine `GammaPhonons` and `RamanTensors` objects for a complete
-    Raman calculation to generate simulated spectra."""
+    """Class for using `RamanTensors` objects to generate simulated
+    Raman spectra."""
 
-    def __init__(self, ph_calc, r_t, band_inds=None):
+    def __init__(self, r_t, symprec=1.0e-5):
         """Create a new instance of the `RamanCalculation` class.
 
         Parameters
         ----------
-        ph_calc : GammaPhonons or PolarGammaPhonons
-            Gamma-point phonon calculation.
         r_t : RamanTensors
             Raman tensors.
-        band_inds : array_like or None, optional
-            Band indices for which Raman tensors were calculated
-            (default: all bands).
+        symprec : float
+            Tolerance for analysing the symmetry of the underlying
+            structure to determine whether non-analytical corrections
+            are required.
         """
 
-        # Check/set band indices used in calculations and update irreps
-        # for included indices if required.
+        default_nac = False
 
-        irreps = None
+        is_centrosymm, _ = r_t.structure.check_centrosymmetry(symprec=symprec)
 
-        if band_inds is not None:
-            band_inds = np_asarray_copy(band_inds, dtype=int)
-
-            if not np_check_shape(band_inds, (None,)):
-                raise ValueError(
-                    "If supplied, band_inds must be an array_like with "
-                    "shape (N,)."
+        if not is_centrosymm:
+            if isinstance(r_t.phonon_calculation, FullPolarGammaPhonons):
+                default_nac = True
+            else:
+                warnings.warn(
+                    "This Raman calculation is on a structure in a "
+                    "non-centrosymmetric spacegroup but the Raman "
+                    "tensors were not initialised with a "
+                    "FullPolarGammaPhonons object. Non-analytical "
+                    "corrections will not be automatically applied and "
+                    "this may lead to less accurate results.",
+                    RuntimeWarning,
                 )
 
-            if len(band_inds) == 0:
-                raise ValueError(
-                    "If supplied, band_inds must specify at least one band."
-                )
-
-            if len(band_inds) != len(set(band_inds)):
-                raise ValueError(
-                    "One or more indices in band_inds are duplicates."
-                )
-
-            for idx in band_inds:
-                if idx < 0 or idx >= ph_calc.num_modes:
-                    raise ValueError(
-                        "One or more indices in band_inds are "
-                        "incompatible with the number of modes in the "
-                        "phonon calculation."
-                    )
-
-            if ph_calc.has_irreps:
-                irreps = ph_calc.irreps.get_subset(band_inds, reset_inds=True)
-
-        else:
-            band_inds = np.array(list(range(ph_calc.num_modes)), dtype=int)
-
-        if len(band_inds) != len(r_t.raman_tensors):
-            raise ValueError(
-                "The number of Raman tensors is inconsistent with the "
-                "number of band indices (or the number of modes in the "
-                "phonon calculation if band_inds was not supplied)."
-            )
-
-        self._ph_calc = ph_calc
         self._r_t = r_t
 
-        self._band_inds = band_inds
-        self._irreps = irreps
+        self._symprec = symprec
+        self._default_nac = default_nac
 
-    def _get_calc_params(self, geom, i_pols, s_pols, w, t, e_rt, lw):
-        """Determine parameters for Raman calculations.
+    def _get_nac(self, nac):
+        """Determine whether a non-analytical correction (NAC) should
+        be applied in a Raman calculation.
+
+        Parameters
+        ----------
+        nac : str or bool
+            `True` or `False` to enable/disable NAC, or `"auto"` to
+            set to the `default_nac` property.
+        """
+
+        if isinstance(nac, (str, np.str_)):
+            nac_str = str(nac).lower()
+
+            if nac_str == "auto":
+                return self._default_nac
+            else:
+                raise ValueError(f'Unknown string specifier nac="{nac}".')
+
+        return nac
+
+    def _get_measurement_params(self, geom, i_pol, s_pol, w, t, e_rt):
+        """Get measurement parameters for a Raman calculation.
 
         Parameters
         ----------
         geom : Geometry or None
             Measurement geometry.
-        i_pols, s_pols : str, Polarisation, array_like or None
-            Incident and scattered light polarisation(s).
-        lw : float or None
-            Uniform linewidth to be used if the underlying phonon
-            calculation does not have linewidths.
-        w : float or None
-            Measurement wavelength (defaults to 785 nm if `None`).
+        i_pol, s_pol : Polarisation, str or None
+            Incident/scattered light polarisations.
+        w, t : float
+            Measurement wavelength and temperature.
+        e_rt : float or None
+            Energy at which to calculate Raman tensors.
+
+        Returns
+        -------
+        params : tuple
+            Tuple of `(geom, i_pol, s_pol, w, t, e_rt)` with measurement
+            parameters.
+        """
+
+        geom, i_pol, s_pol = RamanCalculation.default_geometry(
+            geom, i_pol, s_pol
+        )
+
+        # If the Raman tensors were calculated at a single non-zero
+        # energy, this overrides w.
+
+        if len(self._r_t.energies) == 1 and not np.isclose(
+            self._r_t.energies[0], 0.0, atol=ZERO_TOLERANCE
+        ):
+            w_calc = ev_to_nm(self._r_t.energies[0])
+
+            if not np.isclose(w, w_calc):
+                warnings.warn(
+                    f"w = {w:.1f} overridden by single non-zero Raman "
+                    f"tensor energy = {w_calc:.1f}.",
+                    RuntimeWarning,
+                )
+
+            w = w_calc
+        else:
+            if w <= 0.0:
+                raise ValueError("w must be > 0.")
+
+        # If the phonon calculation was performed at a fixed
+        # temperature, this overrides t.
+
+        t_calc = self._r_t.phonon_calculation.temperature
+
+        if t_calc is not None:
+            t = t_calc
+        else:
+            if t <= 0.0:
+                raise ValueError("t must be > 0.")
+
+        if e_rt is None:
+            # If the Reman tensors are energy-dependent, calculate them
+            # at the selected wavelength if possible.
+
+            e_rt = nm_to_ev(w)
+
+            if len(self._r_t.energies) > 1:
+                if (
+                    e_rt < self._r_t.energies.min()
+                    or e_rt > self._r_t.energies.max()
+                ):
+                    warnings.warn(
+                        f"w = {w:.1f} -> e_rt = {e_rt:.3f} is outside "
+                        "the bounds of Raman tensor energy range and "
+                        "will be reset to the default e_rt = 0.",
+                        RuntimeWarning,
+                    )
+
+                    e_rt = 0.0
+        else:
+            if e_rt < 0.0:
+                raise ValueError("e_rt must be >= 0.")
+
+        return (geom, i_pol, s_pol, w, t, e_rt)
+
+    def _get_calculation_params(
+        self, geom, i_pol, s_pol, rot, nac, w, t, e_rt, lw
+    ):
+        """Get a complete set of parameters for a Raman calculation.
+
+        Parameters
+        ----------
+        geom : Geometry or None
+            Measurement geometry.
+        i_pol, s_pol : Polarisation or None
+            Incident and scattered light polarisation(s) (defaults:
+            horizontal polarisation for x or)
+        rot : array_like or None
+            Rotation matrix for rotating the Raman tensors from the
+            crystal reference frame into the instrument frame.
+        nac : bool
+            Apply a non-analytical correction (NAC) in the calculation.
         t : float or None
             Measurement temperature (defaults to 300 K if `None`;
             overridden with the calculation temperature of the
             underlying phonon calculation if set).
+        w : float or None
+            Measurement wavelength (defaults to 785 nm if `None`).
         e_rt : float or None
-            Photon energy for evaluating Raman tensors.
+            Photon energy for evaluating Raman tensors (defaults:
+            equivalent to `w` if the Raman tensors are energy-dependent,
+            otherwise E = 0).
+        lw : float or None
+            Uniform linewidth to be used if the underlying phonon
+            calculation does not have linewidths.
 
         Returns
         -------
-        params : dict
-            Dictionary of calculation parameters with the following: `{
-                "frequencies": numpy.ndarray,
-                "raman_tensors": numpy.ndarray,
-                "linewidths": numpy.ndarray,
-                "irreps": Irreps or None
-                "geometry": Geometry,
-                "incident_polarisations": numpy.ndarray,
-                "scattered_polarisations": numpy.ndarray,
-                "is_2d_spectrum": bool
-                }`
+        params : tuple
+            Tuple of
+            `(freqs, r_t, lws, irreps, geom, i_pol, s_pol, w, t)` with
+            calculation parameters.
         """
 
-        params = {}
+        # Validate and/or set defaults for measurement parameters.
 
-        # Frequencies.
+        geom, i_pol, s_pol, w, t, e_rt = self._get_measurement_params(
+            geom, i_pol, s_pol, w, t, e_rt
+        )
 
-        params["frequencies"] = self.frequencies
+        ph_calc = self._r_t.phonon_calculation
+        band_inds = self._r_t.band_indices
 
-        # Linewidths.
+        r_t = None
 
-        if lw is not None:
-            if lw < ZERO_TOLERANCE:
+        if self._get_nac(nac):
+            # Get NAC-modified phonon calculation and Raman tensors.
+
+            if nac and not isinstance(self._ph_calc, FullPolarGammaPhonons):
+                raise RuntimeError(
+                    "Non-analytical corrections (NAC) can only be "
+                    "performed if the calculation was initialised with "
+                    "a FullPolarGammaPhonons object."
+                )
+
+            q = geom.raman_nac_direction
+
+            if rot is not None:
+                # The q in the crystal reference frame for NAC is the
+                # vector that is rotated into the instrument NAC
+                # direction by rot.
+
+                q = rot.T @ q
+
+            ph_calc, r_t = self._r_t.get_tensors_with_nac(q, e=e_rt)
+
+            band_inds = np.arange(0, ph_calc.num_modes, dtype=int)
+        else:
+            r_t = self._r_t.get_tensors(e=e_rt)
+
+        freqs = ph_calc.frequencies[band_inds]
+
+        if rot is not None:
+            r_t = rotate_tensors(r_t, rot)
+
+        lws = None
+
+        if ph_calc.linewidths is not None:
+            lws = ph_calc.linewidths[band_inds]
+        else:
+            if lw <= 0.0:
                 raise ValueError("lw must be > 0.")
 
-            if self._ph_calc.has_linewidths:
-                warnings.warn(
-                    "Specified uniform linewidth lw = {0:.3e} will be "
-                    "overridden by the calculated per-mode linewidths "
-                    "stored with the underlying phonon calculation."
-                    "".format(lw),
-                    UserWarning,
-                )
-        else:
-            lw = 0.5
+            lws = np.full((len(band_inds),), lw)
 
-        params["linewidths"] = (
-            self.linewidths
-            if self.linewidths is not None
-            else lw * np.ones((len(self._band_inds),), dtype=np.float64)
-        )
+        irreps = None
 
-        # Irreps.
+        if ph_calc.irreps is not None:
+            _, irreps = ph_calc.irreps.get_subset(band_inds)
 
-        params["irreps"] = self.irreps
-
-        # Laser wavelength.
-
-        if w < 0.0:
-            raise ValueError("w must be > 0.")
-
-        params["laser_wavelength"] = w
-
-        # Temperature.
-
-        if t is not None:
-            if t <= 0.0:
-                raise ValueError("t must be > 0.")
-
-            if (
-                self._ph_calc.temperature is not None
-                and np.abs(t - self._ph_calc.temperature) > ZERO_TOLERANCE
-            ):
-                warnings.warn(
-                    "Speficied temperature t = {0:.2f} will be "
-                    "overriden by phonon_calculation.temperature = "
-                    "{1:.2f}.".format(t, self._ph_calc.temperature),
-                    UserWarning,
-                )
-        else:
-            t = 300.0
-
-        params["temperature"] = (
-            self._ph_calc.temperature
-            if self._ph_calc.temperature is not None
-            else t
-        )
-
-        # Raman tensors.
-
-        if e_rt is None:
-            e_rt = nm_to_ev(w) if self._r_t.is_energy_dependent else 0.0
-
-        params["raman_tensors"] = self._r_t.get_tensors_at_energy(e_rt)
-
-        # Geometry and incident/scattered polarisations.
-
-        if geom is None:
-            geom = Geometry.conventional_backscattering()
-
-        if i_pols is None:
-            i_pols = Polarisation.conventional_horizontal(
-                geom.incident_direction
-            )
-
-        if s_pols is None:
-            s_pols = "cross"
-
-        i_pols, i_pols_n_dim_add = np_expand_dims(
-            np.asarray(i_pols, dtype=object), (None,)
-        )
-
-        is_2d = i_pols_n_dim_add == 0
-
-        s_pols_str = str(s_pols).lower()
-
-        if s_pols_str == "parallel":
-            s_pols = i_pols
-        elif s_pols_str == "cross":
-            s_pols = Polarisation.cross_to(i_pols, geom.incident_direction)
-        elif s_pols_str == "sum":
-            s_pols = Polarisation.sum_parallel_cross_to(
-                i_pols, geom.incident_direction
-            )
-        else:
-            s_pols, s_pols_n_dim_add = np_expand_dims(
-                np.asarray(s_pols, dtype=object), (None,)
-            )
-
-            is_2d = is_2d or s_pols_n_dim_add == 0
-
-            i_pols, s_pols = np.broadcast_arrays(i_pols, s_pols)
-
-        params["geometry"] = geom
-        params["incident_polarisations"] = i_pols
-        params["scattered_polarisations"] = s_pols
-
-        # Flag for whether the calculation is working with a single or
-        # multiple polarisations.
-
-        params["is_2d_spectrum"] = is_2d
-
-        return params
-
-    @property
-    def phonon_calculation(self):
-        """GammaPhonon or PolarGammaPhonons : Underlying `GammaPhonons`
-        or `PolarGammaPhonons` object."""
-        return self._ph_calc
-
-    @property
-    def frequencies(self):
-        """numpy.ndarray : Band frequencies for the subset of bands in
-        the calculation."""
-        return self._ph_calc.frequencies[self._band_inds]
-
-    @property
-    def linewidths(self):
-        """numpy.ndarrray : Linewidths for the subset of bands in the
-        calculation."""
-        lws = self._ph_calc.linewidths
-        return lws[self._band_inds] if lws is not None else None
-
-    @property
-    def irreps(self):
-        """Irreps : Irreps for the subset of bands in the calculation."""
-
-        # If the calculation is for a subset of the bands, and the
-        # underlying phonon calculation has irreps, the internal
-        # _irreps field will be set. If _irreps is None, then return the
-        # irreps from the phonon calculation.
-
-        return (
-            self._irreps if self._irreps is not None else self._ph_calc.irreps
-        )
-
-    @property
-    def band_indices(self):
-        """numpy.ndarray : Indices of the bands in the calculation."""
-        return np_readonly_view(self._band_inds.view())
+        return (freqs, r_t, lws, irreps, geom, i_pol, s_pol, w, t)
 
     @property
     def structure(self):
-        """Structure : Underlying `Structure` object."""
-        return self._ph_calc.structure
+        """Structure : Crystal structure."""
+        return self._r_t.structure
+
+    @property
+    def phonon_calculation(self):
+        """GammaPhonons, PolarGammaPhonons or FullPolarGammaPhonons :
+        Phonon calculation."""
+        return self._r_t.phonon_calculation
 
     @property
     def raman_tensors(self):
-        """RamanTensors : Underlying `RamanTensors` object."""
+        """RamanTensors : Raman tensors."""
         return self._r_t
+
+    @property
+    def symprec(self):
+        """float : Tolerance used for analysing the symmetry of the
+        underlying structure."""
+        return self._symprec
+
+    @property
+    def default_nac(self):
+        """bool : `True` if non-analytical corrections (NAC) will be
+        applied when `nac="auto"` is passed to the calculation routines,
+        otherwise `False`.
+        """
+        return self._default_nac
 
     def single_crystal(
         self,
@@ -327,9 +324,10 @@ class RamanCalculation:
         i_pol=None,
         s_pol=None,
         rot=None,
+        nac="auto",
         w=785.0,
-        t=None,
-        lw=None,
+        t=300.0,
+        lw=0.5,
         e_rt=None,
         **kwargs,
     ):
@@ -343,7 +341,7 @@ class RamanCalculation:
         geom : Geometry or None, optional
             Measurement geometry (if `None`, defaults to a conventional
             backscattering geometry).
-        i_pol, s_pol : str, Polarisation, array_like or None, optional
+        i_pol, s_pol : Polarisation, str or None, optional
             Polarisations of the incident and scattered light. The
             scattered polarisation may be specified by one of
             `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
@@ -351,155 +349,71 @@ class RamanCalculation:
             conventional backscattering geometry, and `s_pol` defaults
             to `"sum"`.
         rot : array_like or None, optional
-            Rotation matrix or set of matrices to realign the crystal
-            after the `hkl` rotation.
-        w : float or None, optional
-            Measurement wavelength (default: 785 nm).
-        t : float or None, optional
-            Measurement temperature (default: 300 K, overridden by the
-            temperature of the underlying phonon calculation if
-            available).
+            Rotation matrix to realign the crystal after the `hkl`
+            rotation (array shape: `(3, 3)`).
+        nac : str or bool, optional
+            Apply a non-analytical correction (NAC) to the phonon
+            frequencies, Raman tensors and calculated linewidths if
+            available (default: "auto", sets to `default_nac`).
+        w, t : float, optional
+            Measurement wavelength and temperature (defaults: 785 nm and
+            300 K; `t` is overridden by the calculation temperature if
+            set).
         e_rt : float or None, optional
-            Photon energy for evaluating the Raman tensors in energy-
-            dependent Raman calculations (default: calculated from `w`
-            if set and if energy-dependent Raman tensors are available,
-            otherwise E = 0.)
-        lw : float or None, optional
+            Photon energy for evaluating the Raman tensors (default:
+            calculated from `w` for energy-dependent Raman tensors,
+            otherwise E = 0).
+        lw : float, optional
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
-            linewidths from the underlying phonon calculation if
-            available).
+            calculated linewidths if set).
         **kwargs : any
-            Keyword arguments to the `RamanSpectrum1D` and
-            `RamanSpectrum2D` constructors (some of these may be
-            required depending on other parameters - see notes below).
+            Keyword arguments to `NDRamanSpectrum`.
 
         Returns
         -------
-        spectrum : RamanSpectrum1D or RamanSpectrum2D
+        spectrum : RamanSpectrum
             Simulated Raman spectrum.
 
         See Also
         --------
-        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D :
-            Objects returned by this function.
-
-        Notes
-        -----
-        * If both `i_pols` and `s_pols` are single polarisations, and
-          `rots` is either None or a single rotation, the function
-          returns a 1D spectrum.
-        * If `i_pols` and/or `s_pols`, or `rots`, specify multiple
-          values, the function returns an 2D spectrum.
-        * A single function call cannot combine multiple polarisations
-          and multiple rotations.
-        * If called with multiple polarisations to generate a 2D
-          spectrum, additional keyword args to the `RamanSpectrum2D`
-          constructor will need to be specified.
+        raman.spectrum.RamanSpectrum :
+            Object returned by this function.
         """
 
-        params = self._get_calc_params(geom, i_pol, s_pol, w, t, e_rt, lw)
-
-        is_2d = params["is_2d_spectrum"]
-
-        if rot is not None:
-            rot, n_dim_add = np_expand_dims(np.asarray(rot), (None, 3, 3))
-
-            if not rot.shape[0] > 1 and not params["single_polarisation"]:
-                raise RuntimeError(
-                    "Multiple incident/scattered polarisations cannot be "
-                    "combined with multiple crystal rotations."
-                )
-
-            is_2d = is_2d or n_dim_add == 0
-
         # If the underlying structure has a conventional cell defined,
-        # assume the Miller index is speficied in terms of this and
+        # assume the Miller index is specified in terms of this and
         # not the primitive cell (if different).
 
+        struct = self._r_t.phonon_calculation.structure
+
         r = rotation_matrix_from_vectors(
-            self._ph_calc.structure.real_space_normal(hkl, conv=True),
+            struct.real_space_normal(hkl, conv=True),
             -1.0 * geom.incident_direction,
         )
 
-        rot = np.matmul(rot, r) if rot is not None else r.reshape((1, 3, 3))
-
-        ints = None
-
-        if len(rot) == 1:
-            # Single rotation, potentially with multiple polarisations.
-
-            ints = np.zeros(
-                (
-                    len(params["incident_polarisations"]),
-                    params["raman_tensors"].shape[0],
-                ),
-                dtype=np.float64,
-            )
-
-            for i, (i_pol, s_pol) in enumerate(
-                zip(
-                    params["incident_polarisations"],
-                    params["scattered_polarisations"],
-                )
-            ):
-                ints[i] = calculate_single_crystal_raman_intensities(
-                    params["raman_tensors"],
-                    params["geometry"],
-                    i_pol,
-                    s_pol,
-                    rot[0],
-                )
-        else:
-            # Single polarisation, potentially with multiple rotations.
-
-            ints = np.zeros(
-                (rot.shape[0], params["raman_tensors"].shape[0]),
-                dtype=np.float64,
-            )
-
-            for i, r in enumerate(rot):
-                ints[i] = calculate_single_crystal_raman_intensities(
-                    params["raman_tensors"],
-                    params["geometry"],
-                    params["incident_polarisations"][0],
-                    params["scattered_polarisations"][0],
-                    r,
+        if rot is not None:
+            if rot.shape != (3, 3):
+                raise ValueError(
+                    "If specified, rot must be an array_like with "
+                    "shape (3, 3)."
                 )
 
-        ints = np.array(ints, dtype=np.float64).T
+            r = rot @ r
 
-        if is_2d:
-            if (
-                "d2_axis_vals" not in kwargs
-                or "d2_unit_text_label" not in kwargs
-            ):
-                raise RuntimeError(
-                    "Multiple polarisations/rotations produce 2D "
-                    "spectra and require the optional d2_axis_vals and "
-                    "d2_unit_text_label keywords to be specified."
-                )
+        params = self._get_calculation_params(
+            geom, i_pol, s_pol, r, nac, w, t, e_rt, lw
+        )
 
-            return RamanSpectrum2D(
-                params["frequencies"],
-                ints,
-                params["linewidths"],
-                params["laser_wavelength"],
-                params["temperature"],
-                kwargs.pop("d2_axis_vals"),
-                kwargs.pop("d2_unit_text_label"),
-                irreps=params["irreps"],
-                **kwargs,
-            )
-        else:
-            return RamanSpectrum1D(
-                params["frequencies"],
-                ints,
-                params["linewidths"],
-                params["laser_wavelength"],
-                params["temperature"],
-                irreps=params["irreps"],
-                **kwargs,
-            )
+        freqs, r_t, lws, irreps, geom, i_pol, s_pol, w, t = params
+
+        # The Raman tensors are rotated into the instrument frame by
+        # _get_calculation_params().
+
+        ints = calculate_single_crystal_raman_intensities(
+            r_t, geom, i_pol, s_pol, rot=None
+        )
+
+        return RamanSpectrum(freqs, ints, lws, w, t, irreps, **kwargs)
 
     def single_crystal_polarisation_rotation(
         self,
@@ -507,15 +421,14 @@ class RamanCalculation:
         geom=None,
         i_pol=None,
         s_pol=None,
-        chi_start=0.0,
-        chi_end=360.0,
-        chi_step=2.5,
+        start=0.0,
+        end=360.0,
+        step=2.5,
         **kwargs,
     ):
-        """Simulate a single-crystal polarisation (chi) rotation
-        measurement where one of the incident or scattered polarisations
-        are rotated about the incident or collection direction
-        respectively.
+        """Simulate a single-crystal polarisation rotation experiment
+        where the incident or scattered polarisation is rotated about
+        the incident/collection direction.
 
         Parameters
         ----------
@@ -525,15 +438,11 @@ class RamanCalculation:
         geom : Geometry or None, optional
             Measurement geometry (if `None`, defaults to a conventional
             backscattering geometry).
-        i_pol, s_pol : str, Polarisation or None, optional
+        i_pol, s_pol : Polarisation, str or None, optional
             Polarisations of the incident and scattered light. The
-            polarisation to be rotated can be specified by `"rot"`. The
-            scattered polarisation may be specified by one of
-            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
-            to the equivalent of horizontal polarisation in a
-            conventional backscattering geometry, and `s_pol` defaults
-            to `"sum"`.
-        chi_start, chi_end, chi_step : float, optional
+            polarisation to be rotated is specified by `"rot"`. The
+            defaults are the same as for `single_crystal`,
+        start, end, step : float, optional
             Start/end angle and angle step for polarisation rotation in
             degrees (defaults: 0 -> 360 deg in 2.5 deg steps).
         **kwargs : any
@@ -541,7 +450,7 @@ class RamanCalculation:
 
         Returns
         -------
-        spectrum : RamanSpectrum2D
+        spectrum : AngleResolvedRamanSpectrum
             Simulated Raman spectrum.
 
         See Also
@@ -553,61 +462,66 @@ class RamanCalculation:
         See `single_crystal` for optional keyword arguments.
         """
 
-        angles = np.arange(chi_start, chi_end + chi_step / 10.0, chi_step)
+        geom, pols, angles = RamanCalculation.polarisation_rotation(
+            geom, i_pol, s_pol, start, end, step
+        )
 
-        if len(angles) < 2:
-            raise ValueError(
-                "Fewer than two angles between chi_start = {0:.2f} -> "
-                "chi_end = {1:.2f} with chi_step = {2:.2f}."
-                "".format(chi_start, chi_end, chi_step)
+        # To avoid redundant work, simluate default Stokes spectra in
+        # THz for each rotation angle and convert to the user-specified
+        # sp_type and sp_units when constructing the 2D spectrum.
+
+        sp_type = kwargs.pop("sp_type", "stokes")
+        sp_units = kwargs.pop("sp_units", "thz")
+
+        # Also no point in applying these until the "final" spectrum.
+
+        sp_range = kwargs.pop("sp_range", None)
+        sp_res = kwargs.pop("sp_res", None)
+
+        # Simulate a series of single-crystal spectra and combine into
+        # an AngleResolvedRamanSpectrum object.
+
+        spectra = [
+            self.single_crystal(
+                hkl, geom=geom, i_pol=i_pol, s_pol=s_pol, **kwargs
             )
+            for i_pol, s_pol in pols
+        ]
 
-        # Geometry needs to be defined to determine the polarisation
-        # rotation.
+        sp_stack = spectra[0].stack_with(*spectra[1:])
 
-        if geom is None:
-            geom = Geometry.conventional_backscattering()
+        # Combine into an AngleResolvedRamanSpectrum object.
 
-        i_pol_str = str(i_pol).lower()
-        s_pol_str = str(s_pol).lower()
-
-        if i_pol_str == "rot":
-            if s_pol_str == "rot":
-                raise RuntimeError(
-                    'i_pol and s_pol cannot both be set to "rot".'
-                )
-
-            i_pol = Polarisation.from_angles(geom.incident_direction, angles)
-
-        if s_pol_str == "rot":
-            s_pol = Polarisation.from_angles(geom.collection_direction, angles)
-
-        return self.single_crystal(
-            hkl,
-            geom,
-            i_pol,
-            s_pol,
-            d2_axis_vals=angles,
-            d2_unit_text_label="chi / deg",
-            d2_unit_plot_label=r"$\chi$ / $^\circ$",
-            d2_col_hdrs=["chi_{0:.2f}".format(a) for a in angles],
-            **kwargs,
+        return AngleResolvedRamanSpectrum(
+            sp_stack.band_raman_shifts,
+            sp_stack.band_intensities,
+            sp_stack.band_linewidths,
+            sp_stack.measurement_wavelength,
+            sp_stack.measurement_temperature,
+            angles,
+            irreps=None,
+            ir_syms=sp_stack.band_irrep_symbols,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=sp_range,
+            sp_res=sp_res,
+            angle_unit_text_label=r"\chi / deg",
+            angle_unit_plot_label=r"$\chi$ / $^\circ$",
         )
 
     def single_crystal_crystal_rotation(
         self,
         hkl,
         geom=None,
-        i_pol=None,
-        s_pol=None,
-        phi_start=0.0,
-        phi_end=360.0,
-        phi_step=2.5,
+        start=0.0,
+        end=360.0,
+        step=2.5,
         rot_axis="incident",
         **kwargs,
     ):
-        """Simulate a single-crystal crystal (phi) rotation measurement
-        where the crystal is rotated about the incident direction.
+        """Simulate a single-crystal crystal rotation measurement where
+        the crystal is rotated about the incident or collection
+        direction.
 
         Parameters
         ----------
@@ -617,14 +531,7 @@ class RamanCalculation:
         geom : Geometry or None, optional
             Measurement geometry (if `None`, defaults to a conventional
             backscattering geometry).
-        i_pol, s_pol : str, Polarisation or None, optional
-            Polarisations of the incident and scattered light. The
-            scattered polarisation may be specified by one of
-            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
-            to the equivalent of horizontal polarisation in a
-            conventional backscattering geometry, and `s_pol` defaults
-            to `"sum"`.
-        phi_start, phi_end, phi_step : float, optional
+        start, end, step : float, optional
             Start/end angle and angle step for crystal rotation in
             degrees (defaults: 0 -> 360 deg in 2.5 deg steps).
         rot_axis : {"incident", "collection"}, optional
@@ -634,7 +541,7 @@ class RamanCalculation:
 
         Returns
         -------
-        spectrum : RamanSpectrum2D
+        spectrum : AngleResolvedRamanSpectrum
             Simulated Raman spectrum.
 
         See Also
@@ -655,43 +562,227 @@ class RamanCalculation:
                 "instead."
             )
 
-        if geom is None:
-            geom = Geometry.conventional_backscattering()
+        sp_type = kwargs.pop("sp_type", "stokes")
+        sp_units = kwargs.pop("sp_units", "thz")
+        sp_range = kwargs.pop("sp_range", None)
+        sp_res = kwargs.pop("sp_res", None)
 
-        rot_axis = str(rot_axis).lower()
+        geom, rots, angles = RamanCalculation.crystal_rotation(
+            geom, start, end, step, rot_axis
+        )
 
-        if rot_axis == "incident":
-            rot_axis = geom.incident_direction
-        elif rot_axis == "collection":
-            rot_axis = geom.collection_direction
-        else:
-            raise ValueError('Unknown rot_axis="{0}".'.format(rot_axis))
+        spectra = [
+            self.single_crystal(hkl, geom=geom, rot=rot, **kwargs)
+            for rot in rots
+        ]
 
-        angles = np.arange(phi_start, phi_end + phi_step / 10.0, phi_step)
+        sp_stack = spectra[0].stack_with(*spectra[1:])
 
-        if len(angles) < 2:
-            raise ValueError(
-                "Fewer than two angles between phi_start = {0:.2f} -> "
-                "phi_end = {1:.2f} with phi_step = {2:.2f}."
-                "".format(phi_start, phi_end, phi_step)
-            )
+        return AngleResolvedRamanSpectrum(
+            sp_stack.band_raman_shifts,
+            sp_stack.band_intensities,
+            sp_stack.band_linewidths,
+            sp_stack.measurement_wavelength,
+            sp_stack.measurement_temperature,
+            angles,
+            irreps=None,
+            ir_syms=sp_stack.band_irrep_symbols,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=sp_range,
+            sp_res=sp_res,
+            angle_unit_text_label=r"\psi / deg",
+            angle_unit_plot_label=r"$\psi$ / $^\circ$",
+        )
 
-        rots = np.array(
-            [rotation_matrix_from_axis_angle(rot_axis, a) for a in angles],
+    def _powder_integration(
+        self, geom, i_pol, s_pol, po_norm, po_r, w, t, e_rt, lw, **kwargs
+    ):
+        """Simulate a powder Raman spectrum using numerical integration.
+
+        Parameters
+        ----------
+        geom : Geometry or None
+            Measurement geometry
+        i_pol, s_pol : Polarisation, str or None
+            Polarisations of the incident and scattered light.
+        po_norm : array_like or None
+            Surface normal for preferred orientation.
+        po_r : float
+            r parameter for preferred orientation.
+        w, t : float
+            Measurement wavelength and temperature.
+        e_rt : float or None
+            Photon energy for evaluating the Raman tensors.
+        lw : float
+            Uniform linewidth.
+        **kwargs : any
+            Keyword arguments to `RamanSpectrum`.
+
+        Returns
+        -------
+        spectrum : RamanSpectrum
+            Simulated Raman spectrum.
+
+        See Also
+        --------
+        raman.intensity.calculate_powder_raman_intensities :
+            Lower-level API function used to calculate powder Raman
+            intensities.
+        raman.spectrum.RamanSpectrum :
+            Objects returned by this function.
+        """
+
+        params = self._get_calculation_params(
+            geom, i_pol, s_pol, None, False, w, t, e_rt, lw
+        )
+
+        freqs, r_t, lws, irreps, geom, i_pol, s_pol, w, t = params
+
+        ints = calculate_powder_raman_intensities(
+            r_t, geom, i_pol, s_pol, po_r=po_r, po_norm=po_norm
+        )
+
+        return RamanSpectrum(freqs, ints, lws, w, t, irreps=irreps, **kwargs)
+
+    def _powder_orientation_average(
+        self,
+        p,
+        geom,
+        i_pol,
+        s_pol,
+        nac,
+        po_norm,
+        po_r,
+        w,
+        t,
+        e_rt,
+        lw,
+        **kwargs,
+    ):
+        """Simulate a powder Raman spectrum from an explicit average
+        over crystal orientations.
+
+        Parameters
+        ----------
+        p : int or str
+            Integer precision or string specifier for the
+            Lebedev + circle quadrature rule for averaging.
+        geom : Geometry or None
+            Measurement geometry
+        i_pol, s_pol : Polarisation, str or None
+            Polarisations of the incident and scattered light.
+        nac : bool
+            Apply a non-analytical correction (NAC) to the phonon
+            frequencies, Raman tensors and calculated linewidths.
+        po_norm : array_like or None
+            Surface normal for preferred orientation.
+        po_r : float
+            r parameter for preferred orientation.
+        w, t : float
+            Measurement wavelength and temperature.
+        e_rt : float or None
+            Photon energy for evaluating the Raman tensors.
+        lw : float
+            Uniform linewidth.
+        **kwargs : any
+            Keyword arguments to `AveragedRamanSpectrum`.
+
+        Returns
+        -------
+        spectrum : RamanSpectrum
+            Simulated Raman spectrum.
+
+        See Also
+        --------
+        raman.spectrum.AveragedRamanSpectrum :
+            Objects returned by this function.
+        utility.quadrature.unit_sphere_lebedev_quad_rule_available_precs
+            Get a list of available precisions `p`.
+        """
+
+        # Set the default geometry to obtain the incident direction
+        # q_i and the NAC vector q_nac.
+
+        geom, i_pol, s_pol = RamanCalculation.default_geometry(
+            geom, i_pol, s_pol
+        )
+
+        q_i = geom.incident_direction
+        q_nac = geom.raman_nac_direction
+
+        # Orientation vectors and \phi/\theta from a Lebedev quadrature
+        # rule.
+
+        v_l, w_l = unit_sphere_lebedev_quad_rule(p, angles=False)
+        a_l = cartesian_to_spherical_polar(v_l)[:, 1:]
+
+        n = len(v_l)
+
+        # \psi angles from a circle rule. If there is no preferred
+        # orientation, or if q_i and q_nac are collinear, a minimal rule
+        # with m = 8 points is suitable. If not, a rule with the same
+        # number of \psi as the \phi in the Lebedev rule provides a
+        # "balanced" sampling of orientations.
+
+        m = 8
+
+        po = np.abs(po_r - 1.0) > ZERO_TOLERANCE
+        abs_dp = np.abs(np.dot(q_nac, q_i))
+
+        if po and np.abs(abs_dp - 1.0) > ZERO_TOLERANCE:
+            m = len(np.unique(a_l[:, 0]))
+
+        a_c, w_c = unit_circle_quad_rule(m, angles=True)
+
+        w_sp = np.repeat(w_l, m) * np.tile(w_c, n)
+
+        freqs = np.zeros(
+            (n * m, self._r_t.ph_calc.num_modes), dtype=np.float64
+        )
+
+        ints = np.zeros_like(freqs, dtype=np.float64)
+        lws = np.zeros_like(freqs, dtype=np.float64)
+
+        # Precompute rotation matrices for circle rule.
+
+        psi_rots = np.array(
+            [rotation_matrix_from_axis_angle(q_nac, a) for a in a_c],
             dtype=np.float64,
         )
 
-        return self.single_crystal(
-            hkl,
-            geom,
-            i_pol,
-            s_pol,
-            rot=rots,
-            d2_axis_vals=angles,
-            d2_unit_text_label="phi / deg",
-            d2_unit_plot_label=r"$\phi$ / $^\circ$",
-            d2_col_hdrs=["phi_{0:.2f}".format(a) for a in angles],
-            **kwargs,
+        for i, (v, r_a) in enumerate(product(v_l, psi_rots)):
+            rot = r_a @ rotation_matrix_from_vectors(v, q_nac)
+
+            params = self._get_calculation_params(
+                geom, i_pol, s_pol, rot, nac, w, t, e_rt, lw
+            )
+
+            freqs, r_t, lws, _, geom, i_pol, s_pol, w, t = params
+
+            freqs[i, :] = freqs
+
+            ints[i, :] = calculate_single_crystal_raman_intensities(
+                r_t, geom, i_pol, s_pol, rot=None
+            )
+
+            lws[i, :] = lws
+
+            if po:
+                # The angle \alpha in the March-Dollase distribution is
+                # the angle between the rotated preferred direction
+                # and the incident axis.
+
+                w_sp[i] *= march_dollase(
+                    np.acos(np.dot(rot @ po_norm, q_i)), po_r
+                )
+
+        or_a = np.degrees(
+            np.concatenate((np.repeat(a_l, m), np.tile(a_c, n)), axis=1)
+        )
+
+        return RamanSpectrum(
+            freqs, ints, lws, w, t, or_a=or_a, or_w=w_sp, **kwargs
         )
 
     def powder(
@@ -701,21 +792,22 @@ class RamanCalculation:
         s_pol=None,
         po_hkl=None,
         po_r=1.0,
+        nac="auto",
+        p="medium",
         w=785.0,
-        t=None,
+        t=300.0,
         e_rt=None,
-        lw=None,
+        lw=0.5,
         **kwargs,
     ):
-        """Simulate a powder Raman spectrum with optional preferred
-        orientation.
+        """Simulate a powder Raman spectrum using numerical integration.
 
         Parameters
         ----------
         geom : Geometry or None, optional
             Measurement geometry (if `None`, defaults to a conventional
             backscattering geometry).
-        i_pol, s_pol : str, Polarisation, array_like or None, optional
+        i_pol, s_pol : Polarisation, str or None, optional
             Polarisations of the incident and scattered light. The
             scattered polarisation may be specified by one of
             `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
@@ -723,115 +815,76 @@ class RamanCalculation:
             conventional backscattering geometry, and `s_pol` defaults
             to `"sum"`.
         po_hkl : array_like of int or None, optional
-            Miller index of the preferred orientation (default: None).
-        po_r : float or None, optional
+            Miller index of the preferred orientation (default: `None`).
+        po_r : float, optional
             r parameter for March-Dollase distribution used to model
-            preferred orientation (default: `None`)
-        w : float or None, optional
-            Measurement wavelength (default: 785 nm).
-        t : float or None, optional
-            Measurement temperature (default: 300 K, overridden by the
-            temperature of the underlying phonon calculation if
-            available).
+            preferred orientation (default: 1.0)
+        nac : str or bool, optional
+            Apply a non-analytical correction (NAC) to the phonon
+            frequencies, Raman tensors and calculated linewidths if
+            available (default: "auto", sets to `default_nac`).
+        p : int, optional
+            Integer precision or one of
+            {"min", "low", "medium", "high", "ultra", "max"} specifying
+            the Lebedev + circle quadrature rule for powder averaging
+            with NAC.
+        w, t : float, optional
+            Measurement wavelength and temperature (defaults: 785 nm and
+            300 K; `t` is overridden by the calculation temperature if
+            set).
         e_rt : float or None, optional
             Photon energy for evaluating the Raman tensors in energy-
             dependent Raman calculations (default: calculated from `w`
             if set and if energy-dependent Raman tensors are available,
             otherwise E = 0.)
-        lw : float or None, optional
+        lw : float, optional
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
-            linewidths from the underlying phonon calculation if
-            available).
+            linewidths from the underlying phonon calculation if set).
         **kwargs : any
-            Keyword arguments to the `RamanSpectrum1D` and
-            `RamanSpectrum2D` constructors (some of these may be
-            required depending on other parameters - see notes below).
+            Keyword arguments to `RamanSpectrum`.
 
         Returns
         -------
-        spectrum : RamanSpectrum1D or RamanSpectrum2D
+        spectrum : RamanSpectrum
             Simulated Raman spectrum.
 
         See Also
         --------
-        raman.intensity.calculate_powder_raman_intensities :
-            Lower-level API function used to calculate powder Raman
-            intensities.
-        raman.spectrum.RamanSpectrum1D, raman.spectrum.RamanSpectrum2D :
+        raman.spectrum.RamanSpectrum :
             Objects returned by this function.
-
-        Notes
-        -----
-        * If called with multiple polarisations to generate a 2D
-          spectrum, additional keyword args to the `RamanSpectrum2D`
-          constructor will need to be specified.
         """
 
-        params = self._get_calc_params(geom, i_pol, s_pol, w, t, e_rt, lw)
+        if np.abs(po_r - 1.0) > ZERO_TOLERANCE and po_hkl is None:
+            raise ValueError(
+                "po_hkl must be specified for calculations with "
+                "preferred orientation."
+            )
 
         po_norm = None
 
         if po_hkl is not None:
-            po_norm = self._ph_calc.structure.real_space_normal(
-                po_hkl, conv=True
-            )
+            po_norm = self.r_t.structure.real_space_normal(po_hkl, conv=True)
 
-        ints = np.zeros(
-            (
-                len(params["incident_polarisations"]),
-                params["raman_tensors"].shape[0],
-            ),
-            dtype=np.float64,
-        )
+        nac = self._get_nac(nac)
 
-        for i, (i_pol, s_pol) in enumerate(
-            zip(
-                params["incident_polarisations"],
-                params["scattered_polarisations"],
-            )
-        ):
-            ints[i] = calculate_powder_raman_intensities(
-                params["raman_tensors"],
-                params["geometry"],
+        if nac:
+            return self._powder_orientation_average(
+                p,
+                geom,
                 i_pol,
                 s_pol,
-                po_r=po_r,
-                po_norm=po_norm,
-            )
-
-        ints = np.array(ints, dtype=np.float64).T
-
-        if params["is_2d_spectrum"]:
-            if (
-                "d2_axis_vals" not in kwargs
-                or "d2_unit_text_label" not in kwargs
-            ):
-                raise RuntimeError(
-                    "Multiple polarisations produce 2D spectra and "
-                    "require the optional d2_axis_vals and "
-                    "d2_unit_text_label keywords to be specified."
-                )
-
-            return RamanSpectrum2D(
-                params["frequencies"],
-                ints,
-                params["linewidths"],
-                params["laser_wavelength"],
-                params["temperature"],
-                kwargs.pop("d2_axis_vals"),
-                kwargs.pop("d2_unit_text_label"),
-                irreps=params["irreps"],
+                nac,
+                po_norm,
+                po_r,
+                w,
+                t,
+                e_rt,
+                lw,
                 **kwargs,
             )
         else:
-            return RamanSpectrum1D(
-                params["frequencies"],
-                ints,
-                params["linewidths"],
-                params["laser_wavelength"],
-                params["temperature"],
-                irreps=params["irreps"],
-                **kwargs,
+            return self._powder_integration(
+                geom, i_pol, s_pol, po_norm, po_r, w, t, e_rt, lw, **kwargs
             )
 
     def powder_polarisation_rotation(
@@ -839,37 +892,33 @@ class RamanCalculation:
         geom=None,
         i_pol=None,
         s_pol=None,
-        chi_start=0.0,
-        chi_end=360.0,
-        chi_step=2.5,
+        start=0.0,
+        end=360.0,
+        step=2.5,
         **kwargs,
     ):
-        """Simulate a powder polarisation (chi) rotation measurement
-        where one of the incident or scattered polarisations are rotated
-        about the incident or collection direction respectively.
+        """Simulate a powder polarisation rotation experiment where the
+        incident or scattered polarisation is rotated about the
+        incident/collection direction.
 
         Parameters
         ----------
         geom : Geometry or None, optional
             Measurement geometry (if `None`, defaults to a conventional
             backscattering geometry).
-        i_pol, s_pol : str, Polarisation or None, optional
+        i_pol, s_pol : Polarisation, str or None, optional
             Polarisations of the incident and scattered light. The
-            polarisation to be rotated can be specified by "rot". The
-            scattered polarisation may be specified by one of
-            `{"parallel", "cross", "sum"}`. If `None`, `i_pol` defaults
-            to the equivalent of horizontal polarisation in a
-            conventional backscattering geometry, and `s_pol` defaults
-            to `"sum"`.
-        chi_start, chi_end, chi_step : float, optional
-            Start/end angle for polarisation rotation in degrees
-            (defaults: 0 -> 360 deg in 2.5 deg steps).
+            polarisation to be rotated is specified by `"rot"`. The
+            defaults are the same as for `powder`,
+        start, end, step : float, optional
+            Start/end angle and angle step for polarisation rotation in
+            degrees (defaults: 0 -> 360 deg in 2.5 deg steps).
         **kwargs : any
             Optional arguments to `powder`.
 
         Returns
         -------
-        spectrum : RamanSpectrum2D
+        spectrum : AngleResolvedRamanSpectrum
             Simulated Raman spectrum.
 
         See Also
@@ -881,41 +930,40 @@ class RamanCalculation:
         See `powder` for optional keyword arguments.
         """
 
-        angles = np.arange(chi_start, chi_end + chi_step / 10.0, chi_step)
+        geom, pols, angles = RamanCalculation.polarisation_rotation(
+            geom, i_pol, s_pol, start, end, step
+        )
 
-        if len(angles) < 2:
-            raise ValueError(
-                "Fewer than two angles between chi_start = {0:.2f} -> "
-                "chi_end = {1:.2f} with chi_step = {2:.2f}."
-                "".format(chi_start, chi_end, chi_step)
-            )
+        sp_type = kwargs.pop("sp_type", "stokes")
+        sp_units = kwargs.pop("sp_units", "thz")
+        sp_range = kwargs.pop("sp_range", None)
+        sp_res = kwargs.pop("sp_res", None)
 
-        if geom is None:
-            geom = Geometry.conventional_backscattering()
+        # Simulate a series of powder spectra. NAC should be handled
+        # transparently by powder() and stack_with().
 
-        i_pol_str = str(i_pol).lower()
-        s_pol_str = str(s_pol).lower()
+        spectra = [
+            self.powder(geom=geom, i_pol=i_pol, s_pol=s_pol, **kwargs)
+            for i_pol, s_pol in pols
+        ]
 
-        if i_pol_str == "rot":
-            if s_pol_str == "rot":
-                raise RuntimeError(
-                    'i_pol and s_pol cannot both be set to "rot".'
-                )
+        sp_stack = spectra[0].stack_with(*spectra[1:])
 
-            i_pol = Polarisation.from_angles(geom.incident_direction, angles)
-
-        if s_pol_str == "rot":
-            s_pol = Polarisation.from_angles(geom.collection_direction, angles)
-
-        return self.powder(
-            geom,
-            i_pol,
-            s_pol,
-            d2_axis_vals=angles,
-            d2_unit_text_label="chi / deg",
-            d2_unit_plot_label=r"$\chi$ / $^\circ$",
-            d2_col_hdrs=["chi_{0:.2f}".format(a) for a in angles],
-            **kwargs,
+        return AngleResolvedRamanSpectrum(
+            sp_stack.band_raman_shifts,
+            sp_stack.band_intensities,
+            sp_stack.band_linewidths,
+            sp_stack.measurement_wavelength,
+            sp_stack.measurement_temperature,
+            angles,
+            irreps=None,
+            ir_syms=sp_stack.band_irrep_symbols,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=sp_range,
+            sp_res=sp_res,
+            angle_unit_text_label=r"\chi / deg",
+            angle_unit_plot_label=r"$\chi$ / $^\circ$",
         )
 
     def to_dict(self):
@@ -929,11 +977,218 @@ class RamanCalculation:
             Python types.
         """
 
-        return {
-            "phonon_calculation": self._ph_calc.to_dict(),
-            "raman_tensors": self._r_t.to_dict(),
-            "band_indices": self._band_inds.tolist(),
-        }
+        return {"raman_tensors": self._r_t.to_dict(), "symprec": self._symprec}
+
+    @staticmethod
+    def default_geometry(geom=None, i_pol=None, s_pol=None):
+        """Get default geometry and/or polarisations for a Raman
+        calculation.
+
+        Parameters
+        ----------
+        geom : Geometry or None, optional
+            Measurement geometry.
+        i_pol, s_pol : Polarisation, str or None, optional
+            Polarisations of the incident and scattered light. The
+            scattered polarisation may be specified by one of
+            `{"parallel", "cross", "sum"}`.
+
+        Returns
+        -------
+        params : tuple
+            Tuple of `(geom, i_pol, s_pol)` with geometry and
+            polarisation.
+
+        Notes
+        -----
+        The defaults for unspecified parameters are as follows:
+          * `geom`: conventional backscattering geometry.
+          * `i_pol`: equivalent of horizontal polarisation in a
+            conventional backscattering geometry.
+          * `s_pol`: sum of parallel and perpendicular polarisations.
+
+        If some of the parameters are specified these defaults are not
+        guaranteed to be suitable. This is particularly likely to be the
+        case if a non-standard geometry is specified but one or both
+        polarisations are left to the defaults.
+        """
+
+        # Default to conventional backscattering geometry.
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
+
+        # Default polarisations: conventional horizontal polarisation
+        # = x for a backscattering geometry, rotated for the incident
+        # direction, and sum of parallel and cross polarisations.
+
+        if i_pol is None:
+            i_pol = Polarisation.conventional_horizontal(
+                geom.incident_direction
+            )
+
+        if s_pol is None:
+            s_pol = "sum"
+
+        if isinstance(s_pol, (str, np.str_)):
+            match str(s_pol).lower():
+                case "parallel":
+                    s_pol = i_pol
+                case "cross":
+                    s_pol = Polarisation.cross_to(
+                        i_pol, geom.incident_direction
+                    )
+                case "sum":
+                    s_pol = Polarisation.sum_parallel_cross_to(
+                        i_pol, geom.incident_direction
+                    )
+
+        if not (
+            i_pol.check_perpendicular(geom.incident_direction)
+            and s_pol.check_perpendicular(geom.collection_direction)
+        ):
+            raise ValueError(
+                "The specified i_pol or s_pol are not possible with "
+                "the supplied or default geometry."
+            )
+
+        return (geom, i_pol, s_pol)
+
+    @staticmethod
+    def polarisation_rotation(geom, i_pol, s_pol, start, end, step):
+        r"""Get a set of M pairs of incident and scattered polarisations
+        for simulating a polarisation rotation experiment where one of
+        the polarisations is rotated through a series of angles \chi.
+
+        Parameters
+        ----------
+        geom : Geometry or None
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        i_pol, s_pol : Polarisation, str or None
+            Incident/scattered light polarisations. The polarisation to
+            be rotated must be set to `"rot"`. `s_pol` can be specified
+            by one of `{"parallel", "cross", "sum"}`.
+        start, end, step : float
+            Start/end rotation angle and angle step.
+
+        Returns
+        -------
+        params : tuple
+            Tuple of `(geom, pols, angles)` with the measurement
+            geometry, polarisation pairs (shape: `(M, 2)`) and rotation
+            angles (shape: `(M,)`).
+        """
+
+        i_rot = (
+            isinstance(i_pol, (str, np.str_)) and str(i_pol).lower() == "rot"
+        )
+
+        s_rot = (
+            isinstance(s_pol, (str, np.str_)) and str(s_pol).lower() == "rot"
+        )
+
+        if not (i_rot or s_rot):
+            raise ValueError('One of i_pol or s_pol must be set to "rot".')
+
+        if i_rot and s_rot:
+            raise ValueError('i_pol and s_pol cannot both be set to "rot".')
+
+        angles = np.arange(start, end + step / 10.0, step)
+
+        if len(angles) == 0:
+            raise ValueError(
+                "start, end and step must define at least one rotation "
+                "angle."
+            )
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
+
+        i_pols, s_pols = None, None
+
+        if i_rot:
+            i_pols = Polarisation.from_angles(geom.incident_direction, angles)
+
+            # get_default_geometry() handles the case where s_pol is a
+            # string or None.
+
+            s_pols = []
+
+            for i_pol in i_pols:
+                _, _, s_pol = RamanCalculation.default_geometry(
+                    geom, i_pol, s_pol
+                )
+                s_pols.append(s_pol)
+
+        if s_rot:
+            s_pols = Polarisation.from_angles(
+                geom.collection_direction, angles
+            )
+
+            i_pols = []
+
+            for s_pol in s_pols:
+                _, i_pol, _ = RamanCalculation.default_geometry(
+                    geom, i_pol, s_pol
+                )
+                i_pols.append(i_pol)
+
+        # Transpose polarisation array to swap (2, M) -> (M, 2).
+
+        return (geom, np.array([i_pols, s_pols], dtype=object).T, angles)
+
+    @staticmethod
+    def crystal_rotation(geom, start, end, step, rot_axis):
+        r"""Get a set of M rotation matrices for simulating a crystal
+        rotation experiment where the crystal is rotated about either
+        the incident or collection direction by a series of angles
+        \psi.
+
+        Parameters
+        ----------
+        geom : Geometry or None
+            Measurement geometry (if `None`, defaults to a conventional
+            backscattering geometry).
+        start, end, step : float
+            Start/end rotation angle and angle step.
+        rot_axis : {"incident", "collection"}
+            Rotation axis.
+
+        Returns
+        -------
+        params : tuple
+            Tuple of `(geom, rots, angles)` with the measurement
+            geometry, rotation matrices (shape: `(M, 3, 3)`) and
+            rotation angles (shape: `(M,)`).
+        """
+
+        angles = np.radians(
+            np.arange(start, end + step / 10.0, step, dtype=np.float64)
+        )
+
+        if len(angles) == 0:
+            raise ValueError(
+                "start, end and step must define at least one rotation "
+                "angle."
+            )
+
+        if geom is None:
+            geom = Geometry.conventional_backscattering()
+
+        axis = None
+
+        match str(rot_axis).lower():
+            case "incident":
+                axis = geom.incident_direction
+            case "collection":
+                axis = geom.collection_direction
+            case _:
+                raise ValueError(f'Unknown rot_axis specifier "{rot_axis}".')
+
+        rots = [rotation_matrix_from_axis_angle(axis, a) for a in angles]
+
+        return (geom, np.array(rots, dtype=np.float64), angles)
 
     @staticmethod
     def from_dict(d):
@@ -947,21 +1202,10 @@ class RamanCalculation:
 
         Returns
         -------
-        calc : RamanCalculator
-            `RamanCalculator` object constructed from the data in `d`.
+        calc : RamanCalculation
+            `RamanCalculation` object constructed from the data in `d`.
         """
 
-        data = d["phonon_calculation"]
-
-        ph_calc = None
-
-        if "eps_inf" in data and "born_charges" in data:
-            ph_calc = PolarGammaPhonons.from_dict(data)
-        else:
-            ph_calc = GammaPhonons.from_dict(data)
-
         return RamanCalculation(
-            ph_calc,
-            RamanTensors.from_dict(d["raman_tensors"]),
-            d["band_indices"],
+            RamanTensors.from_dict(d["raman_tensors"]), d["symprec"]
         )

@@ -10,27 +10,21 @@
 # Imports
 # -------
 
-import numpy as np
 import warnings
 
-from .calculation import RamanCalculation
+import numpy as np
+
 from .tensors import RamanTensors
 
 from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
-from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
+from ..gamma_phonons import GammaPhonons, FullPolarGammaPhonons
 from ..units import nm_to_ev
 
-from ..utility.numpy_helper import (
-    np_asarray_copy,
-    np_readonly_view,
-    np_check_shape,
-    np_expand_dims,
-)
+from ..optics.response_function import DielectricFunction
 
 from ..utility.differentiation import central_difference_coefficients
-
-from ..utility.geometry import rotation_matrix_from_axis_angle
+from ..utility.structure import cartesian_to_fractional_coordinates
 
 # ---------------------------------------------
 # FiniteDisplacementRamanTensorCalculator class
@@ -41,7 +35,13 @@ class FiniteDisplacementRamanTensorCalculator:
     """Set up and post-process Raman tensor calculations using the
     finite-displacement method."""
 
-    def __init__(self, ph_calc, step_size=1.0e-2, prec=2, band_inds="active"):
+    def __init__(
+        self,
+        ph_calc,
+        step_size=1.0e-2,
+        prec=2,
+        band_inds="active",
+    ):
         r"""Create a new instance of the
         `FiniteDisplacementRamanTensorCalculator` class.
 
@@ -81,54 +81,57 @@ class FiniteDisplacementRamanTensorCalculator:
 
         # Identify band indices to use for calculation.
 
-        band_inds_str = str(band_inds).lower()
+        if isinstance(band_inds, (str, np.str_)):
+            # Band selection with a string specifier.
 
-        if band_inds_str == "all" or band_inds_str == "active":
-            band_inds = np.arange(0, ph_calc.num_modes, dtype=int)
+            band_inds_str = str(band_inds).lower()
 
-            if band_inds_str == "active":
-                mask = np.isin(
-                    band_inds, ph_calc.acoustic_mode_indices, invert=True
-                )
+            match band_inds_str:
+                case "all":
+                    band_inds = np.arange(0, ph_calc.num_modes, dtype=int)
+                case "active":
+                    if ph_calc.irreps is None:
+                        warnings.warn(
+                            "ph_calc does not have irreps - "
+                            'band_inds="active" may include inactive'
+                            "modes.",
+                            RuntimeWarning,
+                        )
 
-                if ph_calc.has_irreps:
-                    active_inds = ph_calc.irreps.get_subset(
-                        "raman"
-                    ).band_indices_flat()
-
-                    mask = np.logical_and(
-                        mask, np.isin(band_inds, active_inds)
+                    band_inds = np.copy(ph_calc.raman_band_indices)
+                case _:
+                    raise ValueError(
+                        f'Unknown string specifier band_inds="{band_inds}".'
                     )
-
-                band_inds = band_inds[mask]
 
         else:
-            band_inds = np_asarray_copy(band_inds, dtype=int)
+            # Explicit list of band indices.
 
-            if not np_check_shape(band_inds, (None,)):
+            band_inds = np.atleast_1d(
+                np.array(band_inds, dtype=int, copy=True)
+            )
+
+            if len(band_inds) != len(np.unique(band_inds)):
                 raise ValueError(
-                    "An explicit set of band indices must be suplied as an "
-                    "array_like of shape (N,)."
+                    "band_inds must not contain duplicate indices."
                 )
 
-            if len(band_inds) != len(set(band_inds)):
+            if (band_inds < 0).any() or (band_inds >= ph_calc.num_modes).any():
                 raise ValueError(
-                    "band_inds contains one or more duplicate indices."
+                    "One or more indices in band_inds are incompatible "
+                    "with the number of modes in the phonon "
+                    "calculation."
                 )
-
-            for idx in band_inds:
-                if idx < 0 or idx >= ph_calc.num_modes:
-                    raise ValueError(
-                        "One or more indices in band_inds are "
-                        "incompatible with the number of modes in the "
-                        "phonon calculation."
-                    )
 
         if len(band_inds) == 0:
-            raise Exception(
-                "No Raman-active modes in phonon calculation or no "
-                "band_inds specified."
+            raise RuntimeError(
+                "No Raman-active modes in ph_calc or empty band_inds."
             )
+
+        band_inds.flags.writeable = False
+
+        disp_steps.flags.writeable = False
+        step_coeffs.flags.writeable = False
 
         self._ph_calc = ph_calc
         self._band_inds = band_inds
@@ -140,14 +143,13 @@ class FiniteDisplacementRamanTensorCalculator:
 
     @property
     def phonon_calculation(self):
-        """GammaPhonons or PolarGammaPhonons : Gamma-point phonon
-        calculation."""
+        """GammaPhonons or PolarGammaPhonons : Phonon calculation."""
         return self._ph_calc
 
     @property
     def band_indices(self):
         """numpy.ndarray : Band indices in calculation."""
-        return np_readonly_view(self._band_inds)
+        return self._band_inds
 
     @property
     def step_size(self):
@@ -162,12 +164,12 @@ class FiniteDisplacementRamanTensorCalculator:
     @property
     def displacement_steps(self):
         """numpy.ndarray : Displacement steps."""
-        return np_readonly_view(self._disp_steps)
+        return self._disp_steps
 
     @property
     def step_coefficients(self):
         """numpy.ndarray : Step coefficients."""
-        return np_readonly_view(self._step_coeffs)
+        return self._step_coeffs
 
     @property
     def num_bands(self):
@@ -228,34 +230,27 @@ class FiniteDisplacementRamanTensorCalculator:
 
         for i, idx in enumerate(self._band_inds):
             for j, step in enumerate(self._disp_steps):
+                disp_pos = cartesian_to_fractional_coordinates(
+                    at_pos + step * edisps[idx], struct.lattice_vectors
+                )
+
                 disp_structs[i, j] = Structure(
                     struct.lattice_vectors,
-                    at_pos + step * edisps[idx],
+                    disp_pos,
                     struct.atom_types,
                     struct.atomic_masses,
-                    cart_to_frac=True,
                 )
 
         return disp_structs
 
-    def get_raman_calculation(
-        self, dielectrics, e=None, e_cut=None, w_cut=None
-    ):
-        """Calculate Raman tensors from dielectric tensors or
-        energy-dependent dielectric functions for the displaced
-        structures generated by `get_displaced_structures()` and return
-        a `RamanCalculation` object.
+    def get_raman_tensors(self, epss, e_cut=None, w_cut=None):
+        """Calculate Raman tensors from a set of `DielectricFunction`
+        objects.
 
         Parameters
         ----------
-        dielectrics : array_like
-            Dielectric tensors or energy-dependent dielectric functions
-            in units of relative permittivity (shape: `(N, M, 3, 3)` or
-            `(N, M, O, 3, 3)`).
-        e : array_like or None, optional
-            Energies at which the dielectirc constants/functions were
-            evaluated in eV (shape: `(O,)`; default: 0 when `O` = 1, but
-            must be specified when `O` > 1).
+        epss : array_like of DielectricFunction
+            Dielectric functions (shape: `(N, M)`).
         e_cut, w_cut : float or None, optional
             Energy or wavelength cutoff for energy-dependent dielectric
             functions (default: `None` = no cutoff; `w_cut` overrides
@@ -263,22 +258,29 @@ class FiniteDisplacementRamanTensorCalculator:
 
         Returns
         -------
-        calc : RamanCalculation
-            Raman calculation.
+        r_t : RamanTensors
+            Raman tensors.
         """
 
-        dielectrics, _ = np_expand_dims(
-            np.asarray(dielectrics),
-            (len(self._band_inds), len(self._disp_steps), None, 3, 3),
-        )
+        epss = np.asanyarray(epss, dtype=object)
 
-        if e is not None:
-            e = np.asarray(e)
+        if epss.shape != (self.num_bands, self.num_steps):
+            raise ValueError("epss must be an array_like with shape (N, M).")
 
-            if len(e) != dielectrics.shape[2]:
-                raise ValueError(
-                    "If supplied, e must be an array_like with shape (O,)."
-                )
+        for eps in epss.flat:
+            if eps.num_dims != 3:
+                raise ValueError("epss must all be 3D dielectric functions.")
+
+        # Align energies and compile data.
+
+        epss = DielectricFunction.align_energies(epss)
+
+        e = epss[0, 0].energy
+
+        eps = np.zeros(epss.shape + (len(e), 3, 3), dtype=np.complex128)
+
+        for idx in np.ndindex(epss.shape):
+            eps[idx] = epss[idx].epsilon
 
         # The paper this is based on (Porezag and Pederson, Phys. Rev. B
         # 54, 7830, 1996, 10.1103/PhysRevB.54.7830) uses "polarisability
@@ -295,13 +297,13 @@ class FiniteDisplacementRamanTensorCalculator:
 
         r_t = (
             (
-                dielectrics
+                eps
                 * self._step_coeffs[
                     np.newaxis, :, np.newaxis, np.newaxis, np.newaxis
                 ]
             ).sum(axis=1)
             * (1.0 / self._step_size)
-            * (self._ph_calc._struct.volume() / (4.0 * np.pi))
+            * (self._ph_calc.structure.volume / (4.0 * np.pi))
         )
 
         # If required, impose an energy cutoff on energy-dependent
@@ -322,9 +324,7 @@ class FiniteDisplacementRamanTensorCalculator:
             e = e[mask]
             r_t = r_t[:, mask, :, :]
 
-        return RamanCalculation(
-            self._ph_calc, RamanTensors(r_t, e), self._band_inds
-        )
+        return RamanTensors(self._ph_calc, r_t, e, band_inds=self._band_inds)
 
     def to_dict(self):
         """Return the internal data as a dictionary of native Python
@@ -369,7 +369,7 @@ class FiniteDisplacementRamanTensorCalculator:
         ph_calc = None
 
         if "eps_inf" in data and "born_charges" in data:
-            ph_calc = PolarGammaPhonons.from_dict(data)
+            ph_calc = FullPolarGammaPhonons.from_dict(data)
         else:
             ph_calc = GammaPhonons.from_dict(data)
 
@@ -381,7 +381,7 @@ class FiniteDisplacementRamanTensorCalculator:
         )
 
         # The displacement_steps and step_coefficients properties are
-        # generated based on the prec and stpe_size parameters, so check
+        # generated based on the prec and step_size parameters, so check
         # for consistency with the data in the dictionary.
 
         diff = (

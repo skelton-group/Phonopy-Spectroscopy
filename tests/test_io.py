@@ -248,23 +248,19 @@ class TestIO(unittest.TestCase):
             _EXAMPLE_BASE_DIR_SNSE, r"nac_ref/qpoints-001.yaml"
         )
 
-        # Test the option to discard the imaginary parts of complex
-        # eigenvectors from the gamma_phonons_from_phono3py() interface.
-
-        gamma_ph = gamma_phonons_from_phono3py(
-            cell_file,
-            freqs_evecs_file,
-            discard_imag=False,
-        )
-
-        # Loading complex eigenvectors with discard_imag=True should
-        # result in a UserWarning.
+        # Loading complex eigenvectors with the default
+        # allow_imag_evecs=False should raise a RuntimeError.
 
         with self.assertRaises(RuntimeError):
-            gamma_phonons_from_phono3py(
-                cell_file,
-                freqs_evecs_file,
-                discard_imag=True,
+            gamma_phonons_from_phono3py(cell_file, freqs_evecs_file)
+
+        # Setting allow_imag_evecs=True should downgrade to a warning.
+
+        gamma_ph = None
+
+        with self.assertWarns(RuntimeWarning):
+            gamma_ph = gamma_phonons_from_phono3py(
+                cell_file, freqs_evecs_file, allow_imag_evecs=True
             )
 
         self.assertTrue(np.iscomplexobj(gamma_ph.eigenvectors))
@@ -309,22 +305,22 @@ class TestIO(unittest.TestCase):
         ]
 
         for f, ref_eps in zip(input_files, ref_eps_hf):
-            e, eps_e = dielectric_from_vasprun_xml(
+            eps = dielectric_from_vasprun_xml(
                 os.path.join(_EXAMPLE_BASE_DIR_SI, r"raman_ref", f)
             )
 
             # First energy should be E = 0.
 
-            self.assertTrue(np.isclose(e[0], 0.0))
+            self.assertTrue(np.isclose(eps.energy[0], 0.0))
 
             # Dielectric constant at E = 0 should be real.
 
-            self.assertFalse(np.iscomplex(eps_e[0]).any())
+            self.assertFalse(np.iscomplex(eps.epsilon[0]).any())
 
             # Si is isotropic so the three diagonal elements should be
             # equal by symmetry.
 
-            self.assertTrue((np.diag(eps_e[0]) == ref_eps).all())
+            self.assertTrue((np.diag(eps.epsilon[0]) == ref_eps).all())
 
 
 # ----

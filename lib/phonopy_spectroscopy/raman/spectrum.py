@@ -15,23 +15,27 @@ import warnings
 import pandas as pd
 import numpy as np
 
+from itertools import product
+
 from ..constants import (
-    ZERO_TOLERANCE,
     AMU_TO_KG,
     PLANCK_CONSTANT_J,
     SPEED_OF_LIGHT,
+    ZERO_TOLERANCE,
 )
 
 from ..distributions import lorentzian, phonon_occupation_number
-from ..spectrum_base import GammaPhononSpectrumBase
-from ..units import convert_frequency_units, nm_to_thz
 
-from ..utility.numpy_helper import (
-    np_asarray_copy,
-    np_readonly_view,
-    np_check_shape,
-    np_expand_dims,
+from ..irreps import Irreps
+
+from ..units import (
+    convert_frequency_units,
+    nm_to_thz,
+    get_frequency_unit_text_label,
+    get_frequency_unit_plot_label,
 )
+
+from ..utility.spectrum import auto_range
 
 # ---------
 # Constants
@@ -43,201 +47,189 @@ _RAMAN_INTENSITY_PREFACTOR = (
     * (PLANCK_CONSTANT_J / (SPEED_OF_LIGHT**4))
     * ((1.0e-10**4) / AMU_TO_KG)
 )
-
-"""float : Prefactor for converting Raman intensities to cross sections.
-"""
-
-_RAMAN_INTENSITY_UNIT_TEXT_LABEL = "I / (Ang^4 amu)"
-
-"""str : Intensity unit label suitable for plain-text output."""
-
-_RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
-
-"""str : Cross section unit label suitable for plain-text output."""
-
-_RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL = (
-    r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
-)
-
-"""str : Cross section unit label suitable for plotting (contains TeX
-strings)."""
-
+"""float : Prefactor for converting Raman intensities in Ang^4 / amu to 
+cross sections in Ang^2 / sr."""
 
 # ---------
 # Functions
 # ---------
 
 
-def adjust_gamma_phonons_for_spectrum_type(
-    freqs, ints, lws, irrep_syms=None, spectrum_type="stokes"
+def adjust_band_params_for_spectrum_type(
+    freqs, ints, lws, ir_syms=None, sp_type="stokes"
 ):
-    """Adjust a set of band frequencies, intensities, linewidths and,
-    optionally, irreps for different types of Raman spectrum.
+    """Adjust band frequencies, intensities, linewidths and, optionally,
+    irreps for different types of Raman spectra.
 
     Parameters
     ----------
-    freqs : array_like
-        Frequencies (shape: `(N,)`).
-    ints : array_like
-        Intensities for `N` bands (shape: `(N,)` or `N` modes and `M`
-        calculations (shape: `(N, M)`).
-    lws : array_like or None, optional
-        Linewidths (shape: `(N,)`).
-    irrep_syms : array_like or None, optional
-        Irreducible representation (irrep) symbols (shape: `(N,)`).
-    spectrum_type : {"stokes", "anti-stokes", "both"}
+    freqs : scalar or array_like
+        Frequencies (scalar or shape: `(..., N)`).
+    ints : scalar or array_like
+        Intensities (scalar or shape: `(..., N)`).
+    lws : scalar, array_like or None, optional
+        Linewidths (scalar or shape: `(..., N)`).
+    ir_syms : scalar, array_like or None, optional
+        Irreducible representation (irrep) symbols (scalar or shape:
+        `(..., N)`).
+    sp_type : {"stokes", "anti-stokes", "both"}
         Type of Raman spectrum (default "stokes").
 
     Returns
     -------
-    phonons : tuple of (numpy.ndarray or None)
+    params : tuple of (numpy.ndarray or None)
         `(freqs, ints, lws, irreps)` tuple with input data adjusted for
-        `spectrum_type`.
+        `sp_type` and broadcast to a common shape.
+
+    Notes
+    -----
+    The array shapes of `freqs` and `lws`/`ir_syms` if provided are
+    matched to the shape of `ints` according to standard NumPy
+    brodcasting rules.
     """
 
-    freqs = np.asarray(freqs)
-
-    if not np_check_shape(freqs, (None,)):
-        raise ValueError("freqs must be an array_like with shape (N,).")
-
-    ints, n_dim_add = np_expand_dims(np.asarray(ints), (len(freqs), None))
+    ints = np.asanyarray(ints)
+    freqs = np.asanyarray(freqs)
 
     if lws is not None:
-        lws = np.asarray(lws)
+        lws = np.asanyarray(lws)
 
-        if not np_check_shape(lws, (len(freqs),)):
-            raise ValueError("lws must be an array_like with shape (N,).")
+    if ir_syms is not None:
+        ir_syms = np.asanyarray(ir_syms)
 
-    if irrep_syms is not None:
-        irrep_syms = np.asarray(irrep_syms)
+    sp_type = str(sp_type).lower()
 
-        if not np_check_shape(irrep_syms, (len(freqs),)):
-            raise ValueError(
-                "irrep_syms must be an array_like with shape (N,)."
-            )
+    match str(sp_type).lower():
+        case "stokes":
+            pass
 
-    spectrum_type = str(spectrum_type).lower()
+        case "anti-stokes":
+            # Negate frequencies and reverse band ordering.
 
-    if spectrum_type == "stokes":
-        # Nothing to do - return input data.
+            freqs = -1.0 * freqs[..., ::-1]
+            ints = ints[..., ::-1]
 
-        return (
-            freqs,
-            ints if n_dim_add == 0 else ints.reshape((-1,)),
-            lws,
-            irrep_syms,
-        )
+            if lws is not None:
+                lws = lws[..., ::-1]
 
-    if spectrum_type == "anti-stokes" or spectrum_type == "both":
-        # Reverse data for anti-stokes spectrum.
+            if ir_syms is not None:
+                ir_syms = ir_syms[..., ::-1]
 
-        freqs_as = (-1.0 * freqs)[::-1]
-        ints_as = ints[::-1, :]
-        lws_as = lws[::-1] if lws is not None else None
-        irrep_syms_as = irrep_syms[::-1] if irrep_syms is not None else None
+        case "both":
+            # Concatenate stokes/anti-Stokes data. For this, we need at
+            # least 1D arrays.
 
-        if spectrum_type == "anti-stokes":
-            return (
-                freqs_as,
-                ints_as if n_dim_add == 0 else ints_as.reshape((-1,)),
-                lws_as,
-                irrep_syms_as,
-            )
+            freqs, ints = np.atleast_1d(freqs, ints)
 
-        else:
-            ints_both = np.concatenate((ints_as, ints), axis=0)
-
-            irrep_syms_both = None
-
-            if irrep_syms is not None:
-                irrep_syms_both = np.concatenate(
-                    (irrep_syms_as, irrep_syms), axis=0
+            if (freqs < 0.0).any():
+                warnings.warn(
+                    "Imaginary frequencies may give unexpected results for "
+                    'sp_type="both".',
+                    RuntimeWarning,
                 )
 
-            return (
-                np.concatenate((freqs_as, freqs), axis=0),
-                ints_both if n_dim_add == 0 else ints_both.reshape((-1,)),
-                np.concatenate((lws_as, lws), axis=0),
-                irrep_syms_both,
-            )
+            freqs = np.concatenate((-1.0 * freqs[..., ::-1], freqs), axis=-1)
+            ints = np.concatenate((ints[..., ::-1], ints), axis=-1)
 
-    raise ValueError('Unsupported spectrum_type="{0}".'.format(spectrum_type))
+            if lws is not None:
+                lws = np.atleast_1d(lws)
+                lws = np.concatenate((lws[..., ::-1], lws), axis=-1)
+
+            if ir_syms is not None:
+                ir_syms = np.atleast_1d(ir_syms)
+
+                ir_syms = np.concatenate(
+                    (ir_syms[..., ::-1], ir_syms), axis=-1
+                )
+
+        case _:
+            raise ValueError(f'Unknown sp_type="{sp_type}".')
+
+    # Broadcast shapes against ints.
+
+    ints_shape = ints.shape
+
+    return (
+        np.broadcast_to(freqs, ints_shape),
+        ints,
+        np.broadcast_to(lws, ints_shape) if lws is not None else None,
+        np.broadcast_to(ir_syms, ints_shape) if ir_syms is not None else None,
+    )
 
 
-def modulate_spectrum(x, y, w, t, x_units="thz"):
-    """Modulate Raman intensities for a measurement wavelength and
-    temperature.
+def intensities_to_cross_sections(f, i, w, t, f_units="thz"):
+    """Convert "raw" Raman intensities in Ang^4 / amu to differential
+    cross sections in Ang^2 / sr.
 
     Parameters
     ----------
-    x : array_like
-        Frequencies (shape: `(O,)`).
-    y : array_like
-        Intensities (shape: `(O,)` or `(M,)`.
+    f : scalar or array_like
+        Frequencies in `f_units` (scalar or shape: `(..., O)`).
+    i : scalar or array_like
+        Intensities in Ang^4 / amu (scalar or shape: `(..., O)`).
     w, t : float
         Measurement wavelength in nm and temperature in K.
-    x_units : str, optional
-        Units of `x` (default: "thz").
+    f_units : str, optional
+        Units of `f` (default: "thz").
 
     Returns
     -------
-    mod_y : numpy.ndarray
-        Modulated intensities (same shape as `y`).
+    xs : numpy.ndarray
+        Cross sections in Ang^2 / sr (same shape as `i`).
 
-    See Also
-    --------
-    units.get_supported_frequency_units : Get supported values of
-        `x_units`.
+    Notes
+    -----
+    `f` must be broadcastable to the same shape as `i`.
     """
 
-    x = np.asarray(x)
+    if w <= 0.0 or t <= 0.0:
+        raise ValueError("w and t must be > 0.")
 
-    if not np_check_shape(x, (None,)):
-        raise ValueError("x must be an array_like with shape (O,).")
+    i = np.asanyarray(i)
 
-    y, n_dim_add = np_expand_dims(np_asarray_copy(y), (len(x), None))
+    # Convert x to THz and broadcast against y.
 
-    if w <= 0.0:
-        raise ValueError("w must be > 0.")
+    f = np.broadcast_to(
+        convert_frequency_units(np.asanyarray(f), f_units, "thz"), i.shape
+    )
 
-    x = convert_frequency_units(x, x_units, "thz")
+    # Power modulation.
 
     f_i = nm_to_thz(w)
 
     scale = _RAMAN_INTENSITY_PREFACTOR * (
-        ((1.0e12 * (f_i - x)) ** 4) / (1.0e12 * np.abs(x))
+        ((1.0e12 * (f_i - f)) ** 4) / (1.0e12 * np.abs(f))
     )
 
-    y = y * scale[:, np.newaxis]
+    # Temperature modulation.
 
-    if t <= 0.0:
-        raise ValueError("t must be > 0.")
+    n = phonon_occupation_number(np.abs(f), t)
 
-    occ_nums = phonon_occupation_number(np.abs(x), t)
+    t_w = np.where(f >= 0.0, n + 1.0, n)
 
-    mask = x >= 0.0
-    inv_mask = np.logical_not(mask)
-
-    # The weighting factors are different for Stokes and
-    # anti-Stokes measurements.
-
-    if mask.any():
-        y[mask, :] *= occ_nums[mask, np.newaxis] + 1.0
-
-    if inv_mask.any():
-        y[inv_mask, :] *= occ_nums[inv_mask, np.newaxis]
-
-    return y if n_dim_add == 0 else y.reshape((-1,))
+    return i * scale * t_w
 
 
-# -----------------------
-# RamanSpectrumBase class
-# -----------------------
+# ---------------------
+# NDRamanSpectrum class
+# ---------------------
 
 
-class RamanSpectrumBase(GammaPhononSpectrumBase):
-    """Base class for generating simulated Raman spectra from sets of
-    frequencies, band intensities and linewidths."""
+class NDRamanSpectrum:
+    """Class for simulating N-dimensional Raman spectra with optional
+    averaging over crystallite orientations."""
+
+    intensity_unit_text_label = "I / (Ang^4 amu^-1)"
+    """str : Intensity unit label suitable for plain-text output."""
+
+    cross_section_unit_text_label = "d(sigma)/d(omega) / (Ang^2 sr^-1)"
+    """str : Cross section unit label suitable for plain-text output."""
+
+    cross_section_unit_plot_label = (
+        r"$d \sigma / d \Omega$ / ($\mathrm{\AA}^2$ sr$^{-1}$)"
+    )
+    """str : Cross section unit label suitable for plotting (contains
+    TeX strings)."""
 
     def __init__(
         self,
@@ -247,547 +239,853 @@ class RamanSpectrumBase(GammaPhononSpectrumBase):
         w,
         t,
         irreps=None,
-        spectrum_type="stokes",
-        **kwargs
+        ir_syms="?",
+        sp_type="stokes",
+        sp_units="thz",
+        sp_range=None,
+        sp_res=None,
+        or_a=None,
+        or_w=None,
     ):
-        """Create a new instance of the `RamanSpectrum` class.
+        r"""Create a new instance of the `NDRamanSpectrum` class.
 
         Parameters
         ----------
-        freqs : array_like
-            Frequencies in THz (shape: `(N,)`).
-        ints : array_like
-            Band intensities in Ang^4 / amu (shape: `(N,)` for 1D
-            spectra, or `(N, M)` for 2D spectra).
-        lws : array_like
-            Linewidths in THz (shape: `(N,)`).
+        freqs : scalar or array_like
+            Frequencies (shape: `(..., N)` or `(..., L, N)`).
+        ints : scalar or array_like
+            Intensities (shape: `(..., N)` or `(..., L, N)`).
+        lws : scalar, array_like or None, optional
+            Linewidths (scalar or shape: `(..., N)` or `(..., L, N)`).
         w, t : float
-            Measurement wavelength in nm and temperature in K.
+            Measurement wavelength (nm) and temperature (K).
         irreps : Irreps or None, optional
-            `Irreps` object assigning bands to irrep groups.
-        spectrum_type : {"stokes", "anti-stokes", "both"}
-            Type of spectrum (default: "stokes").
-        **kwargs : any
-            Keyword arguments to the `GammaPhononSpectrumBase`
-            constructor.
-
-        See Also
-        --------
-        spectrum.GammaPhononSpectrumBase
-            Base class for `RamanSpectrum`.
+            Irreducible representations (irreps) of the bands included
+            in the spectrum (assumed to apply to all dimensions for
+            > 1D spectra, overrides `ir_syms`).
+        ir_syms : scalar or array_like, optional
+            Irrep symbols of the bands in the spectrum (scalar or shape:
+            `(..., N)`, default: "?").
+        sp_type : {"stokes", "anti-stokes", "both"}, optional
+            Spectrum type (default: "stokes").
+        sp_units : str, optional
+            Frequency units of simulated spectrum (default: "thz").
+        sp_range : tuple of float, optional
+            `(min, max)` for simulated spectrum (default: automatic).
+        sp_res : float, optional
+            Resolution of simulated spectrum (default: automatic).
+        or_a : array_like or None, optional
+            Specifies the three Euler angles \phi, \theta and \psi for
+            each orientation (L) (shape: `(L, 3)`).
+        or_w : array_like or None, optional
+            Optional averaging weights for orientations (L) (shape:
+            `(L,)`, defaults to 1 / L).
 
         Notes
         -----
-        During initialisation, if irreps are supplied the
-        frequencies/linewidths and intensities of degenerate bands are
-        averaged and summed, respectively, so the outer dimensions of
-        properties (`N`) may differ from those supplied to the
-        constructor.
+        If `irreps` are supplied they are used to average the
+        frequencies/linewidths and sum the intensities of degenerate
+        irreps.
         """
 
-        freqs = np_asarray_copy(freqs, dtype=np.float64)
+        # Enforce minimum ndim and dtype, and copy data to ensure
+        # "ownership".
 
-        if not np_check_shape(freqs, (None,)):
-            raise ValueError("freqs must be an array_like with shape `(N,)`.")
+        freqs = np.atleast_1d(np.array(freqs, dtype=np.float64, copy=True))
+        ints = np.atleast_1d(np.array(ints, dtype=np.float64, copy=True))
+        lws = np.atleast_1d(np.array(lws, dtype=np.float64, copy=True))
 
-        ints, n_dim_add = np_expand_dims(
-            np_asarray_copy(ints, dtype=np.float64), (len(freqs), None)
+        # Handle irrep summing/averaging if needed.
+
+        if isinstance(irreps, Irreps):
+            # "Reduce" N -> M bands by averaging
+            # frequencies/linewidths and summing intensities.
+
+            inds = irreps.irrep_band_indices
+            ir_syms = np.copy(irreps.irrep_symbols)
+
+            n = len(inds)
+            m = len(ir_syms)
+
+            unique_inds = np.unique(inds)
+
+            # Broadcast the outer dimensions of freqs, ints and lws
+            # against ir_band_inds.
+
+            freqs = np.broadcast_to(freqs, freqs.shape[:-1] + (n,))
+            ints = np.broadcast_to(ints, ints.shape[:-1] + (n,))
+            lws = np.broadcast_to(lws, lws.shape[:-1] + (n,))
+
+            # Average freqs/linewidths and sum intensities.
+
+            freqs_new = np.zeros(freqs.shape[:-1] + (m,), dtype=np.float64)
+            ints_new = np.zeros(ints.shape[:-1] + (m,), dtype=np.float64)
+            lws_new = np.zeros(lws.shape[:-1] + (m,), dtype=np.float64)
+
+            for idx in unique_inds:
+                freqs_new[..., idx] = np.mean(freqs[..., inds == idx], axis=-1)
+                ints_new[..., idx] = ints[..., inds == idx].sum(axis=-1)
+                lws_new[..., idx] = np.mean(lws[..., inds == idx], axis=-1)
+
+            freqs, ints, lws = freqs_new, ints_new, lws_new
+        else:
+            ir_syms = np.atleast_1d(np.array(ir_syms, dtype=str, copy=True))
+
+        # Convert frequnecy units. This will check that sp_units are
+        # supported.
+
+        sp_units = str(sp_units).lower()
+
+        freqs = convert_frequency_units(freqs, "thz", sp_units)
+        lws = convert_frequency_units(lws, "thz", sp_units)
+
+        # adjust_band_params_for_spectrum_type() checks sp_type and
+        # handles shape matching via broadcasting.
+
+        sp_type = str(sp_type).lower()
+
+        freqs, ints, lws, ir_syms = adjust_band_params_for_spectrum_type(
+            freqs, ints, lws, ir_syms, sp_type=sp_type
         )
 
-        lws = np_asarray_copy(lws, dtype=np.float64)
+        # modulate_intensities_for_spectrum() checks w and t.
 
-        if not np_check_shape(lws, (len(freqs),)):
-            raise ValueError("lws must be an array_like with shape `(N,)`.")
+        w, t = float(w), float(t)
 
-        if w < 0.0:
-            raise ValueError("w must be > 0.")
+        if w <= 0.0 or t <= 0.0:
+            raise ValueError("w and t must be > 0.")
 
-        if t < 0.0:
-            raise ValueError("t must be > 0.")
+        # Handle parameters for optional averaging over crystallite
+        # orientations.
 
-        # If we have any imaginary modes with non-zero intensity, it
-        # will not cause issues in the calculations but it may give
-        # unphysical results.
+        if or_a is not None:
+            if ints.ndim < 2:
+                raise ValueError(
+                    "Averaging over orientations requires at least two "
+                    "dimensional input."
+                )
 
-        mask = np.logical_and(freqs < 0.0, np.abs(freqs) > ZERO_TOLERANCE)
+            or_a = np.atleast1d(np.array(or_a, dtype=np.float64, copy=True))
 
-        if (np.abs(ints[mask, :]) > ZERO_TOLERANCE).any():
-            warnings.warn(
-                "Imaginary modes with non-zero intensity may lead to "
-                "unphysical results.",
-                UserWarning,
-            )
+            if or_a.shape != (ints.shape[-2], 3):
+                raise ValueError(
+                    "or_a must be an array_like with shape (L, 3)."
+                )
 
-        # If irreps are supplied, average frequencies/linewidths and sum
-        # intensities.
+            if or_w is not None:
+                or_w = np.atleast_1d(
+                    np.array(or_w, dtype=np.float64, copy=True)
+                )
+                or_w = np.broadcast_to(or_w, len(or_a))
 
-        irrep_syms = None
+                if (or_w.sum() - 1.0) < ZERO_TOLERANCE:
+                    raise ValueError("or_w must sum to 1.")
+            else:
+                or_w = np.full(len(or_a), 1.0 / len(or_a), dtype=np.float64)
+        else:
+            # Set or_w to None if or_a is not specified.
 
-        if irreps is not None:
-            ir_band_inds = irreps.irrep_band_indices
+            or_w = None
 
-            freqs = np.array(
-                [np.mean(freqs[inds]) for inds in ir_band_inds],
-                dtype=np.float64,
-            )
+        # Set frequency grid for simulating spectra. auto_range() will
+        # check and use sp_range and sp_res if set.
 
-            ints = np.array(
-                [np.sum(ints[inds, :], axis=0) for inds in ir_band_inds],
-                dtype=np.float64,
-            )
-
-            lws = np.array(
-                [np.mean(lws[inds]) for inds in ir_band_inds], dtype=np.float64
-            )
-
-            irrep_syms = np_asarray_copy(irreps.irrep_symbols, dtype=object)
-
-        # Adjust freqs, ints, lws and irrep_syms for spectrum type.
-
-        freqs, ints, lws, irrep_syms = adjust_gamma_phonons_for_spectrum_type(
+        (f_min, f_max), f_res = auto_range(
             freqs,
-            ints,
             lws,
-            irrep_syms=irrep_syms,
-            spectrum_type=spectrum_type,
+            f_range=sp_range,
+            f_res=sp_res,
+            f_pad_mult=5.0,
+            f_res_min_pts=1000,
         )
 
-        # Call the GammaPhononSpectrumBase constructor to handle
-        # "x-axis"-related intialisation.
+        f = np.arange(f_min, f_max + f_res / 10.0, f_res)
 
-        super(RamanSpectrumBase, self).__init__(
-            freqs, lws, irrep_syms=irrep_syms, **kwargs
-        )
+        # Mark arrays/views as readonly.
 
-        # Store additional parameters.
+        freqs.flags.writeable = False
+        ints.flags.writeable = False
+        lws.flags.writeable = False
+        ir_syms.flags.writeable = False
 
-        self._ints = ints
+        if or_a is not None:
+            or_a.flags.writeable = False
+            or_w.flags.writeable = False
+
+        f.flags.writeable = False
+
+        self._band_freqs = freqs
+        self._band_ints = ints
+        self._band_lws = lws
+        self._band_ir_syms = ir_syms
+
+        self._band_xs = None
 
         self._w = w
         self._t = t
+        self._sp_type = sp_type
 
-        # Populate the _xsects field with (approximate) band cross
-        # sections.
+        self._or_a = or_a
+        self._or_w = or_w
 
-        self._x_sects = modulate_spectrum(
-            self._freqs, self._ints, self._w, self._t, x_units=self._x_units
-        )
+        self._f = f
+        self._xs = None
 
-        # Set _sp to default value.
+        self._f_units = sp_units
 
-        self._sp = None
+    def _lazy_set_band_x_sects(self):
+        """Compute band cross sections and set the _band_xs field on
+        first call to `band_cross_sections`."""
 
-    def _lazy_init_spectrum(self):
-        """Simulate spectrum on first call to `y`, `z` or `spectrum()`."""
-
-        if self._sp is None:
-            x = self.x
-
-            _, num_sp = self._ints.shape
-
-            sp = np.zeros((len(x), num_sp), dtype=np.float64)
-
-            for sp_idx in range(self._ints.shape[1]):
-                for f, s, lw in zip(
-                    self.raman_shifts,
-                    self._ints[:, sp_idx],
-                    self.linewidths,
-                ):
-                    sp[:, sp_idx] += lorentzian(x, s, f, lw)
-
-            # Apply laser power/tempertaure modulation.
-
-            sp = modulate_spectrum(
-                x, sp, self._w, self._t, x_units=self._x_units
+        if self._band_xs is None:
+            band_xs = intensities_to_cross_sections(
+                self._band_freqs,
+                self._band_ints,
+                self._w,
+                self._t,
+                f_units=self._f_units,
             )
 
-            self._sp = sp
+            band_xs.flags.writeable = False
 
-    @property
-    def frequencies(self):
-        """numpy.ndarray : Phonon frequencies (shape: `(N,)`)."""
-        # If the spectrum includes anti-Stokes branches, the frequencies
-        # are actually Raman shifts and may include negative values. To
-        # avoid confusion, we hide the base class property and intercept
-        # it with a warning.
+            self._band_xs = band_xs
 
-        if (
-            self._spectrum_type == "anti-stokes"
-            or self._spectrum_type == "both"
-        ):
-            warnings.warn(
-                "The values returned by frequencies are Raman shifts "
-                "and not phonon frequencies (to avoid this warning, "
-                "use the raman_shifts property alias instead).",
-                RuntimeWarning,
+    def _lazy_set_xs(self):
+        """Compute cross sections and set the _xs field on first call to
+        `cross_sections`."""
+
+        if self._xs is None:
+            # lorentzian() accepts variable batch dimensions and returns
+            # (O,) + (...) -> (..., O). We then sum over the
+            # second-to-last axis to sum the spectra over bands.
+
+            xs = lorentzian(
+                self._f,
+                self._band_ints,
+                self._band_freqs,
+                self._band_lws,
+            ).sum(axis=-2)
+
+            # If we're averaging over orientations, we perform a
+            # weighted sum over the last axis.
+
+            if self._or_w is not None:
+                xs = np.average(xs, axis=-2, weights=self._or_w)
+
+            xs = intensities_to_cross_sections(
+                self._f, xs, self._w, self._t, f_units=self._f_units
             )
 
-        return super(RamanSpectrumBase, self).frequencies
+            xs.flags.writeable = False
+
+            self._xs = xs
+
+    def _get_column_hdrs_for_spectral_dims(self, hdrs=None):
+        """Get column headers for the product over spectral dimensions
+        for outputting peak tables and spectra.
+
+        Params
+        ------
+        hdrs : array_like or None
+            Headers for each column in the product over spectral
+            dimensions.
+
+        Notes
+        -----
+        The number of spectral dimensions is given by the `num_dims`
+        property.
+        """
+
+        n_d = self.num_spectral_dims
+
+        if hdrs is not None:
+            hdrs = np.atleast_1d(np.asanyarray(hdrs, dtype=str))
+
+            if (n_d == 0 and len(hdrs) > 0) or (
+                (len(hdrs) != np.prod(self._band_ints.shape[:n_d]))
+            ):
+                raise ValueError(
+                    "hdrs must only be specify headers for each column "
+                    "in the product over outer dimensions."
+                )
+        else:
+            if n_d > 0:
+                # Default to labelling with indices.
+
+                hdrs = [
+                    "_".join(str(i) for i in idx + 1)
+                    for idx in np.ndindex(*self._band_ints.shape[:n_d])
+                ]
+            else:
+                # Single spectral dimension -> empty array.
+                hdrs = []
+
+        return hdrs
 
     @property
-    def raman_shifts(self):
-        """numpy.ndarray : Raman shifts (shape: `(N,)`)."""
-        return super(RamanSpectrumBase, self).frequencies
+    def band_raman_shifts(self):
+        """numpy.ndarray : Band Raman shifts (shape: `(..., N)`)."""
+        return self._band_freqs
+
+    @property
+    def band_intensities(self):
+        """numpy.ndarray : Band intensities (shape: `(..., N)`)."""
+        return self._band_ints
+
+    @property
+    def band_cross_sections(self):
+        """numpy.ndarray : Band differential cross sections (shape:
+        `(..., N)`)."""
+
+        self._lazy_set_band_x_sects()
+        return self._band_xs
+
+    @property
+    def band_linewidths(self):
+        """numpy.ndarray : Band linewidths (shape: `(..., N)`)."""
+        return self._band_lws
+
+    @property
+    def band_irrep_symbols(self):
+        """numpy.ndarray : Band irreducible representation (irrep)
+        symbols (shape: `(..., N)`)."""
+        return self._band_ir_syms
 
     @property
     def measurement_wavelength(self):
-        """float or None : Measurement wavelength."""
+        """float : Measurement wavelength (nm)."""
         return self._w
 
     @property
     def measurement_temperature(self):
-        """float or None : Measurement temperature."""
+        """float : Measurement temperature (K)."""
         return self._t
 
     @property
-    def intensity_unit_text_label(self):
-        """str : Intensity unit label suitable for plain-text output."""
-        return _RAMAN_INTENSITY_UNIT_TEXT_LABEL
+    def spectrum_type(self):
+        """str : Spectrum type."""
+        return self._sp_type
 
-    def peak_table(self):
-        """Return the peak table as a Pandas `DataFrame`.
+    @property
+    def orientation_angles(self):
+        """numpy.ndarray or None : Euler angles of crystallite orientations."""
+        return self._or_a
+
+    @property
+    def orientation_averaging_weights(self):
+        """numpy.ndarray or None : Averaging weights for crystallite
+        orientations."""
+        return self._or_w
+
+    @property
+    def raman_shift(self):
+        """numpy.ndarray : Raman shifts in `frequency_units` (shape:
+        `(O,)`)."""
+        return self._f
+
+    @property
+    def cross_section(self):
+        """numpy.ndarray : Cross sections in Ang^2 / sr (shape:
+        `(..., O)`)."""
+
+        self._lazy_set_xs()
+        return self._xs
+
+    @property
+    def frequency_units(self):
+        """str : Frequency units."""
+        return self._f_units
+
+    @property
+    def orientation_average(self):
+        """bool : `True` if the spectrum is an average over crystallite
+        orientations, otherwise `False`."""
+        return self._or_w is not None
+
+    @property
+    def num_spectral_dims(self):
+        """int : Number of spectral dimensions (...)."""
+
+        d = self._band_ints.ndim
+        return d - 2 if self.orientation_average else d - 1
+
+    @property
+    def frequency_unit_text_label(self):
+        """str : Frequency unit label suitable for plain-text output."""
+        return get_frequency_unit_text_label(self._f_units)
+
+    @property
+    def frequency_unit_plot_label(self):
+        """str : Frequency unit label suitable for plotting (may contain
+        TeX strings)."""
+        return get_frequency_unit_plot_label(self._f_units)
+
+    def peak_table(self, or_stack=True):
+        """Generate a peak table with the band frequencies,
+        intensities/cross sections, linewidths and irrep symbols as a
+        Pandas `DataFrame`.
+
+        Params
+        ------
+        or_stack : bool
+            If `True`, stack orientations into a single axis to match
+            the data shape of the spectra (default: `True`).
 
         Returns
         -------
-        df : pandas.DataFrame
-            `DataFrame` containing the peak table.
+        df : DataFrame
+            Peak table.
         """
 
-        d = {
-            "freq_energy": self._freqs,
-            "linewidth": self._lws,
-            "irrep": self._irrep_syms,
-        }
+        shifts = self.band_raman_shifts
+        ints = self.band_intensities
+        x_sects = self.band_cross_sections
+        lws = self.band_linewidths
+        ir_syms = self._band_ir_syms
 
-        col_h_i, col_h_xs = None, None
+        if self.orientation_average and or_stack:
+            shape = shifts.shape[:-2] + (-1,)
 
-        if self._ints.shape[1] == 1:
-            col_h_i = ["int"]
-            col_h_xs = ["cross_sect"]
+            shifts = shifts.reshape(shape)
+            ints = ints.reshape(shape)
+            x_sects = x_sects.reshape(shape)
+            ir_syms = ir_syms.reshape(shape)
+
+        data = {}
+
+        if ints.ndim == 1:
+            # Single set of peak parameters.
+
+            data["raman_shift"] = shifts
+            data["intensity"] = ints
+            data["cross_section"] = x_sects
+            data["linewidth"] = lws
+            data["irrep"] = ir_syms
         else:
-            col__i = [
-                "int_{0}".format(i + 1) for i in range(self._ints.shape[1])
-            ]
+            # Multiple sets of peak parameters.
 
-            col_h_xs = [
-                "cross_sect_{0}".format(i + 1)
-                for i in range(self._x_sects.shape[1])
-            ]
+            hdrs = None
 
-        for i, h in enumerate(col_h_i):
-            d[h] = self._ints[:, i]
+            if self.orientation_average and not or_stack:
+                oa_hdrs = [
+                    "or{0}".format(i + 1) for i in range(len(self._or_a))
+                ]
 
-        for i, h in enumerate(col_h_xs):
-            d[h] = self._x_sects[:, i]
+                if self.num_spectral_dims > 0:
+                    prod = product(
+                        self._get_column_hdrs_for_spectral_dims(), oa_hdrs
+                    )
 
-        return pd.DataFrame(d)
+                    hdrs = ["{0}_{1}".format(h, oa_h) for h, oa_h in prod]
+                else:
+                    hdrs = oa_hdrs
+            else:
+                hdrs = self._get_column_hdrs_for_spectral_dims()
+
+            for idx, h in zip(np.ndindex(ints.shape), hdrs):
+                data[f"raman_shift_{h}"] = shifts[idx]
+                data[f"intensity_{h}"] = ints[idx]
+                data[f"cross_section_{h}"] = x_sects[idx]
+                data[f"linewidth_{h}"] = lws[idx]
+                data[f"irrep_{h}"] = ir_syms[idx]
+
+        return pd.DataFrame(data)
 
     def spectrum(self):
         """Return the simulated spectrum as a Pandas `DataFrame`.
 
         Returns
         -------
-        df : pandas.DataFrame
-            `DataFrame` containing the spectrum.
+        df : DataFrame
+            Spectrum.
         """
 
-        self._lazy_init_spectrum()
+        data = {"raman_shift": self.raman_shift}
 
-        d = {"freq_energy": self.x}
+        xs = self.cross_section
 
-        col_h = None
-
-        if self._sp.shape[1] == 1:
-            col_h = ["cross_sect"]
+        if xs.ndim == 1:
+            # 1D spectrum.
+            data["cross_section"] = xs
         else:
-            col_h = [
-                "cross_sect_{1}".format(i + 1)
-                for i in range(self._ints.shape[1])
-            ]
+            # ND spectrum.
 
-        for i, h in enumerate(col_h):
-            d[h] = self._sp[:, i]
+            for inds, s in zip(
+                np.ndindex(*xs.shape),
+                self._get_column_hdrs_for_spectral_dims(),
+            ):
+                data[f"cross_section_{s}"] = xs[inds]
 
-        return pd.DataFrame(d)
+        return pd.DataFrame(data)
 
+    def stack_with(self, *spectra, sp_type=None, sp_units=None):
+        """Stack the calling spectrum with one or more other spectra
+        into a new multi-dimensional spectrum with `num_dims + 1`
+        spectral dimensions.
 
-# ---------------------
-# RamanSpectrum1D class
-# ---------------------
-
-
-class RamanSpectrum1D(RamanSpectrumBase):
-    """Class for generating simulated 1D Raman spectra from sets of
-    frequencies, band intensities and linewidths."""
-
-    def __init__(
-        self,
-        freqs,
-        ints,
-        lws,
-        w,
-        t,
-        irreps=None,
-        spectrum_type="stokes",
-        x_range=None,
-        x_res=None,
-        x_units="thz",
-        **kwargs
-    ):
-        """Create a new instance of the `RamanSpectrum1D` class.
-
-        Parameters
-        ----------
-        freqs : array_like
-            Frequencies in THz (shape: `(N,)`).
-        ints : array_like
-            Band intensities in Ang^4 / sqrt(amu) (shape: `(N,)`).
-        lws : array_like
-            Linewidths in THz (shape: `(N,)`).
-        w, t : float
-            Measurement wavelength in nm and temperature in K.
-        irreps : Irreps or None, optional
-            `Irreps` object assigning bands to irrep groups.
-        spectrum_type : {"stokes", "anti-stokes", "both"}
-            Type of spectrum (default: "stokes").
-        x_range : tuple of float or None, optional
-            `(min, max)` range of x-axis of simulated spectrum in
-            `x_units` (default: automatically determined).
-        x_res : float or None, optional
-            Resolution of x-axis in `x_units` (default: automatically
-            determined).
-        x_units : str or None, optional
-            x-axis units of simulated spectrum (default: `"thz"`).
-        **kwargs : any
-            Keyword arguments to parent class constructor(s).
-        """
-
-        # Perform base class initialisation.
-
-        super(RamanSpectrum1D, self).__init__(
-            freqs,
-            ints,
-            lws,
-            w,
-            t,
-            irreps=irreps,
-            spectrum_type=spectrum_type,
-            x_range=x_range,
-            x_res=x_res,
-            x_units=x_units,
-            **kwargs
-        )
-
-        # Check supplied intensities are 1D.
-
-        if not np_check_shape(self._ints, (len(self._freqs), 1)):
-            raise ValueError(
-                "For 1D spectra, ints must be a an array_like with "
-                "shape (N,)."
-            )
-
-    @property
-    def intensities(self):
-        """numpy.ndarray : Band intensities in Ang^4 / amu (shape:
-        `(N,)`)."""
-        return np_readonly_view(self._ints.reshape((-1,)))
-
-    @property
-    def cross_sections(self):
-        """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
-        `(N,)`)."""
-        return np_readonly_view(self._x_sects.reshape((-1,)))
-
-    @property
-    def y(self):
-        """numpy.ndarray : Spectrum (shape: `(O,)`.)"""
-        self._lazy_init_spectrum()
-        return np_readonly_view(self._sp.reshape((-1,)))
-
-    @property
-    def y_unit_text_label(self):
-        """str : y-axis label suitable for plain-text output."""
-        return _RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL
-
-    @property
-    def y_unit_plot_label(self):
-        """str: y-axis label suitable for plotting (may contain TeX
-        strings)."""
-        return _RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL
-
-
-# ---------------------
-# RamanSpectrum2D class
-# ---------------------
-
-
-class RamanSpectrum2D(RamanSpectrumBase):
-    """Class for generating simulated 2D Raman spectra from sets of
-    frequencies, band intensities and linewidths."""
-
-    def __init__(
-        self,
-        freqs,
-        ints,
-        lws,
-        w,
-        t,
-        d2_axis_vals,
-        d2_unit_text_label,
-        irreps=None,
-        spectrum_type="stokes",
-        x_range=None,
-        x_res=None,
-        x_units="thz",
-        d2_unit_plot_label=None,
-        d2_col_hdrs=None,
-        **kwargs
-    ):
-        """Create a new instance of the `RamanSpectrum2D` class.
-
-        Parameters
-        ----------
-        freqs : array_like
-            Frequencies in THz (shape: `(N,)`).
-        ints : array_like
-            Band intensities in Ang^4 / sqrt(amu) (shape: `(N,)`).
-        lws : array_like
-            Linewidths in THz (shape: `(N,)`).
-        w, t : float
-            Measurement wavelength in nm and temperature in K.
-        d2_axis_vals : array_like
-            Values of secondary axis (shape: `(M,)`).
-        d2_unit_text_label : str
-            Text label for secondary axis units.
-        irreps : Irreps or None, optional
-            `Irreps` object assigning bands to irrep groups.
-        w : float or None, optional
-            Measurement wavelength in nm to calculate intensity
-            modulation envelope (default: None).
-        t : float or None, optional
-            Temperature in K to calculate phonon occupation numbers for
-            intensity modulation envelope (default: None)
-        spectrum_type : {"stokes", "anti-stokes", "both"}
-            Type of spectrum (default: "stokes").
-        x_range : tuple of float or None, optional
-            `(min, max)` range of x-axis of simulated spectrum in
-            `x_units` (default: automatically determined).
-        x_res : float or None, optional
-            Resolution of x-axis in `x_units` (default: automatically
-            determined).
-        x_units : str or None, optional
-            x-axis units of simulated spectrum (default: `"thz"`).
-        d2_unit_plot_label : str or None, optional
-            Plot label for secondary axis units (default:
-            `d2_unit_text_label`).
-        d2_col_hdrs : array_like or None, optional
-            Column headings for `pandas.DataFrame` objects (shape:
-            `(M,)`; default: automatically determined).
-        **kwargs : any
-            Keyword arguments to parent class constructor(s).
-        """
-
-        # Pass args/kwargs through to base class.
-
-        super(RamanSpectrum2D, self).__init__(
-            freqs,
-            ints,
-            lws,
-            w,
-            t,
-            irreps=irreps,
-            spectrum_type=spectrum_type,
-            x_range=x_range,
-            x_res=x_res,
-            x_units=x_units,
-            **kwargs
-        )
-
-        d2_axis_vals = np_asarray_copy(d2_axis_vals)
-
-        if not np_check_shape(d2_axis_vals, (self._ints.shape[1],)):
-            raise ValueError(
-                "d2_axis_vals must be an array_like with shape `(M,)`."
-            )
-
-        d2_unit_text_label = str(d2_unit_text_label)
-
-        if d2_unit_plot_label is not None:
-            d2_unit_plot_label = str(d2_unit_plot_label)
-        else:
-            d2_unit_plot_label = d2_unit_text_label
-
-        if d2_col_hdrs is not None:
-            d2_col_hdrs = np.array([str(h) for h in d2_col_hdrs], dtype=object)
-
-            if not np_check_shape(d2_col_hdrs, (self._ints.shape[1],)):
-                raise ValueError(
-                    "If supplied, d2_col_hdrs must be an array_like "
-                    "with shape `(M,)`."
-                )
-
-        self._d2_axis_vals = d2_axis_vals
-
-        self._d2_unit_text_label = d2_unit_text_label
-        self._d2_unit_plot_label = d2_unit_plot_label
-
-        self._d2_col_hdrs = d2_col_hdrs
-
-    def _get_data_frame_column_headers(self):
-        """Overrides base class method to return column headers for
-        `pandas.DataFrame` objects supplied by during construction.
+        Params
+        ------
+        *spectra : NDRamanSpectrum
+            Spectra to concatenate with.
+        sp_type : {"stokes", "anti-stokes", "both"} or None, optional
+            Spectrum type (default: same as calling spectrum).
+        sp_units : str or None, optional
+            Frequency units of simulated spectrum (default: same as
+            calling spectrum).
 
         Returns
-        ------
-        col_hdrs : list of str
-            Column headers.
+        -------
+        sp : NDRamanSpectrum
+            Concatenated spectrum.
+
+        Notes
+        -----
+        For spectra to be "stackable" the following conditions must
+        hold:
+
+        * The band parameters must have the same shape.
+        * The measurement wavelength and temperature must be the same.
+        * The spectra must be of the same type (i.e., Stokes,
+          anti-Stokes or both).
+        * If the spectra are orientational averages, they must be
+          averaged over the same set of angles with the same averaging
+          weights.
+
+        An "inclusive" grid of frequencies (Raman shifts) is found from
+        the minimum/maximum frequency and smallest step across all the
+        spectra.
+
+        To correctly initialise the returned NDRamanSpectrum object, the
+        frequencies/linewidths need to be converted to THz and the the
+        transformations for `spectrum_type="anti-stokes"` and
+        `spectrum_type="both"` need to be reversed. This can lead to
+        unnecessary work if the calling object and spectra are only
+        required to generate the stacked spectrum. To avoid this, the
+        spectrum type and frequency units of the calling spectrum can be
+        overridden with the `sp_type` and `sp_units` keywords.
         """
 
-        if self._d2_col_hdrs is not None:
-            return self._d2_col_hdrs
+        for sp in spectra:
+            # The frequencies, linewidths and intensities all have the
+            # same shape, so we only need to check one.
+
+            if sp.band_intensities.shape != self._band_ints.shape:
+                raise ValueError(
+                    "All spectra must have the same data shape as the "
+                    "calling spectrum."
+                )
+
+            if (
+                sp.measurement_wavelength != self._w
+                or sp.measurement_temperature != self._t
+            ):
+                raise ValueError(
+                    "All spectra must have the same measurement "
+                    "wavelength and temperature as the calling spectrum."
+                )
+
+            if sp.spectrum_type != self._sp_type:
+                raise ValueError(
+                    "All spectra must be of the same spectrum_type as "
+                    "the calling spectrum."
+                )
+
+            if self.orientation_average:
+                if not sp.orientation_average or not (
+                    np.allclose(
+                        self._or_a, sp.orientation_angles, atol=ZERO_TOLERANCE
+                    )
+                    and np.allclose(
+                        self._or_w,
+                        sp.orientation_averaging_weights,
+                        atol=ZERO_TOLERANCE,
+                    )
+                ):
+                    raise ValueError(
+                        "If the calling spectrum is (not) an "
+                        "orientational average, all spectra must also "
+                        "(not) be an orientational average."
+                    )
+
+        f_min, f_max = self._f.min(), self._f.max()
+        f_res = np.mean(self._f[1:] - self._f[:-1])
+
+        f_min = f_res * np.floor(f_min / f_res)
+        f_max = f_res * np.ceil(f_max / f_res)
+
+        s = (len(spectra) + 1,) + self._band_freqs.shape
+
+        freqs = np.zeros(s, dtype=np.float64)
+        ints = np.zeros(s, dtype=np.float64)
+        lws = np.zeros(s, dtype=np.float64)
+        ir_syms = np.zeros(s, dtype=str)
+
+        for i, sp in enumerate((self,) + spectra):
+            freqs[i] = convert_frequency_units(
+                sp.band_raman_shifts, sp.frequency_units, "thz"
+            )
+
+            ints[i] = sp.band_intensities
+
+            lws[i] = convert_frequency_units(
+                sp.band_linewidths, sp.frequency_units, "thz"
+            )
+
+            ir_syms[i] = sp.band_irrep_symbols
+
+        # If sp_type is not Stokes, "undo" the data transformation to
+        # ensure correct handling in the new spectrum.
+
+        match self._sp_type:
+            case "stokes":
+                pass
+            case "anti-stokes":
+                freqs = -1.0 * freqs[..., ::-1]
+                ints = ints[..., ::-1]
+                lws = lws[..., ::-1]
+                ir_syms = ir_syms[..., ::-1]
+            case "both":
+                idx = self._band_freqs.shape[-1] // 2
+
+                freqs = freqs[..., idx:]
+                ints = ints[..., idx:]
+                lws = lws[..., idx:]
+                ir_syms = ir_syms[..., idx:]
+            case _:
+                raise RuntimeError(
+                    f'Unknown spectrum_type "{self._sp_type}". (This '
+                    "may be a bug.)"
+                )
+
+        if sp_type is None:
+            sp_type = self._sp_type
+
+        if sp_units is None:
+            sp_units = self._f_units
+
+        return NDRamanSpectrum(
+            freqs,
+            ints,
+            lws,
+            self._w,
+            self._t,
+            irreps=None,
+            ir_syms=ir_syms,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=(f_min, f_max),
+            sp_res=f_res,
+            or_a=self._or_a,
+            or_w=self._or_w,
+        )
+
+
+# -------------------
+# RamanSpectrum class
+# -------------------
+
+
+class RamanSpectrum(NDRamanSpectrum):
+    """Class for simulating standard 1D Raman spectra."""
+
+    def __init__(
+        self,
+        freqs,
+        ints,
+        lws,
+        w,
+        t,
+        irreps=None,
+        ir_syms="?",
+        sp_type="stokes",
+        sp_units="thz",
+        sp_range=None,
+        sp_res=None,
+        or_a=None,
+        or_w=None,
+    ):
+        r"""Create a new instance of the `NDRamanSpectrum` class.
+
+        Parameters
+        ----------
+        freqs : scalar or array_like
+            Frequencies (shape: `(N,)` or `(L, N)`).
+        ints : scalar or array_like
+            Intensities (shape: `(N,)` or `(L, N)`).
+        lws : scalar, array_like or None, optional
+            Linewidths (scalar or shape: `(N,)` or `(L, N)`).
+        w, t : float
+            Measurement wavelength (nm) and temperature (K).
+        irreps : Irreps or None, optional
+            Irreducible representations (irreps) of the bands included
+            in the spectrum (assumed to apply to all dimensions for
+            > 1D spectra, overrides ir_syms).
+        ir_syms : scalar or array_like, optional
+            Irrep symbols of the bands in the spectrum (scalar or shape:
+            `(N,)`, default: "?").
+        sp_type : {"stokes", "anti-stokes", "both"}. optional
+            Spectrum type (default: "stokes").
+        sp_units : str, optional
+            Frequency units of simulated spectrum (default: "thz").
+        sp_range : tuple of float, optional
+            `(min, max)` for simulated spectrum (default: automatic).
+        sp_res : float, optional
+            Resolution of simulated spectrum (default: automatic).
+        or_a : array_like or None, optional
+            Specifies the three Euler angles \phi, \theta and \psi for
+            each orientation (L) (shape: `(L, 3)`).
+        or_w : array_like or None, optional
+            Optional averaging weights for orientations (L) (shape:
+            `(L,)`, defaults to 1 / L).
+        """
+
+        super().__init__(
+            freqs,
+            ints,
+            lws,
+            w,
+            t,
+            irreps=irreps,
+            ir_syms=ir_syms,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=sp_range,
+            sp_res=sp_res,
+            or_a=or_a,
+            or_w=or_w,
+        )
+
+        if self.num_spectral_dims != 0:
+            raise ValueError(
+                "Standard Raman spectra must not be multidimensional "
+                "- use NDRamanSpectrum of another derived class "
+                "instead."
+            )
+
+
+# --------------------------------
+# AngleResolvedRamanSpectrum class
+# --------------------------------
+
+
+class AngleResolvedRamanSpectrum(NDRamanSpectrum):
+    """Class for simulating angle-resolved 2D Raman spectra."""
+
+    def __init__(
+        self,
+        freqs,
+        ints,
+        lws,
+        w,
+        t,
+        rot_angles,
+        irreps=None,
+        ir_syms="None",
+        sp_type="stokes",
+        sp_units="thz",
+        sp_range=None,
+        sp_res=None,
+        or_a=None,
+        or_w=None,
+        angle_unit_text_label="angle / deg",
+        angle_unit_plot_label=r"Angle / $^\circ$",
+    ):
+        r"""Create a new instance of the `AngleResolvedRamanSpectrum`
+        class.
+
+        Parameters
+        ----------
+        freqs : array_like
+            Frequencies (shape: `(N,)`, `(M, N)` or `(M, L, N)`).
+        ints : array_like
+            Intensities (shape: `(M, L, N)`).
+        lws : scalar or array_like
+            Linewidths (scalar or shape: `(N,)`, `(M, N)` or
+            `(M, L, N)`).
+        w, t : float
+            Measurement wavelength (nm) and temperature (K).
+        rot_angles : array_like
+            Rotation angles in degrees (shape: `(M,)`).
+        irreps : Irreps or None, optional
+            Irreducible representations (irreps) of the bands included
+            in the spectrum (assumed to apply to all dimensions for
+            > 1D spectra, overrides ir_syms).
+        ir_syms : scalar, array_like or None, optional
+            Irrep symbols of the bands included in the spectrum
+            (scalar or shape: `(..., N)`, default: "None").
+        sp_type : {"stokes", "anti-stokes", "both"}. optional
+            Spectrum type (default: "stokes").
+        sp_units : str, optional
+            Frequency units of simulated spectrum (default: "thz").
+        sp_range : tuple of float, optional
+            `(min, max)` for simulated spectrum (default: automatic).
+        sp_res : float, optional
+            Resolution of simulated spectrum (default: automatic).
+        or_a : array_like or None, optional
+            Specifies the three Euler angles \phi, \theta and \psi for
+            each orientation (L) (shape: `(L, 3)`).
+        or_w : array_like or None, optional
+            Optional averaging weights for orientations (L) (shape:
+            `(L,)`, defaults to 1 / L).
+        angle_unit_text_label, angle_unit_plot_label : str, optional
+            Angle unit labels for plain-text output and plotting.
+        """
+
+        super().__init__(
+            freqs,
+            ints,
+            lws,
+            w,
+            t,
+            irreps=irreps,
+            ir_syms=ir_syms,
+            sp_type=sp_type,
+            sp_units=sp_units,
+            sp_range=sp_range,
+            sp_res=sp_res,
+            or_a=or_a,
+            or_w=or_w,
+        )
+
+        if self.num_spectral_dims != 1:
+            raise ValueError(
+                "Angle resolved Raman spectra must have a single "
+                "spectral dimension - use NDRamanSpectrum of another "
+                "derived class instead."
+            )
+
+        rot_angles = np.atleast_1d(
+            np.array(rot_angles, dtype=np.float64, copy=True)
+        )
+
+        if rot_angles.ndim != 1 or len(rot_angles) != len(self._band_ints):
+            raise ValueError("angles must be an array_like with shape (M,).")
+
+        rot_angles.flags.writeable = False
+
+        self._rot_angles = rot_angles
+
+        self._angle_unit_text_label = str(angle_unit_text_label)
+        self._angle_unit_plot_label = str(angle_unit_plot_label)
+
+    def _get_column_hdrs_for_spectral_dims(self, hdrs=None):
+        if hdrs is None:
+            hdrs = ["{0:.2f}".format(a) for a in self._rot_angles]
+
+        return super()._get_column_hdrs_for_spectral_dims(hdrs)
 
     @property
-    def intensities(self):
-        """numpy.ndarray : Band intensities in Ang^4 / amu (shape:
-        `(N, M)`)."""
-        return np_readonly_view(self._ints)
+    def rotation_angles(self):
+        """numpy.ndarray : Angles in degrees (shape: `(M,)`)."""
+        return self._rot_angles
 
     @property
-    def cross_sections(self):
-        """numpy.ndarray : Band cross sections in Ang^2 / sr (shape:
-        `(N, M)`)."""
-        return np_readonly_view(self._x_sects)
+    def rotation_angle_unit_text_label(self):
+        """str : Angle unit label suitable for plain-text output."""
+        return self._angle_unit_text_label
 
     @property
-    def y(self):
-        """numpy.ndarray : y values (shape: `(M,)`)."""
-        return np_readonly_view(self._d2_axis_vals)
-
-    @property
-    def z(self):
-        """numpy.ndarray : z values (shape: `(O, M)`)."""
-
-        self._lazy_init_spectrum()
-        return np_readonly_view(self._sp)
-
-    @property
-    def y_unit_text_label(self):
-        """str : y-axis unit label suitable for plain-text output."""
-        return self._d2_unit_text_label
-
-    @property
-    def y_unit_plot_label(self):
-        """str: y-axis unit label suitable for plotting (may contain TeX
-        strings.)"""
-        return self._d2_unit_plot_label
-
-    @property
-    def z_unit_text_label(self):
-        """str : z-axis unit label suitable for plain-text output."""
-        return _RAMAN_CROSS_SECTION_UNIT_TEXT_LABEL
-
-    @property
-    def z_unit_plot_label(self):
-        """str : z-axis unit label suitable for plotting (contains TeX
+    def rotation_angle_unit_plot_label(self):
+        """str : Angle unit label suitable for plotting (contains TeX
         strings)."""
-        return _RAMAN_CROSS_SECTION_UNIT_PLOT_LABEL
+        return self._angle_unit_plot_label

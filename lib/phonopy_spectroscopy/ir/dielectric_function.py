@@ -14,37 +14,44 @@ function."""
 import numpy as np
 import pandas as pd
 
-from ..constants import VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY
-from ..distributions import lorentz_oscillator
-from ..spectrum_base import GammaPhononSpectrumBase
-from ..units import convert_frequency_units
-
-from ..utility.numpy_helper import (
-    np_readonly_view,
-    np_asarray_copy,
-    np_expand_dims,
-    np_check_shape,
+from ..constants import (
+    VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY,
+    ZERO_TOLERANCE,
 )
 
-# ---------
-# Constants
-# ---------
+from ..distributions import lorentz_oscillator
+from ..optics.response_function import DielectricFunction
+from ..units import convert_frequency_units
 
-_EPSILON_UNIT_TEXT_LABEL = r"\eps / \eps_0"
-_EPSILON_UNIT_PLOT_LABEL = r"$\epsilon$ / $\epsilon_0$"
+from ..utility.numpy_helper import atleast_3d
+from ..utility.spectrum import auto_range
 
 # --------------------------------
 # InfraredDielectricFunction class
 # --------------------------------
 
 
-class InfraredDielectricFunction(GammaPhononSpectrumBase):
-    """Base class for generating simulated infrared dielectric functions
+class InfraredDielectricFunction(DielectricFunction):
+    """Class for generating simulated infrared dielectric functions
     from sets of frequencies, mode oscillator strengths and linewidths.
     """
 
+    mode_oscillator_strength_unit_text_label = "e^2 amu^-1"
+    """str : Mode oscillator strength unit label suitable for plain-text
+    output."""
+
     def __init__(
-        self, freqs, osc_strs, lws, cell_volume, eps_inf, irreps=None, **kwargs
+        self,
+        freqs,
+        osc_strs,
+        lws,
+        cell_volume,
+        eps_inf,
+        irreps=None,
+        ir_syms="?",
+        f_units="thz",
+        f_range=None,
+        f_res=None,
     ):
         """Create a new instance of the `InfraredDielectricFunction`
         class.
@@ -60,162 +67,182 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
             Linewidths in THz (shape: `(N,)`).
         cell_volume : float
             Unit-cell volume in Ang^3.
-        eps_inf : array_like
-            High-frequency dielectric constant in units of relative
-            permittivity (shape: `(3, 3)`).
         irreps : Irreps or None, optional
-            `Irreps` object assigning bands to irrep groups.
-        **kwargs
-            Keyword arguments to the `GammaPhononSpectrumBase`
-            constructor.
+            Irreducible representations (irreps) of the bands included
+            in the spectrum (overrides `ir_syms`).
+        ir_syms : scalar, array_like or None, optional
+            Irrep symbols of the bands included in the spectrum (scalar
+            or shape: `(N,)`, default: "?").
+        f_units : str
+            Frequency units (default: "thz").
+        f_range : tuple of float, optional
+            `(min, max)` for simulated dielectric function (default:
+            automatic).
+        f_res : float, optional
+            Resolution of simulated dielectric function (default:
+            automatic).
         """
 
-        osc_strs, _ = np_expand_dims(
-            np_asarray_copy(osc_strs, dtype=np.complex128), (None, 3, 3)
+        freqs = np.atleast_1d(np.array(freqs, dtype=np.float64, copy=True))
+
+        osc_strs = atleast_3d(
+            np.array(osc_strs, dtype=np.complex128, copy=True)
         )
 
-        if not np.iscomplex(osc_strs).all():
-            osc_strs = osc_strs.real
+        lws = np.atleast_1d(np.array(lws, dtype=np.float64, copy=True))
+
+        # Broadcast freqs, osc_strs and lws to a common N.
+
+        n = max(len(freqs), osc_strs.shape[0], len(lws))
+
+        freqs = np.broadcast_to(freqs, (n,))
+        osc_strs = np.broadcast_to(osc_strs, (n, 3, 3))
+        lws = np.broadcast_to(lws, (n,))
+
+        # Phonon mode dipole oscillator strengths will usually be real,
+        # but complex input is possible (and physical) in other use
+        # cases.
+
+        osc_strs = np.real_if_close(osc_strs, tol=ZERO_TOLERANCE)
 
         # If irreps are supplied, average frequencies/linewidths and sum
         # mode oscillator strengths.
 
-        irrep_syms = None
-
         if irreps is not None:
-            ir_band_inds = irreps.irrep_band_indices
+            # "Reduce" N -> M bands by averaging
+            # frequencies/linewidths and summing intensities.
 
-            freqs = np.array(
-                [np.mean(freqs[inds]) for inds in ir_band_inds],
-                dtype=np.float64,
+            inds = irreps.irrep_band_indices
+            ir_syms = np.copy(irreps.irrep_symbols)
+
+            if len(inds) != n:
+                raise ValueError(
+                    "irreps must assign all N bands to M irrep groups."
+                )
+
+            # Average freqs/linewidths and sum intensities.
+
+            m = len(ir_syms)
+
+            freqs_new = np.zeros((m,), dtype=np.float64)
+            osc_strs_new = np.zeros((m, 3, 3), dtype=np.float64)
+            lws_new = np.zeros((m,), dtype=np.float64)
+
+            for idx in np.unique(inds):
+                freqs_new[idx] = np.mean(freqs[inds == idx])
+                osc_strs_new[idx] = osc_strs[inds == idx].sum(axis=0)
+                lws_new[idx] = np.mean(lws[inds == idx])
+
+            freqs, osc_strs, lws = freqs_new, osc_strs_new, lws_new
+        else:
+            # Broadcast ir_syms against N.
+
+            ir_syms = np.broadcast_to(
+                np.atleast_1d(np.array(ir_syms, dtype=str)), (n,)
             )
-
-            osc_strs = np.array(
-                [
-                    np.sum(osc_strs[inds, :, :], axis=0)
-                    for inds in ir_band_inds
-                ],
-                dtype=osc_strs.dtype,
-            )
-
-            lws = np.array(
-                [np.mean(lws[inds]) for inds in ir_band_inds], dtype=np.float64
-            )
-
-            irrep_syms = np_asarray_copy(irreps.irrep_symbols, dtype=object)
 
         if cell_volume <= 0.0:
-            raise ValueError("cell_volume must be positive and non-zero.")
+            raise ValueError("cell_volume must be > 0.")
 
-        eps_inf = np_asarray_copy(eps_inf, dtype=np.float64)
+        eps_inf = np.atleast_2d(np.array(eps_inf, dtype=np.float64, copy=True))
 
-        if not np_check_shape(eps_inf, (3, 3)):
+        if eps_inf.shape != (3, 3):
             raise ValueError(
-                "If supplied, eps_inf must be an array_like with shape "
-                "(3, 3)."
+                "eps_inf must be an array_like with shape (3, 3)."
             )
 
-        # The high-frequency dielectric constant should be real.
+        # Determine energy axis range.
 
-        if np.iscomplex(eps_inf).any():
-            raise ValueError("If supplied, eps_inf must be real.")
-
-        # Call the GammaPhononSpectrumBase constructor to handle
-        # "x-axis"-related intialisation.
-
-        super(InfraredDielectricFunction, self).__init__(
-            freqs, lws, irrep_syms=irrep_syms, **kwargs
+        (e_min, e_max), e_res = auto_range(
+            freqs,
+            lws,
+            f_range=f_range,
+            f_res=f_res,
+            f_pad_mult=5.0,
+            f_res_min_pts=1000,
         )
 
-        # Store parameters.
+        e = np.arange(e_min, e_max + e_res / 10.0, e_res)
 
+        eps = lorentz_oscillator(e, osc_strs, freqs, lws).sum(axis=0)
+        eps *= VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY / cell_volume
+        eps += eps_inf
+
+        # Convert units.
+
+        freqs = convert_frequency_units(freqs, "thz", f_units)
+        lws = convert_frequency_units(lws, "thz", f_units)
+
+        e = convert_frequency_units(e, "thz", f_units)
+
+        super().__init__(e, eps, e_units=f_units)
+
+        # Store additional data.
+
+        freqs.flags.writeable = False
+        osc_strs.flags.writeable = False
+        lws.flags.writeable = False
+        ir_syms.flags.writeable = False
+        eps_inf.flags.writeable = False
+
+        self._freqs = freqs
         self._osc_strs = osc_strs
-        self._cell_volume = cell_volume
-
+        self._lws = lws
+        self._ir_syms = ir_syms
         self._eps_inf = eps_inf
 
-        # Initialise _eps field for "lazy" evaluation.
-
-        self._eps = None
-
-    def _lazy_init_epsilon(self):
-        """Lazy initialisation of dielectric function."""
-
-        if self._eps is None:
-            # The conversion factor to relative permittivity assumes
-            # oscillator strengths in e^2 / amu, volumes in Ang^3 and
-            # frequencies in THz.
-
-            x, freqs, lws = self.x, self.frequencies, self.linewidths
-
-            if self._x_units != "thz":
-                x = convert_frequency_units(x, self._x_units, "thz")
-                freqs = convert_frequency_units(freqs, self._x_units, "thz")
-                lws = convert_frequency_units(lws, self._x_units, "thz")
-
-            eps = lorentz_oscillator(x, self._osc_strs[0], freqs[0], lws[0])
-
-            for osc_str, freq, lw in zip(
-                self._osc_strs[1:], freqs[1:], lws[1:]
-            ):
-                eps += lorentz_oscillator(x, osc_str, freq, lw)
-
-            # Convert to relative permittivity.
-
-            eps *= (
-                VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY
-                / self._cell_volume
-            )
-
-            # If a high-frequency dielectric constant was supplied
-            # during initialisation, add it to the dielectric function.
-
-            if self._eps_inf is not None:
-                # Note that _eps_inf may be a ("regular") float.
-                eps += self._eps_inf[np.newaxis, :, :]
-
-            self._eps = eps
+    @property
+    def mode_frequencies(self):
+        """numpy.ndarray : Mode frequencies in `energy_units`
+        (shape: `(N,)`)."""
+        return self._freqs
 
     @property
-    def oscillator_strengths(self):
+    def mode_oscillator_strengths(self):
         """numpy.ndarray : Mode oscillator strengths in e^2 amu^-1
         (shape: '(N, 3, 3)')."""
-        return np_readonly_view(self._osc_strs)
+        return self._osc_strs
+
+    @property
+    def mode_linewidths(self):
+        """numpy.ndarray : Mode linewidths in `energy_units` (shape:
+        `(N,)`)."""
+        return self._lws
+
+    @property
+    def mode_irrep_symbols(self):
+        """numpy.ndarray : Mode irrep symbols (shape: `(N,)`)."""
+        return self._ir_syms
 
     @property
     def epsilon_inf(self):
         r"""numpy.ndarray : High-frequency dielectric constant in \eps_0
         (shape: `(3, 3)`)."""
-        return np_readonly_view(self._eps_inf)
+        return self._eps_inf
 
     @property
-    def epsilon(self):
-        r"""numpy.ndarray : Complex dielectric function in \eps_0
-        (shape: `(O, 3, 3)`)."""
-
-        self._lazy_init_epsilon()
-        return np_readonly_view(self._eps)
+    def frequency(self):
+        """numpy.ndarray : Frequencies in `frequency_units` (alias for
+        base class `energy`)."""
+        return self.energy
 
     @property
-    def mode_oscillator_strength_unit_text_label(self):
-        """str : Mode oscillator strength unit label suitable for
-        plain-text output."""
-
-        return "e^2 amu^-1"
+    def frequency_units(self):
+        """str : Frequency units (alias for base class `energy_units`)."""
+        return self.energy_units
 
     @property
-    def epsilon_unit_text_label(self):
-        """str : Dielectric function unit label suitable for plain-text
-        output."""
-
-        return _EPSILON_UNIT_TEXT_LABEL
+    def frequency_unit_text_label(self):
+        """str : Frequency unit label suitable for plain-text output
+        (alias for base class `energy_unit_text_label`)."""
+        return self.energy_unit_text_label
 
     @property
-    def epsilon_unit_plot_label(self):
-        """str : Dielectric function unit label suitable for plotting
-        (contains TeX strings)."""
-
-        return _EPSILON_UNIT_PLOT_LABEL
+    def frequency_unit_plot_label(self):
+        """str : Frequency unit label suitable for plotting (may contain
+        TeX strings, alias for base class `frequency_unit_plot_label`).
+        """
+        return self.energy_unit_plot_label
 
     def peak_table(self):
         """Return the peak table as a Pandas `DataFrame`.
@@ -226,50 +253,15 @@ class InfraredDielectricFunction(GammaPhononSpectrumBase):
             `DataFrame` containing the peak table.
         """
 
-        d = {"freq_energy": self._freqs, "linewidth": self._lws}
+        d = {"freq_energy": self._freqs}
 
-        if self._irrep_syms is not None:
-            d["irrep"] = self._irrep_syms
-        else:
-            d["irrep"] = ["None"] * len(self._freqs)
+        osc_str = self._osc_strs
 
-        for i, j, label in InfraredDielectricFunction._DF_COL_INDS_HDRS:
-            d["osc_str_{0}".format(label)] = self._osc_strs[:, i, j]
+        for idx, x in enumerate("xyz"):
+            for idy, y in enumerate("xyz"):
+                d[f"osc_str_{x}{y}"] = osc_str[:, idx, idy]
 
-        return pd.DataFrame(d)
-
-    def spectrum(self):
-        """Return the simulated dielectric function as a Pandas
-        `DataFrame`.
-
-        Returns
-        -------
-        df : pandas.DataFrame
-            `DataFrame` containing the dielectric function.
-        """
-
-        self._lazy_init_epsilon()
-
-        d = {"freq_energy": self.x}
-
-        for i, j, label in InfraredDielectricFunction._DF_COL_INDS_HDRS:
-            d["epsilon_re_{0}".format(label)] = self._eps.real[:, i, j]
-
-        for i, j, label in InfraredDielectricFunction._DF_COL_INDS_HDRS:
-            d["epsilon_im_{0}".format(label)] = self._eps.imag[:, i, j]
+        d["linewidth"] = self._lws
+        d["irrep"] = self._ir_syms
 
         return pd.DataFrame(d)
-
-    _DF_COL_INDS_HDRS = [
-        (0, 0, "xx"),
-        (1, 1, "yy"),
-        (2, 2, "zz"),
-        (0, 1, "xy"),
-        (0, 2, "xz"),
-        (1, 2, "yz"),
-    ]
-
-    """list of tuples of (int, int, str) : Indices and column labels
-    for constructing Pandas `DataFrame` objects from the unique
-    components of the mode oscillator strengths/tensor dielectric
-    function."""

@@ -15,38 +15,47 @@ import abc
 import numpy as np
 import pandas as pd
 
-from ..spectrum_base import SpectrumBase
-
-from ..utility.numpy_helper import np_readonly_view
-
 # -------------------------
 # OpticalSpectrumBase class
 # -------------------------
 
 
-class OpticalSpectrumBase(SpectrumBase, abc.ABC):
+class OpticalSpectrumBase(abc.ABC):
     """Abstract base class for optical spectra."""
 
-    def __init__(self, x, x_units="thz", t=1.0, n_f=1.0, n_b=1.0):
+    def __init__(self, e, t, n_f, n_b, e_units="ev"):
         """Create a new instance of the `OpticalSpectrumBase` class.
 
         Parameters
         ----------
-        t : float, optonal
-            Thickness in mm (default: 1 mm).
+        e : array_like
+            Energies in `e_units` (shape: `(O,)`).
+        t : float
+            Thickness (path length) in mm (default: 1 mm).
         n_f, n_b : float, optional
             Refractive indices of the front (indicent) and back (exit)
-            media (default: 1.0 = vacuum ~ air).
+            media.
+        e_units : str, optional
+            Energy units (default: "ev").
         """
 
-        super(OpticalSpectrumBase, self).__init__(x=x, x_units=x_units)
+        e = np.atleast_1d(np.array(e, dtype=np.float64, copy=True))
+
+        if e.ndim > 1 or len(e) == 0:
+            raise ValueError("e must be an array_like with shape (O,).")
 
         if t <= 0.0:
             raise ValueError("t must be > 0.")
 
+        e.flags.writeable = False
+
+        self._e = e
+
         self._t = t
         self._n_f = n_f
         self._n_b = n_b
+
+        self._e_units = e_units
 
         self._ref_s = None
         self._ref_t = None
@@ -78,16 +87,32 @@ class OpticalSpectrumBase(SpectrumBase, abc.ABC):
         if self._ref_s is None:
             self._init_single_reflectivity()
 
+        self._ref_s.flags.writeable = False
+
     def _lazy_init_total_reflectivity_and_transmission(self):
         """Lazy initialisation of total reflectivity, transission, and
         associated quantities."""
 
-        if self._ref_t is None:
+        if self._ref_t is None or self._trans is None:
             self._init_total_reflectivity_and_transmission()
 
-        if self._aps is None:
-            self._aps = 1.0 - (self._ref_t + self._trans)
-            self._abs = -1.0 * np.log10(self._trans)
+        self._ref_t.flags.writeable = False
+        self._trans.flags.writeable = False
+
+        if self._aps is None or self._abs is None:
+            aps = 1.0 - (self._ref_t + self._trans)
+            abs = -1.0 * np.log10(self._trans)
+
+            aps.flags.writeable = False
+            abs.flags.writeable = False
+
+            self._aps = aps
+            self._abs = abs
+
+    @property
+    def energy(self):
+        """numpy.ndarray : Energy in `e_units` (shape: `(O,)`)."""
+        return self._e
 
     @property
     def sample_thickness(self):
@@ -105,40 +130,45 @@ class OpticalSpectrumBase(SpectrumBase, abc.ABC):
         return self._n_b
 
     @property
+    def energy_units(self):
+        """str : Energy units."""
+        return self._e_units
+
+    @property
     def single_reflectivity(self):
         """numpy.ndarray : Single (infinite bulk) reflectivity (shape:
         `(O,)`)."""
 
         self._lazy_init_single_reflectivity()
-        return np_readonly_view(self._ref_s)
+        return self._ref_s
 
     @property
     def total_reflectivity(self):
         """numpy.ndarray : Total reflectivity (shape: `(O,)`)."""
 
         self._lazy_init_total_reflectivity_and_transmission()
-        return np_readonly_view(self._ref_t)
+        return self._ref_t
 
     @property
     def transmission(self):
         """numpy.ndarray : Transmission (shape: `(O,)`)."""
 
         self._lazy_init_total_reflectivity_and_transmission()
-        return np_readonly_view(self._trans)
+        return self._trans
 
     @property
     def absorptance(self):
         """numpy.ndarray : Absorptance (shape: `(O,)`)."""
 
         self._lazy_init_total_reflectivity_and_transmission()
-        return np_readonly_view(self._aps)
+        return self._aps
 
     @property
     def absorbance(self):
         """numpy.ndarray : Decadic absorbance (shape: `(O,)`)."""
 
         self._lazy_init_total_reflectivity_and_transmission()
-        return np_readonly_view(self._abs)
+        return self._abs
 
     def spectrum(self):
         """Return the optical spectra as a Pandas `DataFrame`.
@@ -150,7 +180,7 @@ class OpticalSpectrumBase(SpectrumBase, abc.ABC):
         """
 
         d = {
-            "freq_energy": self._x,
+            "energy": self._e,
             "single_reflectivity": self.single_reflectivity,
             "total_reflectivity": self.total_reflectivity,
             "transmission": self.transmission,

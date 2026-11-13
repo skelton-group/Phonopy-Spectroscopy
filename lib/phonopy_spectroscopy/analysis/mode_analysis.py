@@ -16,16 +16,13 @@ import numpy as np
 
 from ..constants import ZERO_TOLERANCE
 
-from ..utility.numpy_helper import np_expand_dims
-
 # ---------
 # Functions
 # ---------
 
 
 def participation_ratio(evecs):
-    r"""
-    Calculate the phonon participation ratio.
+    r"""Calculate the phonon participation ratio.
 
     Params
     ------
@@ -42,15 +39,25 @@ def participation_ratio(evecs):
     The phonon participation is given by:
 
     .. math::
+
          P = \frac{1}{N \sum_j \left( \sum_\alpha | \boldsymbol{W}_j^\alpha |^2 \right)^2 }
 
-    It can take values between :math:`\frac{1}{N}` and 1, respectively,
-    for fully delocalised and fully localised modes.
+    :math:`P` can take values between :math:`\frac{1}{N}` and 1,
+    respectively, for fully delocalised and fully localised modes.
     """
 
-    evecs, n_dim_add = np_expand_dims(
-        np.asarray(evecs, dtype=np.float64), (None, None, 3)
-    )
+    evecs = np.asanyarray(evecs, dtype=np.float64)
+
+    ret_single = False
+
+    if evecs.ndim == 2:
+        evecs = evecs[np.newaxis, :, :]
+        ret_single = True
+
+    if evecs.ndim != 3 or evecs.shape[-1] != 3:
+        raise ValueError(
+            "evecs must be an array_like with shape (N, 3) or (M, N, 3)."
+        )
 
     # Take square modulus (for complex evecs) and sum over positional
     # components.
@@ -65,11 +72,9 @@ def participation_ratio(evecs):
         warnings.warn(
             "One or more eigenvectors may not be normalied: max. norm "
             "= {0:.5f}.".format(abs_norms.max()),
-            UserWarning,
+            RuntimeWarning,
         )
 
-    _, n = sq_mods.shape
+    prs = 1.0 / (sq_mods.shape[1] * np.sum(sq_mods**2, axis=-1))
 
-    prs = 1.0 / (n * np.sum(sq_mods**2, axis=-1))
-
-    return prs if n_dim_add == 0 else prs[0]
+    return prs[0] if ret_single else prs

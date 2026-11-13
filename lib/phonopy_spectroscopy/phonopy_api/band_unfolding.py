@@ -10,20 +10,12 @@
 # Imports
 # -------
 
-import warnings
-
 import numpy as np
 
 from ..interfaces.phonopy_interface import get_distance_unit_for_interface
-
 from ..structure import Structure
 
-from ..utility.numpy_helper import (
-    np_asarray_copy,
-    np_check_shape,
-    np_readonly_view,
-    np_expand_dims,
-)
+from ..utility.numpy_helper import atleast_3d
 
 from ..utility.structure import (
     fractional_to_cartesian_coordinates,
@@ -32,8 +24,8 @@ from ..utility.structure import (
     map_qpoints,
 )
 
-from phonopy.structure.cells import Primitive
 from phonopy.phonon.band_structure import get_band_qpoints
+from phonopy.structure.cells import Primitive
 from phonopy.unfolding.core import Unfolding
 
 # ------------------
@@ -49,7 +41,7 @@ class BandUnfolder:
         ph,
         ref_struct,
         sc_mat,
-        prim_trans=None,
+        prim_trans_mat=None,
         atom_map=None,
         ph_calc="vasp",
         symprec=1e-5,
@@ -65,14 +57,13 @@ class BandUnfolder:
         sc_mat : array_like
             Transformation matrix from the reference unit cell to the
             supercell used for the phonon calculation (shape: `(3, 3)`).
-        prim_trans : array_like, optional
+        prim_trans_mat : array_like, optional
             Transformation matrix from the reference unit cell to the
             primitive cell (optional, default: `None`).
         atom_map : array_like of int or None, optional
             Mapping of the atom positions in the calculation supercell
-            to the positions in the reference structure, or `None` where
-            no mapping exists (the default value of `None` attempts an
-            automatic mapping).
+            to the positions in the reference structure (`None` attempts
+            an automatic mapping).
         ph_calc : str, optional
             Calculator interface used to set up `ph` (default: "vasp").
         symprec : float, optional
@@ -81,7 +72,7 @@ class BandUnfolder:
         See Also
         --------
         utility.structure.map_atom_positions
-            Create the `atom_map` with more control over the algorithm.
+            Create `atom_map` with more control over the algorithm.
 
         Notes
         -----
@@ -121,10 +112,9 @@ class BandUnfolder:
         If not specified, `prim_trans` defaults to the identify matrix.
 
         The composite matrix used to transform the supercell to the
-        primitive cell during unfolding is given by:
-        `np.matmul(sc_mat, np.linalg.inv(prim_trans))`
-
-        This is computed automatically and the result is stored in
+        primitive cell during unfolding is given by
+        `sc_mat @ np.linalg.inv(prim_trans)`. This is computed
+        automatically and the result is stored in
         `unfolding_supercell_matrix`.
 
         The unfolding routine performs phonon calculations and requires
@@ -132,7 +122,7 @@ class BandUnfolder:
         `force_constants` property on `ph` before initialisation.
 
         The calculation structure is taken from `ph`, and the
-        "calculator" used to prepare the phonon calculation must be
+        calculator used to prepare the phonon calculation must be
         specified to determine whether a distance unit conversion is
         required (the default is "vasp").
 
@@ -148,25 +138,26 @@ class BandUnfolder:
                 "The force_constants property on ph must be set."
             )
 
-        sc_mat = np_asarray_copy(sc_mat, dtype=np.float64)
+        sc_mat = np.array(sc_mat, dtype=np.float64, copy=True)
 
-        if not np_check_shape(sc_mat, (3, 3)):
+        if sc_mat.shape != (3, 3):
             raise ValueError("sc_mat must be an array_like with shape (3, 3).")
 
-        if prim_trans is not None:
-            prim_trans = np_asarray_copy(prim_trans, dtype=np.float64)
+        if prim_trans_mat is not None:
+            prim_trans_mat = np.array(
+                prim_trans_mat, dtype=np.float64, copy=True
+            )
 
-            if not np_check_shape(prim_trans, (3, 3)):
+            if prim_trans_mat.shape != (3, 3):
                 raise ValueError(
                     "If supplied, prim_trans must be an array_like "
                     "with shape (3, 3)."
                 )
         else:
             # Identity matrix.
+            prim_trans_mat = np.identity(3, dtype=np.float64)
 
-            prim_trans = np.eye(3, dtype=np.float64)
-
-        uf_sc_mat = np.matmul(sc_mat, np.linalg.inv(prim_trans))
+        uf_sc_mat = sc_mat @ np.linalg.inv(prim_trans_mat)
 
         struct = Structure.from_phonopy_atoms(
             ph.supercell,
@@ -189,7 +180,10 @@ class BandUnfolder:
         )
 
         if atom_map is not None:
-            atom_map = np_asarray_copy(atom_map, dtype=object)
+            # atom_map entries should be either integers or None, so
+            # shallow copying should be fine. (The array contents are
+            # valudated in the call to invert_atom_map().)
+            atom_map = np.array(atom_map, dtype=object, copy=True)
         else:
             atom_map, _ = map_atom_positions(struct, ref_struct)
 
@@ -197,33 +191,24 @@ class BandUnfolder:
         # structure onto the reference structure, the Phonopy Unfolding
         # class requires the reverse.
 
-        # invert_atom_map() handles the validation of atom_map.
-
         inv_atom_map = invert_atom_map(atom_map, struct, ref_struct)
 
         # The Unfolding class cannot handle "many -> one" mapping, where
         # multiple atoms in struct map to the same atom in ref_struct.
-        # The only sensible way to handle this is to set the
-        # corresponding entry to None and issue a warning.
 
         for i, inds in enumerate(inv_atom_map):
             if np.ndim(inds) != 0:
-                warnings.warn(
+                raise RuntimeError(
                     "The BandUnfolder class currently does not support "
-                    "many -> one mapping. Groups of indices will be "
-                    "to None.",
-                    RuntimeWarning,
+                    "many -> one mapping."
                 )
 
-                inv_atom_map[i] = None
+        prim_trans_mat.flags.writeable = False
+        sc_mat.flags.writeable = False
+        uf_sc_mat.flags.writeable = False
 
-        # Convert placeholders for many -> one mapping to None.
-
-        if -1 in inv_atom_map:
-            for i, idx in enumerate(inv_atom_map):
-                inv_atom_map[i] = None
-
-        inv_atom_map = np.array(inv_atom_map, dtype=object)
+        atom_map.flags.writeable = False
+        inv_atom_map.flags.writeable = False
 
         self._phonopy = ph
 
@@ -231,7 +216,7 @@ class BandUnfolder:
         self._ref_struct = ref_struct
         self._prim_struct = prim_struct
 
-        self._prim_trans = prim_trans
+        self._prim_trans_mat = prim_trans_mat
         self._sc_mat = sc_mat
         self._uf_sc_mat = uf_sc_mat
 
@@ -262,30 +247,30 @@ class BandUnfolder:
     @property
     def supercell_matrix(self):
         """numpy.ndarray : Supercell matrix (shape: `(3, 3)`)."""
-        return np_readonly_view(self._sc_mat)
+        return self._sc_mat
 
     @property
     def primitive_matrix(self):
         """numpy.ndarray : Primitive transformation matrix (shape:
         `(3, 3)`)."""
-        return np_readonly_view(self._prim_trans)
+        return self._prim_trans_mat
 
     @property
     def unfolding_supercell_matrix(self):
         """numpy.ndarray : Unfolding supercell matrix (shape: `(3, 3)`)."""
-        return np_readonly_view(self._uf_sc_mat)
+        return self._uf_sc_mat
 
     @property
     def atom_map(self):
         """numpy.ndarray : Mapping of atoms in `structure` to atoms in
         `reference_structure`."""
-        return np_readonly_view(self._atom_map)
+        return self._atom_map
 
     @property
     def inverse_atom_map(self):
         """numpy.ndarray : "Inverse" mapping of atoms in
         `reference_structure` to atoms in `structure`."""
-        return np_readonly_view(self._inv_atom_map)
+        return self._inv_atom_map
 
     def _run_unfolding(self, qpts, ref_prim=None):
         """Run the band unfolding for a set of q-points with optional
@@ -325,15 +310,26 @@ class BandUnfolder:
             `structure`.
         """
 
-        qpts, n_dim_add = np_expand_dims(
-            np.asarray(qpts, dtype=np.float64), (None, 3)
-        )
+        q_pts = np.atleast_1d(np.asanyarray(q_pts, dtype=np.float64))
+
+        ret_single = False
+
+        match q_pts.shape:
+            case (3,):
+                q_pts = q_pts[np.newaxis, :]
+                ret_single = True
+            case (_, 3):
+                pass
+            case _:
+                raise ValueError(
+                    "q_pts must be an array_like with shape (3,) or (M, 3)."
+                )
 
         freqs, weights = self._run_unfolding(qpts, ref_prim=ref_prim)
 
         return (
-            freqs if n_dim_add == 0 else freqs[0],
-            weights if n_dim_add == 0 else weights[0],
+            freqs[0] if ret_single else freqs,
+            weights[0] if ret_single else weights,
         )
 
     def unfold_band_structure(
@@ -362,9 +358,12 @@ class BandUnfolder:
             the unfolded dispersion.
         """
 
-        band_path, _ = np_expand_dims(
-            np.asarray(band_path, dtype=np.float64), (None, 2, 3)
-        )
+        band_path = atleast_3d(np.asanyarray(band_path, dtype=np.float64))
+
+        if band_path.ndim > 3 or band_path.shape[-2:] != (2, 3):
+            raise ValueError(
+                "band_path must be an array_like with shape (M, 2, 3)."
+            )
 
         if num_pts <= 1:
             raise ValueError("num_pts must be greater than one.")

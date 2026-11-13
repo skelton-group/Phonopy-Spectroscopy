@@ -19,7 +19,6 @@ from scipy.integrate import lebedev_rule
 from ..constants import ZERO_TOLERANCE
 
 from .geometry import cartesian_to_spherical_polar
-from .numpy_helper import np_readonly_view
 
 # -----------
 # Unit circle
@@ -71,48 +70,47 @@ def unit_circle_quad_rule(m, angles=True):
 # Unit sphere
 # -----------
 
-_UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS = np.array(
-    [
-        3,
-        5,
-        7,
-        9,
-        11,
-        13,
-        15,
-        17,
-        19,
-        21,
-        23,
-        25,
-        27,
-        29,
-        31,
-        35,
-        41,
-        47,
-        53,
-        59,
-        65,
-        71,
-        77,
-        83,
-        89,
-        95,
-        101,
-        107,
-        113,
-        119,
-        125,
-        131,
-    ],
-    dtype=int,
-)
+_UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS = [
+    3,
+    5,
+    7,
+    9,
+    11,
+    13,
+    15,
+    17,
+    19,
+    21,
+    23,
+    25,
+    27,
+    29,
+    31,
+    35,
+    41,
+    47,
+    53,
+    59,
+    65,
+    71,
+    77,
+    83,
+    89,
+    95,
+    101,
+    107,
+    113,
+    119,
+    125,
+    131,
+]
+"""List of available precisions (orders) for Lebedev quadrature rules.
+"""
 
 
 def unit_sphere_lebedev_quad_rule_available_precs():
-    """Return a list available precisions (orders) for Levedev
-    quadrature rules.
+    """Return the available precisions (orders) for Levedev quadrature
+    rules.
 
     Returns
     -------
@@ -126,7 +124,9 @@ def unit_sphere_lebedev_quad_rule_available_precs():
         for integrating over the unit sphere with Lebedev quadrature.
     """
 
-    return np_readonly_view(_UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS)
+    return np.asarray(
+        _UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS, dtype=int, copy=True
+    )
 
 
 @lru_cache(maxsize=64)
@@ -136,17 +136,18 @@ def unit_sphere_lebedev_quad_rule(p, angles=True):
 
     Parameters
     ----------
-    p : int
-        Precision (order) of the Lebedev rule.
-    ret_polar : bool, optional
+    p : int or str
+        Integer precision (order) of the Lebedev rule or one of
+        {"low", "medium", "high", "ultra", "max"}.
+    angles : bool, optional
         If `True`, return polar angles instead of vectors (default:
-        `False`).
+        `True`).
 
     Returns
     -------
     lebedev_rule : tuple of numpy.ndarray
-        Tuple of `(x, w)` (shape: `((N, 2), (N,))` if `ret_polar=True`,
-        or `((N, 3), (N,))` if `ret_polar=False`.).
+        Tuple of `(x, w)` (shape: `((N, 2), (N,))` if `angles=True`,
+        or `((N, 3), (N,))` if `angles=False`).
 
     See Also
     --------
@@ -163,10 +164,31 @@ def unit_sphere_lebedev_quad_rule(p, angles=True):
         \int_0^{2\pi} \int_0^{\pi} f(\phi, \theta) \sin \theta \; d\theta \; d\phi = 4 \pi \sum_n w_n f(\phi_n, \theta_n)
     """
 
+    # Handle string specifiers.
+
+    if isinstance(p, (str, np.str_)):
+        p_str = str(p).lower()
+
+        match p_str:
+            case "min":
+                p = 3  # 6 points.
+            case "low":
+                p = 16  # 110 points.
+            case "medium":
+                p = 35  # 434 points.
+            case "high":
+                p = 53  # 974 points.
+            case "ultra":
+                p = 77  # 2,030 points.
+            case "max":
+                p = 131  # 5,810 points.
+            case _:
+                raise ValueError(f'Unknown string specifier p="{p}".')
+
     if p not in _UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS:
         raise ValueError(
-            "p = {0} is not valid for Lebedev quadrature, or data for "
-            "this quadrature rule is not available.".format(p)
+            f"p = {p} is not valid for Lebedev quadrature, or data for "
+            "this quadrature rule is not available."
         )
 
     x, w = lebedev_rule(p)
@@ -184,7 +206,7 @@ def unit_sphere_lebedev_quad_rule(p, angles=True):
 
         sp = cartesian_to_spherical_polar(x)
 
-        if (np.abs(sp[:, 0] - 1.0) > ZERO_TOLERANCE).any():
+        if not np.allclose(sp[:, 0], 1.0, atol=ZERO_TOLERANCE):
             raise RuntimeError(
                 "One or more vectors returned by lebedev_rule() has "
                 "non-unit length. This is most likely a bug."
@@ -202,7 +224,7 @@ def unit_sphere_lebedev_quad_rule(p, angles=True):
 
 @lru_cache(maxsize=32)
 def circle_circle_euler_angle_quad_rule(m):
-    r"""Return a set of \phi and \psi anfles for integrating over the
+    r"""Return a set of \phi and \psi angles for integrating over the
     \phi and \psi Euler angles with a circle product rule.
 
     Parameters
@@ -223,7 +245,7 @@ def circle_circle_euler_angle_quad_rule(m):
     x[:, 0] = np.repeat(a, m)
     x[:, 1] = np.tile(a, m)
 
-    w = np.zeros((m * m,), dtype=np.float64) / (m * m)
+    w = np.full((m * m,), 1.0 / (m * m), dtype=np.float64)
 
     return (x, w)
 
@@ -236,13 +258,13 @@ def lebedev_circle_euler_angle_quad_rule(p, m=None):
 
     Parameters
     ----------
-    p : int
-        Precision (order) of the Lebedev quadrature rule used to
-        generate `\phi` and `\theta`.
+    p : int or str
+        Integer precision (order) or string specifier for the Lebedev
+        rule used to generate \phi and \theta.
     m : int, optional
         Number of points in the circle quadrature rule used to generate
-        `\psi` (default: automatically chosen to match the number of
-        unique `\phi` in the Lebedev rule).
+        \psi (default: automatically chosen to match the number of
+        unique \phi in the Lebedev rule).
 
     Returns
     -------

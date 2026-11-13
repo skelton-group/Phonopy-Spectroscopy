@@ -12,149 +12,226 @@
 
 from argparse import ArgumentParser
 
+from .code_interfaces import get_supported_code_interfaces
+from .utility.parsing import parse_3x3_matrix
+
 # ------------
 # Parser setup
 # ------------
 
 
-def parser_init():
-    """_summary_"""
+def init_parser_for_setup():
+    """Initialise and return an `ArgumentParser` object to parse
+    command-line arguments, initialised with common setup options.
+
+    Returns
+    -------
+    parser : tuple
+        Tuple of `(parser, setup_group)` with the initialised
+        `ArgumentParser` and argument group with setup options.
+    """
 
     parser = ArgumentParser()
 
     parser.add_argument(
-        "--cell",
-        dest="cell_file",
-        type=str,
-        default="POSCAR",
-        help="Crystal structure (POSCAR or phonopy.yaml)",
+        "--setup",
+        dest="run_mode_setup",
+        action="store_true",
+        default=False,
+        help="perform calculation setup",
     )
 
-    parser.add_argument(
-        "--freqs-evecs",
+    setup_group = parser.add_argument_group("setup")
+
+    setup_group.add_argument(
+        "--cell-file",
+        dest="cell_file",
+        type=str,
+        default=None,
+        help="crystal structure (cell) file",
+    )
+
+    setup_group.add_argument(
+        "--freqs-evecs-file",
         dest="freqs_evecs_file",
         type=str,
         default=None,
-        help=(
-            "Frequencies and eigenvectors (mesh.yaml, mesh.hdf5, "
-            "band.yaml, or band.hdf5)"
-        ),
+        help="frequencies and eigenvectors file",
     )
 
-    parser.add_argument(
-        "--lw",
-        "--linewidth",
-        dest="linewidth",
-        type=float,
-        default=None,
-        help=(
-            "Uniform linewidth or scale factor for calculated "
-            "linewidths (default: 0.5 THz or 1.0)"
-        ),
-    )
-
-    parser.add_argument(
+    setup_group.add_argument(
         "--lws-file",
-        dest="linewidths_file",
+        dest="lws_file",
         type=str,
         default=None,
-        help="Linewidths (kappa-m*.hdf5 or kappa-m*-g*.hdf5)",
+        help="linewidths file (optional)",
     )
 
-    parser.add_argument(
+    setup_group.add_argument(
         "--lws-temp",
-        dest="linewidths_temp",
+        dest="lws_temp",
         type=float,
         default=300.0,
+        help="linewidths temperature (optional, default: 300 K)",
     )
 
-    parser.add_argument(
-        "--irreps",
+    setup_group.add_argument(
+        "--irreps-file",
         dest="irreps_file",
         type=str,
-        default="irreps.yaml",
-        help="Irreps (irreps.yaml)",
+        default=None,
+        help="irreps file (optional)",
     )
 
-
-def parser_update_ir(parser):
-    """_summary_
-
-    Parameters
-    ----------
-    parser : _type_
-        _description_
-    """
-
-    parser.add_argument(
-        "--born",
-        dest="born_file",
-        type=str,
-        default="BORN",
-        help="Born charges and high-frequency dielectric constant (BORN)",
-    )
-
-    parser.add_argument(
-        "--eps_hf",
-        dest="epsilon_inf",
+    setup_group.add_argument(
+        "--eps-born-file",
+        dest="eps_born_file",
         type=str,
         default=None,
-        help="High-frequency dielectric constant",
+        help="high-frequency dielectric constant/Born charges file",
     )
 
+    setup_group.add_argument(
+        "--pa",
+        "--primitive-axis",
+        dest="primitive_matrix",
+        type=str,
+        default=None,
+        help="transformation matrix from conventional to primitive cell",
+    )
 
-def parser_update_raman(parser):
-    """_summary_
+    setup_group.add_argument(
+        "--interface",
+        dest="code_interface",
+        type=str,
+        choices=get_supported_code_interfaces(),
+        default="vasp",
+        help="code interface to use",
+    )
+
+    return (parser, setup_group)
+
+
+def update_parser_for_ir(parser, setup_group):
+    """Update an initialised `ArgumentParser` object with additional
+    options for IR calculations.
 
     Parameters
     ----------
-    parser : _type_
-        _description_
+    parser : ArgumentParser
+        Argument parser initialised with setup argument group.
+    setup_group : _ArgumentGroup
+        Argument group containing setup arguments.
     """
 
-    pass
+    parser.add_argument(
+        "--props",
+        dest="run_mode_props",
+        action="store_true",
+        default=False,
+        help="Calculate dielectric properties",
+    )
 
 
-# ------------------
-# Default parameters
-# ------------------
+def update_parser_for_raman(parser, setup_group):
+    """Update an initialised `ArgumentParser` object with additional
+    options for Raman calculations.
+
+    Parameters
+    ----------
+    parser : ArgumentParser
+        Argument parser initialised with setup argument group.
+    setup_group : _ArgumentGroup
+        Argument group containing setup arguments.
+    """
+
+    parser.add_argument(
+        "-r",
+        "--read",
+        dest="run_mode_read",
+        action="store_true",
+        default=False,
+        help="Run in read mode",
+    )
+
+    parser.add_argument(
+        "input-files",
+        dest="input_files",
+        nargs="*",
+        help="Input files for creating Raman calculations.",
+    )
+
+    setup_group.add_argument(
+        "--calc-type",
+        dest="raman_calc_type",
+        type=str,
+        choices=["fd"],
+        default="fd",
+        help="Type of Raman calculation",
+    )
+
+    setup_group.add_argument(
+        "--fd-step",
+        dest="raman_fd_step",
+        type=float,
+        default="1.0e-2",
+        help="Step size for finite-difference calculations",
+    )
+
+    setup_group.add_argument(
+        "--fd-prec",
+        dest="raman_fd_prec",
+        type=int,
+        default=2,
+        help="Precision of finite-difference stencil in FD calculations",
+    )
+
+    parser.add_argument_group(
+        "--sort-files",
+        dsest="raman_sort_files",
+        action="store_true",
+        default=False,
+        help="Sort input files by name.",
+    )
+
 
 # ---------------
 # Post processing
 # ---------------
 
 
-def args_post_proc(args):
-    """_summary_
+def post_process_args(args):
+    """Post-process parsed command-line arguments.
 
     Parameters
     ----------
-    args : _type_
-        _description_
+    args : Namespace
+        Parsed command-line arguments.
+    """
+
+    if args.primitive_matrix is not None:
+        args.primitive_matrix = parse_3x3_matrix(args.primitive_matrix)
+
+
+def post_process_args_for_ir(args):
+    """Post-process parsed command-line arguments for IR workflow.
+
+    Parameters
+    ----------
+    args : Namespace
+        Parsed command-line arguments.
     """
 
     pass
 
 
-def args_post_proc_ir(args):
-    """_summary_
+def post_process_args_for_raman(args):
+    """Post-process parsed command-line arguments for Raman workflow.
 
     Parameters
     ----------
-    args : _type_
-        _description_
-    """
-
-    pass
-
-
-def args_post_proc_raman(args):
-    """_summary_
-
-    Parameters
-    ----------
-    args : _type_
-        _description_
+    args : Namespace
+        Parsed command-line arguments.
     """
 
     pass

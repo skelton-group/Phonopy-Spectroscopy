@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for unit handling."""
-
 
 # -------
 # Imports
 # -------
-
 
 import numpy as np
 
@@ -24,13 +20,9 @@ from .constants import (
     SPEED_OF_LIGHT,
 )
 
-from .utility.numpy_helper import np_expand_dims
-
-
 # --------------
 # Distance units
 # --------------
-
 
 _DISTANCE_UNIT_DATA = {
     "ang": {"from_ang": 1.0, "to_ang": 1.0},
@@ -39,6 +31,8 @@ _DISTANCE_UNIT_DATA = {
         "to_ang": BOHR_TO_ANG,
     },
 }
+"""Dictionary of supported distance units and conversion factors
+to/from the internal units of Ang."""
 
 
 def get_supported_distance_units():
@@ -71,12 +65,12 @@ def get_distance_unit_conversion_factor(unit_from, unit_to):
     unit_from = unit_from.lower()
 
     if unit_from not in _DISTANCE_UNIT_DATA:
-        raise ValueError('Unsupported unit_from="{0}".'.format(unit_from))
+        raise ValueError(f'Unsupported unit_from "{unit_from}".')
 
     unit_to = unit_to.lower()
 
     if unit_to not in _DISTANCE_UNIT_DATA:
-        raise ValueError('Unsupported unit_to="{0}".'.format(unit_to))
+        raise ValueError(f'Unsupported unit_to "{unit_to}".')
 
     # Determine conversion factor.
 
@@ -99,20 +93,16 @@ def convert_distance_units(vals, unit_from, unit_to):
     Returns
     -------
     conv_vals : array_like or float
-        Converted values (shame shape as `vals`).
+        Converted values (same shape as `vals`).
     """
 
-    vals, n_dim_add = np_expand_dims(np.asarray(vals), (None,))
-
-    vals = vals * get_distance_unit_conversion_factor(unit_from, unit_to)
-
-    return vals if n_dim_add == 0 else vals[0]
+    factor = get_distance_unit_conversion_factor(unit_from, unit_to)
+    return np.asanyarray(vals, dtype=np.float64) * factor
 
 
 # ---------------
 # Frequency units
 # ---------------
-
 
 _FREQUENCY_UNIT_DATA = {
     "thz": {
@@ -146,6 +136,8 @@ _FREQUENCY_UNIT_DATA = {
         "to_thz": 1.0 / (THZ_TO_EV * 1000.0),
     },
 }
+"""Dictionary of supported frequency units and conversion factors
+to/from the internal units of THz."""
 
 
 def get_supported_frequency_units():
@@ -180,7 +172,7 @@ def get_frequency_unit_text_label(unit):
         if k in _FREQUENCY_UNIT_DATA:
             return _FREQUENCY_UNIT_DATA[k]["text_label"]
 
-    raise ValueError('Unsupported unit="{0}".'.format(unit))
+    raise ValueError(f'Unsupported frequency unit "{unit}".')
 
 
 def get_frequency_unit_plot_label(unit):
@@ -204,7 +196,7 @@ def get_frequency_unit_plot_label(unit):
         if k in _FREQUENCY_UNIT_DATA:
             return _FREQUENCY_UNIT_DATA[k]["plot_label"]
 
-    raise ValueError('Unsupported unit="{0}".'.format(unit))
+    raise ValueError(f'Unsupported frequency unit "{unit}".')
 
 
 def get_frequency_unit_conversion_factor(unit_from, unit_to):
@@ -225,12 +217,12 @@ def get_frequency_unit_conversion_factor(unit_from, unit_to):
     unit_from = unit_from.lower()
 
     if unit_from not in _FREQUENCY_UNIT_DATA:
-        raise ValueError('Unsupported unit_from "{0}".'.format(unit_from))
+        raise ValueError(f'Unsupported unit_from "{unit_from}".')
 
     unit_to = unit_to.lower()
 
     if unit_to not in _FREQUENCY_UNIT_DATA:
-        raise ValueError('Unsupported unit_to "{0}".'.format(unit_to))
+        raise ValueError(f'Unsupported unit_to "{unit_to}".')
 
     # Determine conversion factor.
 
@@ -245,22 +237,19 @@ def convert_frequency_units(vals, unit_from, unit_to):
 
     Parameters
     ----------
-    vals : array_like or float
+    vals : array_like or scalar
         Value(s) to convert.
     unit_from, unit_to : str
         Units to convert from and to.
 
     Returns
     -------
-    conv_vals : array_like or float
-        Converted values (shame shape as `vals`).
+    conv_vals : numpy.ndarray
+        Converted values (same shape as `vals`).
     """
 
-    vals, n_dim_add = np_expand_dims(np.asarray(vals), (None,))
-
-    vals = vals * get_frequency_unit_conversion_factor(unit_from, unit_to)
-
-    return vals if n_dim_add == 0 else vals[0]
+    factor = get_frequency_unit_conversion_factor(unit_from, unit_to)
+    return factor * np.asanyarray(vals)
 
 
 # -------------------------
@@ -268,21 +257,38 @@ def convert_frequency_units(vals, unit_from, unit_to):
 # -------------------------
 
 
+def ev_to_nm(e):
+    """Convert energies in eV to wavelengths in nm.
+
+    Parameters
+    ----------
+    e : array_like or scalar
+        Energies in eV.
+
+    Returns
+    -------
+    w : numpy.ndarray
+        Wavelengths in nm (same shape as `e`).
+    """
+
+    return 1.0e9 * (PLANCK_CONSTANT_EV * SPEED_OF_LIGHT) / np.asanyarray(e)
+
+
 def nm_to_ev(w):
     """Convert wavelengths in nm to energies in eV.
 
     Parameters
     ----------
-    w : float or array_like
+    w : array_like or scalar
         Wavelengths in nm.
 
     Returns
     -------
-    e : float or array_like
+    e : numpy.ndarray
         Energy in eV (same shape as `w`).
     """
 
-    return (PLANCK_CONSTANT_EV * SPEED_OF_LIGHT) / (1.0e-9 * w)
+    return (PLANCK_CONSTANT_EV * SPEED_OF_LIGHT) / (1.0e-9 * np.asanyarray(w))
 
 
 def nm_to_thz(w):
@@ -290,13 +296,13 @@ def nm_to_thz(w):
 
     Parameters
     ----------
-    w : float or array_like
+    w : array_like or scalar
         Wavelengths in nm.
 
     Returns
     -------
-    e : float or array_like
+    e : numpy.ndarray
         Frequencies in THz (same shape as `w`).
     """
 
-    return 1.0e-12 * SPEED_OF_LIGHT / (1.0e-9 * w)
+    return 1.0e-12 * SPEED_OF_LIGHT / (1.0e-9 * np.asanyarray(w))

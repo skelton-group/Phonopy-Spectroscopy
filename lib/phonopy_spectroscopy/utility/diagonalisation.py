@@ -5,7 +5,7 @@
 # ---------
 
 """Routines for working with eigenvalues and eigenvectors from
-diagonalisin matrices."""
+diagonalising matrices."""
 
 # -------
 # Imports
@@ -15,7 +15,7 @@ import numpy as np
 
 from scipy.optimize import linear_sum_assignment
 
-from ..utility.numpy_helper import np_expand_dims
+from ..utility.numpy_helper import atleast_3d
 
 # ---------------
 # Branch tracking
@@ -46,29 +46,24 @@ def reorder_with_branch_tracking(evals, evecs):
     `evecs[i, :, j]`. (This corresponds to the memory layout obtained
     from the diagonalisation routines in `numpy.linalg`.)
 
-    Input with a single set of eivenvalues/eigenvectors is accepted but
-    redundant. In this case, the function returns the input data, with a
-    trailing initial dimension prepended if the shapes were `(D,)` and
-    `(D, D)`.
-
-    1D input is also considered redundant and the function will again
-    return the input data unchanged.
+    If a single set of eivenvalues/eigenvectors with shapes `(D,)` and
+    `(D, D)` is input the output has a trailing initial dimension
+    prepended.
     """
 
-    evals, _ = np_expand_dims(
-        np.asarray(evals, dtype=np.complex128), (None, None), expand_order=(0,)
-    )
+    evals = np.atleast_2d(np.asanyarray(evals, dtype=np.complex128))
+    evecs = atleast_3d(np.asanyarray(evecs, dtype=np.complex128))
 
-    d_1, d_2 = evals.shape
+    if evals.ndim != 2:
+        raise ValueError("evals must be an array_like with shape (O, D).")
 
-    evecs, _ = np_expand_dims(
-        np.asarray(evecs, dtype=np.complex128),
-        (d_1, d_2, d_2),
-        expand_order=(0,),
-    )
+    o, d = evals.shape
 
-    if d_1 == 1 or d_2 == 1:
-        # Nothing to do -> return input.
+    if evecs.shape != (o, d, d):
+        raise ValueError("evecs must be an array_like with shape (O, D, D).")
+
+    if d == 1:
+        # 1D -> nothing to do.
         return (evals, evecs)
 
     evals_new = np.zeros_like(evals, dtype=np.complex128)
@@ -77,7 +72,7 @@ def reorder_with_branch_tracking(evals, evecs):
     evals_new[0] = evals[0]
     evecs_new[0] = evecs[0]
 
-    for i in range(1, d_1):
+    for i in range(o):
         ev_old, ev_new = evecs_new[i - 1], evecs[i]
 
         # For the 2nd point, compare to the eigenvectors in the 1st
@@ -88,7 +83,7 @@ def reorder_with_branch_tracking(evals, evecs):
         ev_cmp = ev_old
 
         if i > 1:
-            ev_cmp = ev_cmp + (ev_cmp - evecs[i - 2])
+            ev_cmp = ev_cmp + (ev_cmp - evecs_new[i - 2])
 
         # Reorder the eigenvectors using linear-sum assignment based on
         # the modal assurance criterion (MAC).
@@ -96,12 +91,19 @@ def reorder_with_branch_tracking(evals, evecs):
         mac = np.abs(np.matmul(ev_new.T.conj(), ev_cmp)) ** 2
         _, col_inds = linear_sum_assignment(-1.0 * mac)
 
-        ev_new = ev_new[:, col_inds]
+        # col_inds map new eigenvectors to the closest-matching
+        # references. We need the indices that reorder the new
+        # eigenvectors to match the reference order, which can be
+        # obtained using argsort.
+
+        inv = np.argsort(col_inds)
+
+        ev_new = ev_new[:, inv]
 
         # The phase of the complex vectors is arbitrary -> realign
         # between points.
 
-        for j in range(d_2):
+        for j in range(d):
             dp = np.vdot(ev_old[:, j], ev_new[:, j])
             ev_new[:, j] *= np.exp(-1.0j * np.angle(dp))
 

@@ -5,7 +5,7 @@
 # ---------
 
 """Helper routines for outputting peak tables and spectra to plain-text
-files, for implementing the command-line interface."""
+files."""
 
 # -------
 # General

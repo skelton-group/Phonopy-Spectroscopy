@@ -14,57 +14,66 @@ import warnings
 
 import numpy as np
 
+from functools import lru_cache
+
 from .constants import ZERO_TOLERANCE
-
 from .units import convert_distance_units
-
-from .utility.numpy_helper import (
-    np_asarray_copy,
-    np_readonly_view,
-    np_check_shape,
-)
-
-from .utility.structure import (
-    cartesian_to_fractional_coordinates,
-    fractional_to_cartesian_coordinates,
-)
-
-_PHONOPY_AVAILABLE = False
-
-try:
-    from phonopy.structure.atoms import PhonopyAtoms, atom_data
-
-    _PHONOPY_AVAILABLE = True
-except ImportError:
-    warnings.warn(
-        "Imports from phonopy failed - some functions require phonopy "
-        "and will raise exceptions if it is not installed.",
-        RuntimeWarning,
-    )
-
-_SPGLIB_AVAILABLE = True
+from .utility.structure import fractional_to_cartesian_coordinates
 
 try:
     import spglib as spg
 except ImportError:
-    try:
-        from pyspglib import spglib as spg
-    except ImportError:
-        warnings.warn(
-            "Importing spglib failed - some functions require spglib "
-            "and will raise exceptions if it is not installed.",
-            RuntimeWarning,
-        )
+    from pyspglib import spglib as spg
 
-        _SPGLIB_AVAILABLE = False
+from phonopy.structure.atoms import PhonopyAtoms, atom_data
+
+# ---------
+# Constants
+# ---------
+
+_ATOMIC_MASSES = {
+    "Po": 209,
+    "At": 210,
+    "Rn": 222,
+    "Fr": 223,
+    "Ra": 226,
+    "Pu": 244,
+    "Am": 243,
+    "Cm": 247,
+    "Bk": 247,
+    "Cf": 251,
+    "Es": 252,
+    "Fm": 257,
+    "Md": 258,
+    "No": 259,
+    "Lr": 262,
+    "Rf": 267,
+    "Db": 268,
+    "Sg": 269,
+    "Bh": 270,
+    "Hs": 269,
+    "Mt": 278,
+    "Ds": 281,
+    "Rg": 280,
+    "Cn": 285,
+    "Uut": 286,  # Uut = Nh
+    "Uuq": 289,  # Uuq = Fl
+    "Uup": 289,  # Uup = Mc
+    "Uuh": 293,  # Uuh = Lv
+    "Uus": 294,  # Uus = Ts
+    "Uuo": 294,  # Uuo = Og
+}
+"""Atomic masses of selected elements that are present in the Phonopy
+internal database but have their mass set to `None`."""
 
 # ---------
 # Functions
 # ---------
 
 
+@lru_cache(maxsize=294)
 def lookup_atomic_mass(sym):
-    """Lookup an atomic mass from an atomic symbol.
+    """Look up an atomic mass from an atomic symbol.
 
     Parameters
     ----------
@@ -75,32 +84,23 @@ def lookup_atomic_mass(sym):
     -------
     m : float
         Atomic mass (amu).
-
-    Notes
-    -----
-    This function requires the `phonopy` package.
     """
 
-    if not _PHONOPY_AVAILABLE:
-        raise RuntimeError(
-            "lookup_atomic_mass() requires the "
-            "phonopy.atoms.atom_data attribute."
-        )
-
-    sym = str(sym).title()
+    sym_check = str(sym).title()
 
     for _, db_sym, _, db_mass in atom_data:
-        if sym == db_sym and db_mass is not None:
+        if sym_check == db_sym and db_mass is not None:
             return db_mass
 
-    raise ValueError(
-        'Atomic mass for sym="{0}" not available in '
-        "phonopy.atoms.atom_data.".format(sym)
-    )
+    if sym_check in _ATOMIC_MASSES:
+        return _ATOMIC_MASSES[sym_check]
+
+    raise ValueError(f'Atomic mass for sym="{sym}" is not available.')
 
 
+@lru_cache(maxsize=294)
 def lookup_atomic_number(sym):
-    """Lookup an atomic number from an atomic symbol.
+    """Look up an atomic number from an atomic symbol.
 
     Parameters
     ----------
@@ -111,26 +111,15 @@ def lookup_atomic_number(sym):
     -------
     at_num : int
         Atomic number.
-
-    Notes
-    -----
-    This function requires the `phonopy` package.
     """
 
-    if not _PHONOPY_AVAILABLE:
-        raise RuntimeError(
-            "lookup_atomic_number() requires the "
-            "phonopy.atoms.atom_data attribute."
-        )
+    sym_check = str(sym).title()
 
     for db_at_num, db_sym, _, _ in atom_data:
-        if sym == db_sym:
+        if sym_check == db_sym:
             return db_at_num
 
-    raise ValueError(
-        'Atomic number for sym="{0}" not available in '
-        "phonopy.atoms.atom_data.".format(sym)
-    )
+    raise ValueError(f'Atomic number for sym="{sym}" is not available.')
 
 
 # ---------------
@@ -146,7 +135,6 @@ class Structure:
         at_typ,
         at_m=None,
         conv_trans=None,
-        cart_to_frac=False,
     ):
         """Create a new instance of the `Structure` class.
 
@@ -155,7 +143,7 @@ class Structure:
         latt_vecs : array_like
             Lattice vectors (shape: `(3, 3)`).
         at_pos : array_like
-            Atomic positions (shape: `(N, 3)`).
+            Fractional atomic positions (shape: `(N, 3)`).
         at_typ : array_like
             Atom types (shape: `(N,)`).
         at_m : array_like, optional
@@ -163,58 +151,61 @@ class Structure:
         conv_trans : array_like, optional
             Specifies a transformation to the conventional unit cell
             (default: identity matrix).
-        cart_to_frac : bool, optional
-            If `True`, convert `at_pos` from Cartesian to fractional
-            coordinates (default: `False`).
         """
 
-        latt_vecs = np_asarray_copy(latt_vecs, dtype=np.float64)
+        latt_vecs = np.array(latt_vecs, dtype=np.float64, copy=True)
 
-        if not np_check_shape(latt_vecs, (3, 3)):
+        if latt_vecs.shape != (3, 3):
             raise ValueError(
                 "latt_vecs must be an array_like with shape (3, 3)."
             )
 
-        at_pos = np_asarray_copy(at_pos, dtype=np.float64)
-        at_typ = np.array([str(typ) for typ in at_typ], dtype=object)
+        at_pos = np.array(at_pos, dtype=np.float64, copy=True)
 
-        if len(at_pos) > 0 and not np_check_shape(at_pos, (None, 3)):
+        # Allow "empty" structures.
+
+        if at_pos.size == 0:
+            at_pos = at_pos.reshape((0, 3))
+
+        at_pos = np.atleast_2d(at_pos)
+
+        if at_pos.ndim != 2 or (len(at_pos) > 0 and at_pos.shape[1] != 3):
             raise ValueError("at_pos must be an array_like with shape (N, 3).")
 
-        n_a = len(at_pos)
+        at_typ = np.array(at_typ, dtype=str, copy=True)
 
-        if not np_check_shape(at_typ, (n_a,)):
+        if at_typ.size == 0:
+            at_typ = at_typ.reshape((0,))
+
+        at_typ = np.atleast_1d(at_typ)
+
+        if at_typ.ndim != 1 or len(at_typ) != len(at_pos):
             raise ValueError("at_typ must be an array_like with shape (N,).")
 
-        if at_m is None:
+        if at_m is not None:
+            at_m = np.array(at_m, dtype=np.float64, copy=True)
+
+            if at_m.size == 0:
+                at_m = at_m.reshape((0,))
+
+            at_m = np.atleast_1d(at_m)
+
+            if at_m.ndim != 1 or len(at_m) != len(at_pos):
+                raise ValueError("at_m must be an array_like with shape (N,).")
+        else:
             at_m = np.array(
                 [lookup_atomic_mass(sym) for sym in at_typ], dtype=np.float64
             )
 
-            if (at_m <= 0.0).any():
-                warnings.warn(
-                    "Atomic mass lookup returned m <= 0 for one or "
-                    "more atoms. The atomic masses likely need to be "
-                    "specified explicitly with the at_m keyword.",
-                    RuntimeWarning,
-                )
-        else:
-            at_m = np_asarray_copy(at_m, dtype=np.float64)
-
-            if not np_check_shape(at_m, (n_a,)):
-                raise ValueError(
-                    "If supplied, at_m must be an array_like with shape (N,)."
-                )
-
         if (at_m <= 0.0).any():
-            raise ValueError("Atomic masses must be larger than zero.")
+            raise ValueError("Atomic masses must be non-zero.")
 
         if conv_trans is not None:
-            conv_trans = np_asarray_copy(conv_trans, dtype=np.float64)
+            conv_trans = np.array(conv_trans, dtype=np.float64, copy=True)
 
-            if not np_check_shape(conv_trans, (3, 3)):
+            if conv_trans.shape != (3, 3):
                 raise ValueError(
-                    "If supplied, prim_trans must be an array_like "
+                    "If supplied, conv_trans must be an array_like "
                     "with shape (3, 3)."
                 )
 
@@ -223,32 +214,29 @@ class Structure:
             # the case if the matrix has not been specified with
             # sufficient precision.
 
-            abs_diff = np.abs(np.rint(conv_trans) - conv_trans)
+            max_abs_diff = np.abs(np.rint(conv_trans) - conv_trans).max()
 
-            if (abs_diff > ZERO_TOLERANCE).any():
+            if (max_abs_diff > ZERO_TOLERANCE).any():
                 warnings.warn(
                     "One or more elements in conv_trans deviates from "
-                    "integer values by up to {0:.3e}. This could "
-                    "indicate an invalid tranformation matrix or "
-                    "insufficient precision.".format(abs_diff.max()),
+                    f"integer values by up to {max_abs_diff:.3e}. This "
+                    "could indicate an invalid trandformation matrix "
+                    "or insufficient precision.",
                     UserWarning,
                 )
         else:
             conv_trans = np.identity(3, dtype=np.float64)
 
-        latt_vecs_conv = np.matmul(conv_trans.T, latt_vecs)
+        latt_vecs_conv = conv_trans @ latt_vecs
 
-        if n_a > 0:
-            if cart_to_frac:
-                at_pos = cartesian_to_fractional_coordinates(at_pos, latt_vecs)
-            else:
-                if (np.abs(at_pos) > 1.0).any():
-                    warnings.warn(
-                        "One or more of at_pos are outside the range "
-                        "[-1, 1] expected for fractional coordinates - "
-                        "use cart_to_frac=True to convert if needed.",
-                        UserWarning,
-                    )
+        latt_vecs.flags.writeable = False
+        latt_vecs_conv.flags.writeable = False
+
+        at_pos.flags.writeable = False
+        at_typ.flags.writeable = False
+        at_m.flags.writeable = False
+
+        conv_trans.flags.writeable = False
 
         self._v_latt = latt_vecs
         self._v_latt_conv = latt_vecs_conv
@@ -259,66 +247,52 @@ class Structure:
 
         self._conv_trans = conv_trans
 
+        self._volume = np.abs(np.linalg.det(latt_vecs))
+
+        self._centrosymmetric = None
+        self._all_wyckoff = None
+
     @property
     def lattice_vectors(self):
         """numpy.ndarray : Lattice vectors (shape: `(3, 3)`)."""
-        return np_readonly_view(self._v_latt)
-
-    @property
-    def primitive_lattice_vectors(self):
-        """numpy.ndarray : Lattive vectors of the primitive cell
-        (shape: `(3, 3)`, alias for `lattice_vectors`."""
-        return self.lattice_vectors
+        return self._v_latt
 
     @property
     def conventional_lattice_vectors(self):
-        """numpy.ndarray : Lattive vectors of the conventional cell
+        """numpy.ndarray : Lattice vectors of the conventional cell
         (shape: `(3, 3)`."""
-        return np_readonly_view(self._v_latt_conv)
+        return self._v_latt_conv
 
     @property
     def atom_positions(self):
         """numpy.ndarray : Atomic positions (shape: `(N, 3)`)."""
-        return np_readonly_view(self._at_pos)
+        return self._at_pos
 
     @property
     def atom_types(self):
         """numpy.ndarray : Atom types (shape: `(N,)`)."""
-        return np_readonly_view(self._at_typ)
+        return self._at_typ
 
     @property
     def atomic_masses(self):
         """numpy.ndarray : Atomic masses (shape: `(N,)`)."""
-        return np_readonly_view(self._at_m)
+        return self._at_m
 
     @property
     def conventional_transformation_matrix(self):
         """numpy.ndarray : Transformation matrix to convert the
-        structure to its conventional cell."""
-        return np_readonly_view(self._conv_trans)
+        structure to its conventional cell (shape: `(3, 3)`)."""
+        return self._conv_trans
 
     @property
     def num_atoms(self):
         """int : Number of atoms in the structure."""
-        return self._at_pos.shape[0]
+        return len(self._at_pos)
 
-    def volume(self, conv=False):
-        """Calculate the unit-cell volume.
-
-        Parameters
-        ----------
-        conv : bool, optional
-            If `True`, return the volume of the conventional unit cell
-            (default: `False`).
-
-        Returns
-        -------
-        v : float
-            Unit-cell volume.
-        """
-
-        v_latt = self._v_latt_conv if conv else self._v_latt
-        return np.abs(np.linalg.det(v_latt))
+    @property
+    def volume(self):
+        """float : Unit-cell volume."""
+        return self._volume
 
     def reciprocal_lattice_vectors(self, conv=False, two_pi=True):
         r"""Calculate and return the reciprocal lattice vectors.
@@ -336,13 +310,16 @@ class Structure:
         Returns
         -------
         recip_latt_vec : numpy.ndarray
-            Recipocal lattice vectors (shape: `(3, 3)`).
+            Reciprocal lattice vectors (shape: `(3, 3)`).
         """
 
         v_latt = self._v_latt_conv if conv else self._v_latt
         rec_v_latt = np.linalg.inv(v_latt).T
 
-        return (2.0 * np.pi * rec_v_latt) if two_pi else rec_v_latt
+        if two_pi:
+            rec_v_latt *= 2.0 * np.pi
+
+        return rec_v_latt
 
     def real_space_normal(self, hkl, conv=True):
         """Calculate the real-space normal to the surface with Miller
@@ -359,13 +336,13 @@ class Structure:
         Returns
         -------
         norm : numpy.ndarray
-            Real-space sufrace normal in Cartesian coordinates (shape:
+            Real-space surface normal in Cartesian coordinates (shape:
             `(3,)`).
         """
 
-        hkl = np.asarray(hkl)
+        hkl = np.asanyarray(hkl, dtype=int)
 
-        if not np_check_shape(hkl, (3,)):
+        if hkl.shape != (3,):
             raise ValueError("hkl must be an array_like with shape `(3,)`.")
 
         # Whether we use the "Physics" or "crystallography" definition
@@ -386,17 +363,12 @@ class Structure:
             Atomic numbers (shape: `(N,)`).
         """
 
-        # Avoid looking up the same symbol multiple times.
-
-        at_nums_lut = {
-            sym: lookup_atomic_number(sym) for sym in np.unique(self._at_typ)
-        }
-
-        return np.array([at_nums_lut[sym] for sym in self._at_typ], dtype=int)
+        return np.array(
+            [lookup_atomic_number(sym) for sym in self._at_typ], dtype=int
+        )
 
     def cartesian_positions(self):
-        """Return the atomic positions converted to Cartesian
-        coordinates.
+        """Return the atomic positions in Cartesian coordinates.
 
         Returns
         -------
@@ -407,41 +379,40 @@ class Structure:
         return fractional_to_cartesian_coordinates(self._at_pos, self._v_latt)
 
     def build_supercell(self, dim):
-        """Build and return a supercell of the structure.
+        """Build a supercell of the structure.
 
         Parameters
         ----------
-        dim : array_like of int
-            Supercell dimensions (shape: `(3,)`).
+        dim : array_like
+            Integer supercell expansion (shape: `(3,)`).
 
         Returns
         -------
         sc : Structure
-            Expanded supercell.
+            Supercell.
 
         Notes
         -----
         The supercell retains the original atom ordering - i.e. for a
         supercell expansion with `m = np.prod(dim)` times the original
         cell volume, atoms `0:m` are the replicas of atom `0` in the
-        original cell, atoms `m:2m` are replicas of atom `1`, etc.
+        original cell, atoms `m:2 * m` are replicas of atom `1`, etc.
         """
 
-        dim = np.asarray(dim, dtype=int)
+        dim = np.asanyarray(dim, dtype=int)
 
-        if not np_check_shape(dim, (3,)):
+        if dim.shape != (3,):
             raise ValueError("dim must be an array_like with shape (3,).")
 
         if (dim <= 0).any():
-            raise ValueError("Supercell dimensions must be >= 0.")
+            raise ValueError("Supercell dimensions must be non-zero.")
 
         sc_latt_vecs = dim[:, np.newaxis] * self._v_latt
 
         # Prepare a set of translations for building the supercell, then
         # generate and scale the translated atom positions.
 
-        d_1, d_2, d_3 = dim
-        grid = np.mgrid[0:d_1, 0:d_2, 0:d_3].T.reshape(-1, 3)
+        grid = np.indices(dim, dtype=int).reshape(3, -1).T
 
         sc_at_pos = self._at_pos[:, np.newaxis, :] + grid[np.newaxis, :, :]
         sc_at_pos /= dim[np.newaxis, np.newaxis, :]
@@ -456,7 +427,7 @@ class Structure:
             conv_trans=self._conv_trans,
         )
 
-    def check_centrosymmetry(self, symprec=1e-5):
+    def check_centrosymmetry(self, symprec=1.0e-5):
         """Determine whether the structure is in a centrosymmetric space
         group and all atoms occupy Wyckoff sites with inversion
         symmetry.
@@ -464,20 +435,15 @@ class Structure:
         Params
         ------
         symprec : float
-            Precision for symmetry analysis (default: 1e-5).
+            Precision for symmetry analysis (default: 1.0e-5).
 
         Returns
         -------
-        is_centrosymm : bool
-            `True` if the structure is in a centrosymmetric space group
-            and all atomic sites have inversion symmetry, otherwise
-            `False`.
+        centrosymm : tuple of bool
+            Tuple of `(is_centrosymm, all_on_wyckoff)` indicating
+            whether the structure is in a centrosymmetric spacegroup
+            and whether all the atoms are located on Wyckoff sites.
         """
-
-        if not _SPGLIB_AVAILABLE:
-            raise RuntimeError(
-                "Structure.check_centrosymmetry() requires spglib."
-            )
 
         # Perform symmetry analysis and get symmetry operations.
 
@@ -489,7 +455,7 @@ class Structure:
         op_rs = d.rotations
         op_ts = d.translations
 
-        # "Mask" inversion operations.
+        # Mask inversion operations.
 
         op_i = -1.0 * np.eye(3, 3)
 
@@ -499,52 +465,42 @@ class Structure:
 
         if not mask.any():
             # No "global" inversion symmetry.
-            return False
+            return (False, False)
 
         for r, t in zip(op_rs[mask], op_ts[mask]):
-            diff = (np.matmul(r, self._at_pos.T) + t) - self._at_pos
+            # (N, 3) @ (3, 3) -> (N, 3) - need to use r.T for right
+            # multiplication.
+
+            diff = ((self._at_pos @ r.T) + t) - self._at_pos
             diff = diff - np.round(diff)
 
             if np.isclose(diff, 0.0, atol=ZERO_TOLERANCE).all(axis=1).all():
                 # Inversion operation maps all positions to themselves
                 # -> all atoms on sites with inversion symmetry.
-                return True
 
-        return False
+                return (True, True)
+
+        return (True, False)
 
     def to_phonopy_atoms(self, distance_unit="ang"):
-        """Return the structure as a `PhonopyAtoms` instance.
+        """Return the structure as a `PhonopyAtoms` object.
 
         Params
         ------
         distance_unit : str, optional
             Specify the distance unit to be used in the returned
-            `PhonopyAtoms` object (default: "ang"").
+            `PhonopyAtoms` object (default: "ang").
 
         Returns
         -------
         atoms : PhonopyAtoms
-            `PhonopyAtoms` object containing the structure data.
-
-        Notes
-        -----
-        This function requires the `phonopy` package.
+            `PhonopyAtoms` object.
         """
-
-        if not _PHONOPY_AVAILABLE:
-            raise RuntimeError(
-                "Structure.to_phonopy_atoms() requires the "
-                "phonopy.structure.PhonopyAtoms class."
-            )
 
         v_latt = self._v_latt
 
         if distance_unit != "ang":
             v_latt = convert_distance_units(v_latt, "ang", distance_unit)
-
-        # The phonopy API uses the idiom "if x" to detect when a
-        # parameter x is set, which raises if x is a NumPy array with
-        # more than one element.
 
         return PhonopyAtoms(
             cell=v_latt.tolist(),
@@ -554,24 +510,23 @@ class Structure:
         )
 
     @staticmethod
-    def from_phonopy_atoms(atoms, distance_unit="ang", conv_trans=None):
-        """Create a new `Structure` instance from a `PhonopyAtoms`
-        object.
+    def from_phonopy_atoms(atoms, distance_unit="ang", **kwargs):
+        """Create a `Structure` from a `PhonopyAtoms` object.
 
         Params
         ------
         atoms : PhonopyAtoms
             `PhonopyAtoms` object.
         distance_unit : str, optional
-            Specify the distance unit used in `atoms` (default: "ang").
-        conv_trans : array_like, optional
-            Specify the optional `conv_trans` keyword to the `Structure`
-            class constructor (default: `None`).
+            Distance unit used in `atoms` (default: "ang").
+        kwargs : any, optional
+            Optional keyword arguments to the `Structure` class
+            constructor.
 
         Returns
         -------
         struct : Structure
-            `Structure` object constructed from the data in `atoms`.
+            `Structure` object.
         """
 
         v_latt = atoms.cell
@@ -584,8 +539,7 @@ class Structure:
             atoms.scaled_positions,
             atoms.symbols,
             atoms.masses,
-            conv_trans=conv_trans,
-            cart_to_frac=False,
+            **kwargs,
         )
 
     def to_dict(self):
@@ -629,5 +583,4 @@ class Structure:
             d["atom_types"],
             at_m=d["atomic_masses"],
             conv_trans=d["conventional_transformation_matrix"],
-            cart_to_frac=False,
         )

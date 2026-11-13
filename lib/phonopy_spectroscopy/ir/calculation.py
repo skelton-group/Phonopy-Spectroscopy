@@ -18,17 +18,14 @@ import numpy as np
 
 from .dielectric_function import InfraredDielectricFunction
 
-from .optical_eigenmodes import (
+from ..optics.response_function import DielectricFunction
+
+from ..optics.optical_eigenmodes import (
     OpticalEigenmodes,
+    SingleCrystalOpticalEigenmodes,
 )
 
-from ..constants import ZERO_TOLERANCE
-
-from ..gamma_phonons import (
-    mode_effective_charges,
-    mode_oscillator_strengths,
-    PolarGammaPhonons,
-)
+from ..gamma_phonons import gamma_phonons_from_dict, FullPolarGammaPhonons
 
 from ..utility.geometry import (
     parse_direction,
@@ -42,38 +39,59 @@ from ..utility.geometry import (
 
 
 class InfraredCalculation:
-    r"""Use a `PolarGammaPhonons` object to generate simulated infrared
-    (IR) spectra."""
+    r"""Use a `PolarGammaPhonons` or `FullPolarGammaPhonons` object to
+    generate simulated infrared (IR) spectra."""
 
     def __init__(self, ph_calc):
-        r"""Create a new instance of the `InfraredCalculation` class.
+        """Create a new instance of the `InfraredCalculation` class.
 
         Parameters
         ----------
-        gamma_ph : PolarGammaPhonons
-            Gamma-point phonon calculation including a high-frequency
-            dielectric constant \eps_inf and Born effective charges.
+        gamma_ph : PolarGammaPhonons or FullPolarGammaPhonons
+            Phonon calculation.
         """
 
+        default_nac = True
+
+        if not isinstance(ph_calc, FullPolarGammaPhonons):
+            warnings.warn(
+                "Non-analytical corrections (NAC) require the "
+                "calculator is initialised with a "
+                "FullPolarGammaPhonons object. NAC will be disabled "
+                "by default and nac=True will raise a RuntimeError.",
+                RuntimeWarning,
+            )
+
+            default_nac = False
+
         self._ph_calc = ph_calc
+        self._default_nac = default_nac
 
     @property
     def structure(self):
-        """Structure : Underlying `Structure` object."""
+        """Structure : Crystal structure."""
         return self._ph_calc.structure
 
     @property
     def phonon_calculation(self):
-        """PolarGammaPhonons : Underlying `PolarGammaPhonons` object."""
+        """PolarGammaPhonons or FullPolarGammaPhonons : Phonon
+        calculation."""
         return self._ph_calc
+
+    @property
+    def default_nac(self):
+        """bool : `True` if non-analytical corrections (NAC) will be
+        applied when `nac="auto"` is passed to the calculation routines,
+        otherwise `False`.
+        """
+        return self._default_nac
 
     def dielectric_function(
         self,
-        lw=None,
+        lw=0.5,
         hkl=None,
         rot=None,
-        nac=False,
-        active_only=True,
+        nac="auto",
         **kwargs,
     ):
         r"""Calculate the tensor infrared dielectric function.
@@ -82,8 +100,7 @@ class InfraredCalculation:
         ----------
         lw : float or None, optional
             Uniform linewidth (default: 0.5 THz, overridden by per-mode
-            linewidths from the underlying phonon calculation if
-            available).
+            calculated linewidths if set).
         hkl : array_like of int or None, optional
             Reorient crystal so the normal of the surface with the
             specified Miller index is oriented antiparallel to the
@@ -91,14 +108,10 @@ class InfraredCalculation:
         rot : array_like or None, optional
             Optional rotation to reorient the crystal - if `hkl` is also
             set, the rotation is applied after the `hkl` reorientation.
-        nac : bool, optional
+        nac : str or bool, optional
             Apply a non-analytical correction (NAC) to the phonon
-            frequencies and eigenvectors (default: `False`).
-        active_only : bool, optional
-            If `True`, and if the underlying Gamma-point phonon
-            calculation has irreps, calculate the dielectric function
-            using only the infrared-active optic modes (default:
-            `True`).
+            frequencies, oscillator strengths and calculated linewidths
+            (default: "auto", sets to `auto_nac`).
         **kwargs : any
             Keyword arguments to the `InfraredDielectricFunction`
             constructor.
@@ -121,338 +134,153 @@ class InfraredCalculation:
 
         # Determine rotation matrix.
 
-        if hkl is not None or rot is not None:
+        if rot is not None:
+            rot = np.asanyarray(rot)
+
+            if rot.shape != (3, 3):
+                raise ValueError(
+                    "rot must be an array_like with shape (3, 3)."
+                )
+
+        if hkl is not None:
+            hkl = np.asanyarray(hkl, dtype=int)
+
+            if hkl.ndim != 1 or len(hkl) != 3:
+                raise ValueError("hkl must specify three Miller indices.")
+
             r = rotation_matrix_from_vectors(
                 self._ph_calc.structure.real_space_normal(hkl, conv=True), "-z"
             )
 
-            rot = r if rot is None else np.matmul(rot, r)
+            rot = r if rot is None else rot @ r
+
+        if rot is None:
+            # Default to identity matrix.
+            rot = np.identity(3, dtype=np.float64)
+
+        # Default NAC.
+
+        if isinstance(nac, (str, np.str_)):
+            nac_str = str(nac).lower()
+
+            if nac_str == "auto":
+                nac = self._default_nac
+            else:
+                raise ValueError(f'Unknown string specifier nac="{nac}".')
+
+        ph_calc = self._ph_calc
 
         # If nac is set, generate a new phonon calculation with LO/TO
         # splitting.
 
-        ph_calc = self._ph_calc
-
         if nac:
+            if not isinstance(ph_calc, FullPolarGammaPhonons):
+                raise RuntimeError(
+                    "Non-analytical corrections (NAC) can only be "
+                    "performed if the calculation was initialised with "
+                    "a FullPolarGammaPhonons object."
+                )
+
             # If we are applying a rotation matrix, we need to convert
             # the incident direction to the crystal reference frame.
 
             q_nac = parse_direction("z")
 
             if rot is not None:
-                q_nac = np.matmul(rot.T, q_nac)
+                q_nac = rot.T @ q_nac
 
             ph_calc = ph_calc.gamma_phonons_with_nac(q_nac)
 
         # Band indices to include in calculation.
 
-        band_inds = np.arange(0, ph_calc.num_modes, dtype=int)
+        band_inds = ph_calc.ir_band_indices
 
-        if active_only:
-            # Exclude acoustic modes.
+        # Frequencies.
 
-            mask = np.isin(
-                band_inds, ph_calc.acoustic_mode_indices, invert=True
-            )
+        freqs = ph_calc.frequencies[band_inds]
 
-            if ph_calc.has_irreps:
-                active_inds = ph_calc.irreps.get_subset(
-                    "ir"
-                ).band_indices_flat()
+        # Oscillator strengths and \eps_inf.
 
-                mask = np.logical_and(mask, np.isin(band_inds, active_inds))
+        osc_strs = rotate_tensors(
+            ph_calc.mode_oscillator_strengths[band_inds], rot
+        )
 
-            band_inds = band_inds[mask]
-
-        # Oscillator strengths.
-
-        osc_strs = ph_calc.mode_oscillator_strengths[band_inds]
+        eps_inf = rotate_tensors(ph_calc.epsilon_inf, rot)
 
         # Linewidths.
 
-        if lw is not None:
-            if lw < ZERO_TOLERANCE:
-                raise ValueError("lw cannot be > 0.")
+        lws = None
+
+        if ph_calc.linewidths is not None:
+            lws = ph_calc.linewidths[band_inds]
         else:
-            lw = 0.5
+            if lw <= 0.0:
+                raise ValueError("lw must be > 0.")
 
-        lws = (
-            ph_calc.linewidths[band_inds]
-            if ph_calc.has_linewidths
-            else lw * np.ones((len(band_inds),), dtype=np.float64)
-        )
-
-        # \eps_inf.
-
-        eps_inf = self._ph_calc.epsilon_inf
+            lws = np.full((len(band_inds),), lw)
 
         # Irreps.
 
         irreps = None
 
-        if ph_calc.has_irreps:
-            irreps = ph_calc.irreps.get_subset(band_inds, reset_inds=True)
-
-        # Rotate oscillator strengths and \eps_inf if required.
-
-        if rot is not None:
-            osc_strs = rotate_tensors(osc_strs, rot)
-            eps_inf = rotate_tensors(eps_inf, rot)
+        if ph_calc.irreps is not None:
+            _, irreps = ph_calc.irreps.get_subset(band_inds)
 
         return InfraredDielectricFunction(
-            ph_calc.frequencies[band_inds],
+            freqs,
             osc_strs,
             lws,
-            ph_calc.structure.volume(),
+            ph_calc.structure.volume,
             eps_inf,
             irreps=irreps,
             **kwargs,
         )
 
-    def optical_eigenmodes(self, m_f=1.0, m_eps=1.0, m_rho=1.0, **kwargs):
-        """Compute and diagonalise the tensor dielectric function to
-        find the optical eigenmodes.
-
-        Parameters
-        ----------
-        m_f : float, optional
-            Volume fraction of material in a multiphase mixture
-            (default: 1.0).
-        m_eps : float or tuple of numpy.ndarray, optional
-            Dielectric constant or tuple of `(x, eps_x)` specifying the
-            frequency-dependent dielectric function of a second phase
-            (default: 1.0 = vacuum ~ air).
-        m_rho : float, optional
-            Material density (default: 1.0).
-
-        Returns
-        -------
-        oe : OpticalEigenmodes
-            Optical eigenmodes.
-
-        See Also
-        --------
-        dielectric_function :
-            Simulate the tensor infrared dielectric function.
-        ir.optical_eigenmodes.OpticalEigenmodes :
-            Object returned by this function.
-        """
-
-        return OpticalEigenmodes.from_infrared_dielectric_function(
-            self.dielectric_function(**kwargs),
-            branch_tracking=True,
-            m_f=m_f,
-            m_eps=m_eps,
-            m_rho=m_rho,
-        )
-
-    def single_crystal_optical_eigenmodes(
-        self,
-        hkl,
-        rot=None,
-        nac=False,
-        m_f=1.0,
-        m_eps=1.0,
-        m_rho=1.0,
-        **kwargs,
-    ):
-        """Compute and diagonalise the 2x2 block of the tensor
-        dielectric function accessible for an oriented single crystal or
-        polycrystalline powder in a standard collinear measurement
-        geometry, with the incident/detected light along +/- z, and find
-        the optical eigenmodes.
-
-        Params
-        ------
-        hkl : array_like of int
-            Crystal surface to orient antiparallel to the incident light
-            direction.
-        rot : array_like or None, optional
-            Optional rotation to reorient the crystal after the `hkl`
-            reorientation.
-        nac : bool, optional
-            Apply a non-analytical correction to the dynamical matrix
-            when constructing the infrared dielectric function (default:
-            `True`).
-        m_f : float, optional
-            Volume fraction of material in a multiphase mixture
-            (default: 1.0).
-        m_eps : float or tuple of numpy.ndarray, optional
-            Dielectric constant or tuple of `(x, eps_x)` specifying the
-            frequency-dependent dielectric function of a second phase
-            (default: 1.0 = vacuum ~ air).
-        m_rho : float, optional
-            Material density (default: 1.0).
-        **kwargs : any
-            Optional arguments to `dielectric_function`.
-
-        Returns
-        -------
-        oe : OpticalEigenmodes
-            Optical eigenmodes.
-
-        See Also
-        --------
-        dielectric_function :
-            Simulate the tensor infrared dielectric function.
-        ir.optical_eigenmodes.OpticalEigenmodes :
-            Object returned by this function.
-        """
-
-        eps_ir = self.dielectric_function(
-            hkl=hkl,
-            rot=rot,
-            nac=nac,
-            **kwargs,
-        )
-
-        return OpticalEigenmodes(
-            eps_ir.x,
-            eps_ir.epsilon[:, :2, :2],
-            x_units=eps_ir.x_units,
-            branch_tracking=True,
-            m_f=m_f,
-            m_eps=m_eps,
-            m_rho=m_rho,
-        )
-
-    def powder_optical_spectrum_ema(
-        self,
-        t=1.0,
-        n_f=1.0,
-        n_b=1.0,
-        m_f=1.0,
-        m_eps=1.0,
-        m_rho=1.0,
-        **kwargs,
-    ):
-        """Simulate the optical spectra of a powder by averaging the
-        polarisabilities of the eigenmodes of the infrared dielectric
-        function (effective-medium approximation).
-
-        Parameters
-        ----------
-        t : float, optional
-            Sample thickness in mm (default: 1 mm).
-        n_f, n_b : float, optional
-            Refractive indices of the front (indicent) and back (exit)
-            media (default: 1.0 = vacuum ~ air).
-        m_f : float, optional
-            Volume fraction of material in a multiphase mixture
-            (default: 1.0).
-        m_eps : float or tuple of numpy.ndarray, optional
-            Dielectric constant or tuple of `(x, eps_x)` specifying the
-            frequency-dependent dielectric function of a second phase
-            (default: 1.0 = vacuum ~ air).
-        m_rho : float, optional
-            Material density (default: 1.0).
-        **kwargs : any
-            Optional arguments to `dielectric_function`.
-
-        Returns
-        -------
-        sp : EigenmodeAverageOpticalSpectrum
-            Simulated spectrum.
-
-        See Also
-        --------
-        optical_eigenmodes :
-            Find the optical eigenmodes of the tensor dielectric
-            function.
-        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
-            Object returned by this function.
-        """
-
-        if "nac" in kwargs:
-            warnings.warn(
-                "Non-analytical corrections should not be specified "
-                "with nac for the effective-medium approximation.",
-                UserWarning,
-            )
-
-        eps_ir = self.dielectric_function(**kwargs)
-
-        # Average of the optical eigenmode eigenvalues.
-
-        oe_sp = OpticalEigenmodes(
-            eps_ir.x,
-            eps_ir.epsilon,
-            x_units=eps_ir.x_units,
-            branch_tracking=False,
-        )
-
-        oe_sp = OpticalEigenmodes(
-            oe_sp.x,
-            np.mean(oe_sp.eigenvalues, axis=-1),
-            oe_sp.x_units,
-            m_f=m_f,
-            m_eps=m_eps,
-            m_rho=m_rho,
-        )
-
-        return oe_sp.unpolarised_eigenmode_average_optical_spectrum(
-            t=t, n_f=n_f, n_b=n_b
-        )
-
-    def powder_optical_spectrum_eigenmode_average(
-        self,
-        t=1.0,
-        n_f=1.0,
-        n_b=1.0,
-        **kwargs,
-    ):
-        """Simulate the optical spectra of a powder by averaging the
-        properties of the eigenmodes of the infrared dielectric
+    def optical_eigenmodes(self, nac=False, **kwargs):
+        """Compute the optical eigenmodes of the bulk dielectric
         function.
 
         Parameters
         ----------
-        t : float, optional
-            Sample thickness in mm (default: 1 mm).
-        n_f, n_b : float, optional
-            Refractive indices of the front (indicent) and back (exit)
-            media (default: 1.0 = vacuum ~ air).
+        nac : bool
+            Apply a non-analytical correction when generating the
+            dielectric function (default: `False`).
         **kwargs : any
-            Optional arguments to `optical_eigenmodes`.
+            Other keyword arguments to `dielectric_function`.
 
         Returns
         -------
-        sp : EigenmodeAverageOpticalSpectrum
-            Simulated spectrum.
+        oe : OpticalEigenmodes
+            Optical eigenmodes.
+
+        Notes
+        -----
+        As this method is intended to generate the optical eigenmodes of
+        the bulk dielectric function, non-analytical corrections (NAC)
+        are disabled by default.
 
         See Also
         --------
-        optical_eigenmodes :
-            Find the optical eigenmodes of the tensor dielectric
-            function.
-        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
+        dielectric_function :
+            Simulate the tensor infrared dielectric function.
+        optics.optical_eigenmodes.OpticalEigenmodes :
             Object returned by this function.
         """
 
-        if "nac" in kwargs:
-            warnings.warn(
-                "Non-analytical corrections should not be specified "
-                "with nac because this function does not perform "
-                "explicit orientational averaging.",
-                UserWarning,
-            )
-
-        oe_sp = self.optical_eigenmodes(
-            **kwargs,
+        return OpticalEigenmodes(
+            self.dielectric_function(nac=nac, **kwargs), branch_tracking=True
         )
 
-        return oe_sp.unpolarised_eigenmode_average_optical_spectrum(
-            t=t, n_f=n_f, n_b=n_b
-        )
-
-    def single_crystal_eigenmode_projection(
+    def incoherent_single_crystal_on_axis_spectrum(
         self,
         hkl,
+        rot=None,
         i_pol=None,
         d_pol=None,
         t=1.0,
         n_f=1.0,
         n_b=1.0,
+        oe_branch_tracking=True,
         **kwargs,
     ):
         """Simulate the optical spectrum of a single crystal by
@@ -466,16 +294,23 @@ class InfraredCalculation:
         hkl : array_like of int
             Surface to orient antiparallel to the incident light
             direction.
-        i_pol, d_pol : Polarisation or None, optional
+        rot : array_like or None, optional
+            Optional rotation to reorient the crystal after the `hkl`
+            reorientation.
+        i_pol, d_pol : SPPolarisation or None, optional
             Polarisations of incident and detected light (default:
-            `None` = unpolarised incident/detected light).
+            unpolarised incident/detected light).
         t : float, optonal
             Thickness in mm (default: 1 mm).
         n_f, n_b : float, optional
             Refractive indices of the front (indicent) and back (exit)
             media (default: 1.0 = vacuum ~ air).
+        oe_branch_tracking : bool
+            Perform branch tracking in the intermediate
+            `SingleCrystalOpticalEigenmodes` object used to generate the
+            spectrum (default: `True`).
         **kwargs : any
-            Optional arguments to `single_crystal_optical_eigenmodes`.
+            Optional arguments to `dielectric_function`.
 
         Returns
         -------
@@ -484,17 +319,28 @@ class InfraredCalculation:
 
         See Also
         --------
-        single_crystal_optical_eigenmodes :
-            Find the optical eigenmodes of the 2x2 block of the tensor
-            dielectric function accessible in a standard collinear
-            geometry.
-        ir.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
+        optics.optical_eigenmodes.SingleCrystalOpticalEigenmodes :
+            Intermediate object used to generate the spectrum from the
+            dielectric function.
+        optics.optical_eigenmodes.EigenmodeAverageOpticalSpectrum :
             Object returned by this function.
         """
 
-        oe_sp = self.single_crystal_optical_eigenmodes(hkl, **kwargs)
+        eps_ir_bulk = self.dielectric_function(hkl=hkl, rot=rot, **kwargs)
 
-        return oe_sp.standard_polarised_eigenmode_average_optical_spectrum(
+        # Extract the upper 2x2 accessible block.
+
+        eps_ir_sc = DielectricFunction(
+            eps_ir_bulk.energy,
+            eps_ir_bulk.epsilon[:, :2, :2],
+            e_units=eps_ir_bulk.energy_units,
+        )
+
+        oes = SingleCrystalOpticalEigenmodes(
+            eps_ir_sc, branch_tracking=oe_branch_tracking
+        )
+
+        return oes.incoherent_on_axis_optical_spectrum(
             i_pol=i_pol, d_pol=d_pol, t=t, n_f=n_f, n_b=n_b
         )
 
@@ -529,5 +375,5 @@ class InfraredCalculation:
         """
 
         return InfraredCalculation(
-            PolarGammaPhonons.from_dict(d["phonon_calculation"])
+            gamma_phonons_from_dict(d["phonon_calculation"])
         )

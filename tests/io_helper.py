@@ -4,13 +4,7 @@
 # Docstring
 # ---------
 
-"""Toutines for input/output as part of unit tests."""
-
-# -------
-# Imports
-# -------
-
-import numpy as np
+"""Routines for input/output as part of unit tests."""
 
 # ---------
 # Functions

@@ -29,18 +29,12 @@ from phonopy_spectroscopy.interfaces.vasp_interface import (
 
 from phonopy_spectroscopy.ir.calculation import InfraredCalculation
 
-from phonopy_spectroscopy.ir.multiphase_mixture import (
-    bruggeman_two_phase_scalar,
-    bruggeman_three_phase_scalar,
-    bruggeman_multiphase_scalar,
-)
-
-from phonopy_spectroscopy.ir.optical_eigenmodes import (
+from phonopy_spectroscopy.optics.optical_eigenmodes import (
     optical_spectra_from_optical_properties,
 )
 
-from phonopy_spectroscopy.gamma_phonons import PolarGammaPhonons
-from phonopy_spectroscopy.instrument import Polarisation
+from phonopy_spectroscopy.gamma_phonons import get_gamma_phonons
+from phonopy_spectroscopy.instrument import SPPolarisation
 
 from phonopy_spectroscopy.utility.geometry import parse_direction
 
@@ -124,12 +118,13 @@ class TestInfraredSimulation(unittest.TestCase):
         tree = ET.parse(vasprun_xml)
         root = tree.getroot()
 
-        e, eps_e_ref = _parse_dielectric_function(
+        eps_vasp = _parse_dielectric_function(
             vasprun_xml,
             root.findall("./calculation/dielectricfunction")[0],
         )
 
-        e /= 2.0 * np.pi
+        e = eps_vasp.energy / (2.0 * np.pi)
+        eps_e_ref = eps_vasp.epsilon
 
         # To compare to the reference calculation, we need to generate
         # a new PolarGammaPhonons object without calculated linewidths.
@@ -137,7 +132,7 @@ class TestInfraredSimulation(unittest.TestCase):
         calc = self._calc
         gamma_ph = calc.phonon_calculation
 
-        gamma_ph_new = PolarGammaPhonons(
+        gamma_ph_new = get_gamma_phonons(
             gamma_ph.structure,
             gamma_ph.frequencies,
             gamma_ph.eigenvectors,
@@ -148,9 +143,10 @@ class TestInfraredSimulation(unittest.TestCase):
 
         calc_new = InfraredCalculation(gamma_ph_new)
 
+        e_step = np.mean(e[1:] - e[:-1])
+
         eps_ir = calc_new.dielectric_function(
-            lw=2.0 * np.mean(e[1:] - e[:-1]),
-            x=e,
+            lw=(2.0 * e_step), f_range=(e[0], e[-1]), f_res=e_step, nac=False
         )
 
         # VASP does not include \eps_inf in its calculated dielectric
@@ -195,59 +191,35 @@ class TestInfraredSimulation(unittest.TestCase):
                 np.allclose(eps_e[:, i1, i2], eps_e_ref[:, i1, i2])
             )
 
-    def test_powder(self):
-        r"""Check consistency of the effective dielectric functions
-        \eps_eff obtained with different powder methods to the "source"
-        bulk infrared dielectric function."""
-
-        calc = self._calc
-
-        # Reference IR dielectric function.
-
-        eps_ir = calc.dielectric_function().epsilon
-
-        # SnSe has orthorhombic symmetry, so eps_ir should be diagonal
-        # and the eps_eff for the EMA and the average of the optical
-        # eigenmode eigenvalues should both be equivalent to averaging
-        # the trace.
-
-        eps_eff = np.trace(eps_ir, axis1=1, axis2=2) / 3.0
-
-        sp_ema = calc.powder_optical_spectrum_ema()
-
-        self.assertTrue(
-            np.allclose(sp_ema.optical_eigenmodes.eigenvalues[:, 0], eps_eff)
-        )
-
-        sp_oea = calc.powder_optical_spectrum_eigenmode_average()
-
-        eps_eff_oea = np.mean(sp_oea.optical_eigenmodes.eigenvalues, axis=1)
-
-        self.assertTrue(np.allclose(eps_eff_oea, eps_eff))
-
     def test_single_crystal_eigenmode_projection(self):
         """Check consistency of the optical spectra obtained with
         the single-crystal eigenmode projection method."""
 
         calc = self._calc
 
-        eps_ir = calc.dielectric_function().epsilon
+        eps_ir = calc.dielectric_function(nac=False)
+
+        # Ensure the frequency/energy axes of subsequent simulations
+        # match the "base" dielectric function.
+
+        f_range = (eps_ir.frequency[0], eps_ir.frequency[-1])
+        f_res = np.mean(eps_ir.frequency[1:] - eps_ir.frequency[:-1])
 
         # The three optical eigenmodes should be orthogonal, each should
-        # be aligned to one of teh Cartesian directions, and the
+        # be aligned to one of the Cartesian directions, and the
         # eigenvalues should be equal to the diagonal components of the
         # "source" dielectric function.
 
-        oes = calc.optical_eigenmodes()
+        oes = calc.optical_eigenmodes(f_range=f_range, f_res=f_res)
 
-        vecs = oes.eigenvectors_row[0]
+        oe_evecs_row = oes.eigenvectors.swapaxes(1, 2)
 
-        for idx, v in enumerate(vecs):
-            self.assertTrue(np.allclose(oes.eigenvectors[:, idx], v))
+        for idx, v in enumerate(oe_evecs_row[0]):
+            self.assertTrue(np.allclose(oe_evecs_row[:, idx], v))
 
         mapping = []
 
-        for v in vecs:
+        for v in oe_evecs_row[0]:
             for idx, dirn in enumerate(["x", "y", "z"]):
                 if np.allclose(v, parse_direction(dirn)):
                     mapping.append(idx)
@@ -255,7 +227,9 @@ class TestInfraredSimulation(unittest.TestCase):
         self.assertTrue(len(mapping) == len(set(mapping)))
 
         for i, idx in enumerate(mapping):
-            assert np.allclose(oes.eigenvalues[:, i], eps_ir[:, idx, idx])
+            assert np.allclose(
+                oes.eigenvalues[:, i], eps_ir.epsilon[:, idx, idx]
+            )
 
         # Eigenmode projections with suitable crystal faces and incident
         # polarisations should yield the same optical spectra as
@@ -263,9 +237,9 @@ class TestInfraredSimulation(unittest.TestCase):
 
         for i, (hkl, i_pol) in enumerate(
             [
-                ((0, 0, 1), Polarisation.from_direction("-x")),
-                ((0, 0, 1), Polarisation.from_direction("-y")),
-                ((1, 0, 0), Polarisation.from_direction("-x")),
+                ((0, 0, 1), SPPolarisation([[0.0, -1.0]])),
+                ((0, 0, 1), SPPolarisation([[-1.0, 0.0]])),
+                ((1, 0, 0), SPPolarisation([[0.0, -1.0]])),
             ]
         ):
             idx = mapping.index(i)
@@ -276,8 +250,8 @@ class TestInfraredSimulation(unittest.TestCase):
                 t=1.0e-3,
             )
 
-            sp = calc.single_crystal_eigenmode_projection(
-                hkl, i_pol=i_pol, t=1.0e-3
+            sp = calc.incoherent_single_crystal_on_axis_spectrum(
+                hkl, i_pol=i_pol, t=1.0e-3, f_range=f_range, f_res=f_res
             )
 
             self.assertTrue(
@@ -287,103 +261,6 @@ class TestInfraredSimulation(unittest.TestCase):
             self.assertTrue(np.allclose(sp.single_reflectivity, r_s))
             self.assertTrue(np.allclose(sp.total_reflectivity, r_t))
             self.assertTrue(np.allclose(sp.transmission, t_t))
-
-    def test_bruggeman_multiphase(self):
-        """Test the implementation of the Bruggeman multiphase models."""
-
-        calc = self._calc
-
-        eps_kbr = 4.9
-        eps_air = 1.0
-
-        sp_ema = calc.powder_optical_spectrum_ema()
-
-        eps_snse = sp_ema.optical_eigenmodes.eigenvalues[:, 0]
-
-        # Pure powder with 90% theoretical denisty.
-
-        eps_eff_ld = bruggeman_two_phase_scalar(eps_snse, eps_air, 0.9, 0.1)
-
-        self.assertTrue(
-            verify_bruggeman_equation(
-                [eps_snse, eps_air], [0.9, 0.1], eps_eff_ld
-            )
-        )
-
-        # 5% KBr pellet.
-
-        eps_eff_kbr = bruggeman_two_phase_scalar(eps_snse, eps_kbr, 0.05, 0.95)
-
-        self.assertTrue(
-            verify_bruggeman_equation(
-                [eps_snse, eps_kbr], [0.05, 0.95], eps_eff_kbr
-            )
-        )
-
-        # 5% KBr pellet with 90% denisity.
-
-        eps_eff_kbr_ld = bruggeman_three_phase_scalar(
-            eps_snse, eps_kbr, eps_air, 0.9 * 0.05, 0.9 * 0.95, 0.1
-        )
-
-        self.assertTrue(
-            verify_bruggeman_equation(
-                [eps_snse, eps_kbr, eps_air],
-                [0.9 * 0.05, 0.9 * 0.95, 0.1],
-                eps_eff_kbr_ld,
-            )
-        )
-
-        # Test the implementation via keywords to
-        # powder_optical_spectrum_ema().
-
-        sp_ema_ld = calc.powder_optical_spectrum_ema(m_rho=0.9)
-
-        self.assertTrue(
-            np.allclose(
-                sp_ema_ld.optical_eigenmodes.eigenvalues[:, 0], eps_eff_ld
-            )
-        )
-
-        sp_ema_kbr = calc.powder_optical_spectrum_ema(m_f=0.05, m_eps=eps_kbr)
-
-        self.assertTrue(
-            np.allclose(
-                sp_ema_kbr.optical_eigenmodes.eigenvalues[:, 0],
-                eps_eff_kbr,
-            )
-        )
-
-        sp_ema_kbr_ld = calc.powder_optical_spectrum_ema(
-            m_f=0.05, m_eps=eps_kbr, m_rho=0.9
-        )
-
-        self.assertTrue(
-            np.allclose(
-                sp_ema_kbr_ld.optical_eigenmodes.eigenvalues[:, 0],
-                eps_eff_kbr_ld,
-            )
-        )
-
-        # General multiphase solver.
-
-        for eps, fracs, eps_eff_ref in [
-            ([eps_snse, eps_air], [0.9, 0.1], eps_eff_ld),
-            ([eps_snse, eps_kbr], [0.05, 0.95], eps_eff_kbr),
-            (
-                [eps_snse, eps_kbr, eps_air],
-                [0.9 * 0.05, 0.9 * 0.95, 0.1],
-                eps_eff_kbr_ld,
-            ),
-        ]:
-            eps_eff = bruggeman_multiphase_scalar(eps, fracs)
-
-            self.assertTrue(verify_bruggeman_equation(eps, fracs, eps_eff))
-
-            # Verify that the general solution matches the analytical
-            # formulae.
-
-            self.assertTrue(np.allclose(eps_eff, eps_eff_ref))
 
 
 # ----

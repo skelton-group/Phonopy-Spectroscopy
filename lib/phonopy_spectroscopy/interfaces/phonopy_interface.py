@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-
 # ---------
 # Docstring
 # ---------
 
-
 """Routines for interfacing with the Phono(3)py code."""
-
 
 # -------
 # Imports
 # -------
-
 
 import os
 import warnings
@@ -20,6 +16,14 @@ import warnings
 import h5py
 
 import numpy as np
+
+from ..constants import ZERO_TOLERANCE
+from ..irreps import Irreps
+from ..gamma_phonons import get_gamma_phonons
+from ..structure import Structure
+from ..utility.io_helper import load_yaml
+
+from .vasp_interface import structure_from_poscar
 
 _PHONOPY_AVAILABLE = False
 
@@ -34,20 +38,9 @@ except ImportError:
         RuntimeWarning,
     )
 
-
-from ..constants import ZERO_TOLERANCE
-from ..irreps import Irreps
-from ..gamma_phonons import GammaPhonons, PolarGammaPhonons
-from ..structure import Structure
-from ..utility.io_helper import load_yaml
-
-from .vasp_interface import structure_from_poscar
-
-
 # -----------------------
 # Code interface handling
 # -----------------------
-
 
 _INTERFACE_UNITS = {
     "abacus": {"distance": "bohr"},
@@ -91,7 +84,7 @@ def get_distance_unit_for_interface(calculator):
     if k in _INTERFACE_UNITS:
         return _INTERFACE_UNITS[k]["distance"]
 
-    raise ValueError('Unknown interface "{0}".'.format(calculator))
+    raise ValueError(f'Unknown interface "{calculator}".')
 
 
 # -------------------
@@ -100,23 +93,23 @@ def get_distance_unit_for_interface(calculator):
 
 
 def gamma_phonons_from_phono3py(
-    cell_file,
+    struct,
     freqs_evecs_file,
     lws_file=None,
     lws_t=300.0,
     irreps_file=None,
     born_file=None,
-    at_m=None,
-    conv_trans=None,
-    discard_imag=True,
+    allow_imag_evecs=False,
+    **kwargs,
 ):
     r"""Read a complete Phono(3)py calculation and return a
     `GammaPhonons` or `PolarGammaPhonons` object.
 
     Parameters
     ----------
-    cell_file : str
-        VASP POSCAR or phonopy.yaml file to read structure from.
+    struct : Structure or str
+        `Structure` object or path to a POSCCAR or phonopy.yaml file to
+        read a structure from.
     freqs_evecs_file : str
         mesh.yaml, band.yaml, mesh.hdf5 or band.hdf5 file to read phonon
         frequencies/eigenvectors from.
@@ -130,36 +123,36 @@ def gamma_phonons_from_phono3py(
     born_file : str, optional
         BORN file to read high-frequency dielectric constant \eps_inf
         and Born effective charges from (default: `None`).
-    at_m : array_like, optional
-        Atomic masses (optional, default: `None`; overridden if
-        `cell_file` is a phonopy.yaml file).
-    conv_trans : array_like, optional
-        Transformation matrix to convert the structure to its
-        conventional cell (shape: `(3, 3)`, default: `None`).
-    discard_imag : bool, optional
-        Discard the imaginary part of complex eigenvectors (default:
-        `True`).
+    allow_imag_evecs : bool, optional
+        If `True`, allow imaginary eigenvectors (default: `False`).
+    **kwargs : any, optional
+        Keyword arguments for reading structure (ignored if `struct` is
+        a `Structure` object).
 
     Returns
     -------
     gamma_ph : `GammaPhonons`
         `GammaPhonons` object containing the calculation data.
+
+    Notes
+    -----
+    The phonon eigenvectors at q = \Gamma should be real. If this is not
+    the case (to within a tight numerical tolerance), a `RuntimeError`
+    is raised. Setting `allow_imag_evecs` downgrades this to a
+    `RuntimeWarning`.
     """
 
-    # Read a structure. If cell_file has a .yaml extension, assume it
-    # is a phonopy.yaml file; otherwise, assume it is a VASP POSCAR
-    # file.
+    # If struct is not a Structure object, assume it is a file path. If
+    # if has a .yaml extension, assume it is a phonopy.yaml file;
+    # otherwise, assume it is a VASP POSCAR file.
 
-    struct = None
+    if not isinstance(struct, Structure):
+        _, ext = os.path.splitext(struct)
 
-    _, ext = os.path.splitext(cell_file)
-
-    if ext.lower() == ".yaml":
-        struct = structure_from_phonopy_yaml(cell_file, conv_trans=conv_trans)
-    else:
-        struct = structure_from_poscar(
-            cell_file, at_m=at_m, conv_trans=conv_trans
-        )
+        if ext.lower() == ".yaml":
+            struct = structure_from_phonopy_yaml(struct, **kwargs)
+        else:
+            struct = structure_from_poscar(struct, **kwargs)
 
     # Read a set of frequencies/eigenvectors. If freqs_evecs_file has a
     # .yaml extension, assume it is a mesh.yaml/band.yaml file. If the
@@ -181,32 +174,35 @@ def gamma_phonons_from_phono3py(
         )
     else:
         raise RuntimeError(
-            "Frequencies/eigenvectors file {0}: unknown format.".format(
-                freqs_evecs_file
-            )
+            f"Frequencies/eigenvectors file {freqs_evecs_file}: "
+            "unknown format."
         )
 
-    if discard_imag:
-        if np.iscomplex(evecs).any():
-            # Gamma-point eigenvectors should be real unless a
-            # non-analytical correction is applied to the dynamical
-            # matrix. If this is the case, it will conflict with the
-            # internal NAC implementation and is very likely a user
-            # error.
+    # The functions for reading eigenvectors from YAML/HDF5 files both
+    # strip small imaginary parts -> a complex dtype indicates
+    # non-negligible imaginary parts.
 
-            max_abs_imag = np.abs(evecs.imag).max()
+    if np.iscomplexobj(evecs):
+        # Gamma-point eigenvectors should be real unless a
+        # non-analytical correction is applied to the dynamical
+        # matrix. If this is the case, it will conflict with the
+        # internal NAC implementation and is very likely a user
+        # error.
 
-            if max_abs_imag > ZERO_TOLERANCE:
-                raise RuntimeError(
-                    "Discarding imaginary parts of eigenvectors "
-                    "with maximum absolute value {0:.3e} > "
-                    "ZERO_TOLERANCE = {1:.3e}. This may indicate "
-                    "a calculation performed with a non-analytical "
-                    "correction to the dynamical matrix."
-                    "".format(max_abs_imag, ZERO_TOLERANCE)
-                )
+        max_abs_imag = np.abs(evecs.imag).max()
 
-        evecs = evecs.real
+        msg = (
+            "Discarding imaginary parts of eigenvectors "
+            f"with maximum absolute value {max_abs_imag:.3e} > "
+            f"ZERO_TOLERANCE = {ZERO_TOLERANCE:.3e}. This may "
+            "indicate a calculation performed with a "
+            "non-analytical correction to the dynamical matrix."
+        )
+
+        if allow_imag_evecs:
+            warnings.warn(msg, RuntimeWarning)
+        else:
+            raise RuntimeError(msg)
 
     # If a lws_file is specified, read linewidths; otherwise, set a
     # uniform linewidth of lw.
@@ -225,27 +221,26 @@ def gamma_phonons_from_phono3py(
 
     t = lws_t if lws is not None else None
 
+    eps_inf, born_charges = None, None
+
     if born_file is not None:
-        # Read BORN file and return a PolarGammaPhonons object.
+        # If born_file is specified, read high-frequency dielectric
+        # constant and Born charges.
 
-        eps_inf, born_charges = hf_dielectric_and_born_from_born(
-            born_file, struct
-        )
+        eps_inf, born_charges = eps_inf_and_born_from_born(born_file, struct)
 
-        return PolarGammaPhonons(
-            struct,
-            freqs,
-            evecs,
-            eps_inf,
-            born_charges,
-            lws=lws,
-            irreps=irreps,
-            t=t,
-        )
+    # Automatically return "best" GammaPhonons object depending on data.
 
-    # Return a GammaPhonons object.
-
-    return GammaPhonons(struct, freqs, evecs, lws=lws, irreps=irreps, t=t)
+    return get_gamma_phonons(
+        struct,
+        freqs,
+        evecs,
+        eps_inf=eps_inf,
+        born_charges=born_charges,
+        lws=lws,
+        irreps=irreps,
+        t=t,
+    )
 
 
 # ----------
@@ -285,7 +280,7 @@ def structure_from_phonopy_yaml(file_path, conv_trans=None):
 
 
 def gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(file_path):
-    r"""Read Gamma-point phonon frequencies and eigenvectors
+    """Read Gamma-point phonon frequencies and eigenvectors
     from a mesh.yaml or band.yaml file.
 
     Parameters
@@ -310,8 +305,8 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(file_path):
 
             if "eigenvector" not in qpt["band"][0]:
                 raise RuntimeError(
-                    "mesh.yaml/band.yaml file {0}: Eigenvectors not found."
-                    "".format(file_path)
+                    f"mesh.yaml/band.yaml file {file_path}: "
+                    "Eigenvectors not found."
                 )
 
             freqs = np.array(
@@ -325,14 +320,13 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_yaml(file_path):
             evecs = evecs[:, :, :, 0] + 1.0j * evecs[:, :, :, 1]
             evecs = evecs.reshape(-1, len(freqs) // 3, 3)
 
-            if not np.iscomplex(evecs).any():
-                evecs = evecs.real
+            evecs = np.real_if_close(evecs, tol=ZERO_TOLERANCE)
 
             return (freqs, evecs)
 
     raise RuntimeError(
-        "mesh.yaml/band.yaml file {0}: Gamma-point "
-        "frequencies/eigenvectors not found.".format(file_path)
+        f"mesh.yaml/band.yaml file {file_path}: Gamma-point "
+        "frequencies/eigenvectors not found."
     )
 
 
@@ -355,18 +349,22 @@ def irreps_from_irreps_yaml(file_path):
 
     if not np.allclose(data["q-position"], 0.0, atol=ZERO_TOLERANCE):
         raise RuntimeError(
-            "irreps.yaml file {0}: Irreps are for a non-Gamma q."
-            "".format(file_path)
+            f"irreps.yaml file {file_path}: Irreps are for a non-Gamma q."
         )
 
-    return Irreps(
-        str(data["point_group"]),
-        [mode["ir_label"] for mode in data["normal_modes"]],
-        [
-            [idx - 1 for idx in mode["band_indices"]]
-            for mode in data["normal_modes"]
-        ],
+    num_bands = sum(len(mode["band_indices"]) for mode in data["normal_modes"])
+
+    ir_syms = np.array(
+        [mode["ir_label"] for mode in data["normal_modes"]], dtype=np.str_
     )
+
+    ir_band_inds = np.zeros((num_bands,), dtype=int)
+
+    for i, mode in enumerate(data["normal_modes"]):
+        for j in mode["band_indices"]:
+            ir_band_inds[j - 1] = i
+
+    return Irreps(data["point_group"], ir_syms, ir_band_inds)
 
 
 # ----------
@@ -393,8 +391,8 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(file_path):
     with h5py.File(file_path, "r") as f:
         if "eigenvector" not in f:
             raise RuntimeError(
-                "mesh.hdf5/band.hdf5 file {0}: Eigenvectors not found."
-                "".format(file_path)
+                f"mesh.hdf5/band.hdf5 file {file_path}: Eigenvectors "
+                "not found."
             )
 
         # mesh.hdf5 and band.hdf5 files have slightly different layouts.
@@ -419,8 +417,8 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(file_path):
             evecs = f["eigenvector"][:].reshape((n_seg * n_qpts, n_bnd, n_bnd))
         else:
             raise RuntimeError(
-                "mesh.hdf5/band.hdf5 file {0}: Unknown data format."
-                "".format(file_path)
+                f"mesh.hdf5/band.hdf5 file {file_path}: Unknown data "
+                "format."
             )
 
         for idx, q_pos in enumerate(q_pts):
@@ -428,14 +426,13 @@ def gamma_freqs_evecs_from_mesh_qpoints_or_band_hdf5(file_path):
                 freqs = freqs[idx]
                 evecs = evecs[idx].T.reshape(-1, len(freqs) // 3, 3)
 
-                if not np.iscomplex(evecs).any():
-                    evecs = evecs.real
+                evecs = np.real_if_close(evecs, tol=ZERO_TOLERANCE)
 
                 return (freqs, evecs)
 
     raise RuntimeError(
-        "mesh.hdf5/band.hdf5 file {0}: Gamma-point "
-        "frequencies/eigenvectors not found.".format(file_path)
+        f"mesh.hdf5/band.hdf5 file {file_path}: Gamma-point "
+        "frequencies/eigenvectors not found."
     )
 
 
@@ -455,15 +452,15 @@ def gamma_linewidths_from_kappa_hdf5(file_path, t=300.0):
     """
 
     with h5py.File(file_path, "r") as f:
-        cond = f["temperature"][:] == t
+        cond = np.isclose(f["temperature"][:], t, atol=ZERO_TOLERANCE)
 
         if cond.sum() != 1:
             raise RuntimeError(
-                "kappa-m*.hdf5 file {0}: Requested t = {1:.2f} not "
-                "found.".format(file_path, t)
+                f"kappa-m*.hdf5 file {file_path}: Requested t = "
+                f"{t:.2f} not found."
             )
 
-        ((t_idx,),) = np.where(cond)
+        (t_idx,) = np.flatnonzero(cond)
 
         lws = None
 
@@ -484,8 +481,8 @@ def gamma_linewidths_from_kappa_hdf5(file_path, t=300.0):
             return 2.0 * lws
 
         raise RuntimeError(
-            "kappa-m*.hdf5 file {0}: Gamma-point linewidths not found."
-            "".format(file_path)
+            f"kappa-m*.hdf5 file {file_path}: Gamma-point linewidths "
+            "not found."
         )
 
 
@@ -494,7 +491,7 @@ def gamma_linewidths_from_kappa_hdf5(file_path, t=300.0):
 # ---------
 
 
-def hf_dielectric_and_born_from_born(file_path, struct):
+def eps_inf_and_born_from_born(file_path, struct):
     """Read the high-frequency dielectric constant and Born effective
     charges from a Phonopy BORN file and expand the charges for the
     supplied structure.
@@ -516,13 +513,13 @@ def hf_dielectric_and_born_from_born(file_path, struct):
 
     if not _PHONOPY_AVAILABLE:
         raise RuntimeError(
-            "read_hf_dielectric_and_born_from_born() requires the "
+            "eps_inf_and_born_from_born() requires the "
             "phonopy.file.IO.parse_born function."
         )
 
     born_data = parse_BORN(struct.to_phonopy_atoms(), filename=file_path)
 
     return (
-        np.asarray(born_data["dielectric"], dtype=np.float64),
-        np.asarray(born_data["born"], dtype=np.float64),
+        np.asanyarray(born_data["dielectric"]),
+        np.asanyarray(born_data["born"]),
     )

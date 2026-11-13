@@ -10,30 +10,7 @@
 # Imports
 # -------
 
-import warnings
-
 import numpy as np
-
-from ..utility.numpy_helper import np_check_shape, np_expand_dims
-
-# ---------------
-# Helper routines
-# ---------------
-
-
-def _in_place_centred_modulo(a):
-    """Apply an in-place "centred modulo" to fractional coordinates in a
-    `numpy.ndarray` object `a`."""
-
-    if not isinstance(a, np.ndarray):
-        raise TypeError(
-            "a must be a numpy.ndarray (this is most likely a bug)."
-        )
-
-    a -= np.round(a)
-
-    return a
-
 
 # ---------------------
 # Coordinate conversion
@@ -47,9 +24,9 @@ def cartesian_to_fractional_coordinates(cart_pos, latt_vecs):
     ----------
     cart_pos : array_like
         Atom position or set of positions in Cartesian coordinates
-        (shape: `(3,)` or `(N, 3)`).
+        (shape: `(..., 3)`).
     latt_vecs : array_like
-        Lattice vectors (shape: `(3, 3)`).
+        Lattice vectors (row-major, shape: `(3, 3)`).
 
     Returns
     -------
@@ -58,17 +35,17 @@ def cartesian_to_fractional_coordinates(cart_pos, latt_vecs):
         `cart_pos`).
     """
 
-    cart_pos, n_dim_add = np_expand_dims(np.asarray(cart_pos), (None, 3))
+    cart_pos = np.atleast_1d(np.asanyarray(cart_pos))
 
-    latt_vecs = np.asarray(latt_vecs)
+    if cart_pos.shape[-1] != 3:
+        raise ValueError("cart_pos must be an array_like with shape (..., 3).")
 
-    if not np_check_shape(latt_vecs, (3, 3)):
+    latt_vecs = np.asanyarray(latt_vecs)
+
+    if latt_vecs.shape != (3, 3):
         raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
 
-    frac_pos = np.matmul(cart_pos, np.linalg.inv(latt_vecs))
-    frac_pos %= 1.0
-
-    return frac_pos if n_dim_add == 0 else frac_pos[0]
+    return (cart_pos @ np.linalg.inv(latt_vecs)) % 1.0
 
 
 def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
@@ -78,9 +55,9 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
     ----------
     frac_pos : array_like
         Atom position or set of positions in fractional coordinates
-        (shape: `(3,)` or `(N, 3)`).
+        (shape: `(..., 3)`).
     latt_vecs : array_like
-        Lattice vectors (shape: `(3, 3)`).
+        Lattice vectors (row-major, shape: `(3, 3)`).
 
     Returns
     -------
@@ -89,16 +66,17 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
         `frac_pos`).
     """
 
-    frac_pos, n_dim_add = np_expand_dims(np.asarray(frac_pos), (None, 3))
+    frac_pos = np.atleast_1d(np.asanyarray(frac_pos))
 
-    latt_vecs = np.asarray(latt_vecs)
+    if frac_pos.shape[-1] != 3:
+        raise ValueError("frac_pos must be an array_like with shape (..., 3).")
 
-    if not np_check_shape(latt_vecs, (3, 3)):
+    latt_vecs = np.asanyarray(latt_vecs)
+
+    if latt_vecs.shape != (3, 3):
         raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
 
-    cart_pos = np.matmul(frac_pos, latt_vecs)
-
-    return cart_pos if n_dim_add == 0 else cart_pos[0]
+    return frac_pos @ latt_vecs
 
 
 # --------------------
@@ -106,14 +84,16 @@ def fractional_to_cartesian_coordinates(frac_pos, latt_vecs):
 # --------------------
 
 
-def calculate_distances_frac(pos, latt_vecs, other_pos=None, ret_vecs=False):
+def calculate_distances_from_fractional_positions(
+    pos, latt_vecs, other_pos=None, ret_vecs=False
+):
     """Calculate distances between sets of positions in fractional
     coordinates.
 
     Parameters
     ----------
     pos : array_like
-        Positions (shape: `(3,)` or `(N, 3)`).
+        Positions (shape: `(N, 3)`).
     latt_vecs : array_like
         Lattice vectors for converting positions to Cartesian
         coordinates (shape: `(3, 3)`).
@@ -126,60 +106,46 @@ def calculate_distances_frac(pos, latt_vecs, other_pos=None, ret_vecs=False):
     Returns
     -------
     dists_or_vecs : numpy.ndarray
-        Distances (shape: `(N, N)` or `(N, M)`) or vectors (shape:
-        `(N, N, 3)` or `(N, M, 3)`).
+        Distances (shape: `(N, M)`) or vectors (shape: `(N, M, 3)`).
 
     Notes
     -----
-    This function can be used in several ways:
+    The default `other_pos=None` calculates the distance between each
+    pair of positions in `pos` and the return array has shape `(N, N)`.
 
-    With the default `other_pos=None`, the distances are calculated
-    between each pair of positions in `pos`, and the returned distances
-    array has shape `(N, N)`.
+    If `other_pos` is specified, the distances between each pair of
+    positions in `pos` and `other_pos` (shape: `(N, M)`).
 
-    `other_pos` can instead be used to specify a second set of
-    positions. In this case, the calculation is performed between each
-    pair of positions in `pos` and `other_pos`, and the returned
-    distances array has shape `(N, M)`.
-
-    In either usage, setting `ret_vecs=True` returns the vectors instead
-    of distances between positions (shapes: `(N, N, 3)` or `(N, M, 3)`).
+    In either case, setting `ret_vecs=True` returns the vectors instead
+    of distances (shapes: `(N, N, 3)` or `(N, M, 3)`).
     """
 
-    pos, _ = np_expand_dims(np.asarray(pos, dtype=np.float64), (None, 3))
-
-    latt_vecs = np.asarray(latt_vecs, dtype=np.float64)
-
-    if not np_check_shape(latt_vecs, (3, 3)):
-        raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
+    pos = np.atleast_2d(np.asanyarray(pos))
 
     if other_pos is not None:
-        other_pos, _ = np_expand_dims(
-            np.asarray(other_pos, dtype=np.float64), (None, 3)
-        )
+        other_pos = np.atleast_2d(np.asanyarray(other_pos))
     else:
         other_pos = pos
 
-    if (np.abs(pos) > 1.0).any() or (
-        other_pos is not pos and (np.abs(other_pos) > 1.0).any()
+    if (pos.ndim != 2 or pos.shape[-1] != 3) or (
+        other_pos.ndim != 2 or other_pos.shape[-1] != 3
     ):
-        warnings.warn(
-            "One or more positions are outside the range [-1, 1] "
-            "expected for fractional coordinates.",
-            UserWarning,
+        raise ValueError(
+            "pos and other_pos (if supplied) must be array_like with "
+            "shape (N, 3) and (M, 3)."
         )
 
+    latt_vecs = np.asanyarray(latt_vecs, dtype=np.float64)
+
+    if latt_vecs.shape != (3, 3):
+        raise ValueError("latt_vecs must be an array_like with shape (3, 3).")
+
     vecs = pos[:, np.newaxis, :] - other_pos[np.newaxis, :, :]
-    vecs = _in_place_centred_modulo(vecs)
-
-    # Apply periodic boundary conditions.
-
-    # vecs[vecs < -0.5] += 1.0
-    # vecs[vecs >= 0.5] -= 1.0
+    vecs -= np.round(vecs)
 
     # Convert fractional to Cartesian coordinates.
 
-    vecs = np.matmul(vecs, latt_vecs, out=vecs)
+    vecs = vecs @ latt_vecs
 
     return vecs if ret_vecs else np.linalg.norm(vecs, axis=2)
 
@@ -211,7 +177,7 @@ def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
 
     Returns
     -------
-    mol_grp_inds : list of numpy.ndarray
+    grp_inds : list of numpy.ndarray
         Indices of atoms in each group.
     """
 
@@ -286,7 +252,7 @@ def group_atoms(struct, bond_dists=None, default_dist=1.6, atom_inds=None):
     # Generate a neighbour distance table and use the bond-distance
     # matrix to create a Boolean "bond table".
 
-    dist_table = calculate_distances_frac(
+    dist_table = calculate_distances_from_fractional_positions(
         struct.atom_positions, struct.lattice_vectors, ret_vecs=False
     )
 
@@ -332,10 +298,10 @@ def map_atom_positions(
     map_struct,
     ref_struct,
     max_dist=None,
-    type_constraints=None,
+    type_const=None,
     len_tol=0.1,
     ang_tol=1.0,
-    allow_non_unique=False,
+    allow_multi=False,
 ):
     """Generate an integer mapping of the closest atomic positions in
     two `Structure` objects.
@@ -347,14 +313,14 @@ def map_atom_positions(
     max_dist : float or None, optional
         If set, atoms in `map_struct` that are more than `max_dist` from
         all atoms in `ref_struct` are assumed to have no mapping.
-    type_constraints : sequence or None, optional
-       If set, specifies pairwise sets of atom types in `map_struct` and
+    type_const : sequence or None, optional
+       Specifies pairwise sets of atom types in `map_struct` and
        `ref_struct` to constrain matching (default: `None`).
     len_tol, ang_tol : float, optional
         Maximum allowed differences in the lengths and angles between
         the lattice vectors of `map_struct` and `ref_struct` (default:
         0.1 Ang, 1 deg).
-    allow_non_unique: bool, optional
+    allow_multi: bool, optional
         Allow multiple atoms in `map_struct` to map to the same atom in
         `ref_struct`.
 
@@ -362,73 +328,60 @@ def map_atom_positions(
     -------
     map : tuple of list
         Integer mapping of the atom positions in `str_map` and distances
-        to the closest positions in `str_ref` (both set to `None` for
-        unmapped atoms).
+        to the closest positions in `str_ref` (both `None` for unmapped
+        atoms).
 
     Notes
     -----
-    For a mapping to be physically sound the unit cells of `map_struct`
-    and `ref_struct` should be similar. This is checked by comparing the
-    (absolute) differences in the lengths of the unit-cell vectors and
-    the angles between them to `len_tol` and `ang_tol`.
+    A physically sound mapping requires the unit cells of `map_struct`
+    and `ref_struct` to be similar. This is checked by comparing the
+    differences in the cell lengths and angles against `len_tol` and
+    `ang_tol`.
 
-    The default mapping procedure is designed to give sensible results
-    for "simple" cases, including e.g. atomic substitutions and
-    vacancies, provided a unique mapping between the atom positions in
-    `map_struct` and `ref_struct` can be obtained. This implies that the
-    distortions from the "ideal" geometry must be relatively small.
+    The default parameters should give sensible results in "simple"
+    cases, including e.g. atomic substitutions and vacancies, provided
+    the distortions from the "ideal" geometry are relatively small.
 
-    For more complex cases, the `max_dist`, `type_constraints` and
-    `allow_unique` keywords provide more control.
+    The `max_dist`, `type_const` and `allow_multi` keywords provide more
+    control for complex cases.
 
     If `max_dist` is set, atoms in `map_struct` that are more than
     `max_dist` from all atoms in `ref_struct` are mapped to `None`.
 
-    `type_constraints` controls which atom types are mapped to one
-    another, and can also be used to specify that some atom types
-    in `map_struct` should be mapped to `None`. Constraints are
-    specified as pairwise sets of atomic symbols, e.g.
-    `type_constraints=[(["Ce"], ["Ce"]), (["O"], ["O"])]`. The second
-    "set" in each pair can be subsituted by `None` to specify that the
+    `type_const` controls which atom types are mapped and can be used to
+    specify that some atom types in `map_struct` should be mapped to
+    `None`. Constraints are specified as pairwise sets of atomic
+    symbols, e.g. `type_const=[(["Ce"], ["Ce"]), (["O"], ["O"])]`.
+    Substututing the second set in a pair with `None` indicates that the
     atom type(s) in `map_struct` should not be mapped - e.g.
-    `type_constraints=[..., (["H"], None)]`. Note that if set
-    `type_constraints` must cover all atom types in `map_struct`.
+    `type_const=[..., (["H"], None)]`.
 
-    Automatic constraints can be applied with `type_constraints="auto"`.
-    In this case, atoms in `map_struct` are set to map to the same type
-    in `ref_struct`, if present, and `None` otherwise. This covers most
-    common usages of constraints.
+    `type_const` can also be set the the string `"auto"`, which sets
+    atoms in `map_struct` to map to the same type in `ref_struct`, if
+    present, or `None` otherwise.
 
-    Finally, non-unique mapping, where multiple atoms in `map_struct`
-    map to the same atom in `ref_struct`, can be explicitly allowed by
-    setting `allow_non_unique=True`.
+    Non-unique mapping, where multiple atoms in `map_struct` map to the
+    same atom in `ref_struct`, is allowed by setting `allow_multi=True`.
 
-    The following are some general comments on how to treat common
-    scenarios:
+    The following are suggestions for handling common scenarios:
 
     * Vacancies and atomic substitutions (including e.g. alloys): The
-      default behaviour should work in most cases, but
-      `type_constraints` may be required if there are significant
-      structural distortions.
-    * Frenkel defects: If the interstitial is close to the vacancy, it
-      may be reasonable to map the interstitial to the (occupied)
-      lattice site in `ref_struct`, and the default setup may work. If
-      the interstitial is far from the vacancy, it is likely more
-      reasonable to map it to `None`, which might be achieved by setting
-      an appropriate `max_dist`.
-    * Interstitials: These can be handled using `max_dist` to
-      map the interstitials to `None`, or, if the
-      interstitial is of a different type to the atoms in `ref_struct`,
-      using `type_constraints="auto"`.
-    * "Many-to-one" mapping: An example of this is mapping the organic
-      cation in (CH3NH3)PbI3 to the inorganic cation in CsPbI3. This can
-      be achieved with a combination of `type_constraints` and
-      `allow_non_unique=True`. Note that `type_constraints="auto"` will
-      not work in this case.
+      default behaviour should work in most cases, but `type_const` may
+      be required for significant distortions.
+    * Frenkel defects: If the interstitial is close to the vacancy and
+      can be mapped to the (occupied) site in `ref_struct`, the defaults
+      may work. If the interstitial is far from the vacancy, it is more
+      appropriate to map it to `None` using `max_dist`.
+    * Interstitials: Use `max_dist` to  map the interstitials to `None`,
+      or, if the interstitial is of a different type to the atoms in
+      `ref_struct`, set `type_const="auto"`.
+    * "Many-to-one" mapping: Manually set `type_const` and
+      set `allow_multi=True` (e.g. mapping the organic
+      cation in (CH3NH3)PbI3 to the inorganic cation in CsPbI3.)
 
-    Finally, while the default behaviour is designed to require user
-    intervention if any potential issues are found, we recommend always
-    verifying that the mapping is "sane".
+    The default behaviour is designed to force intervention if potential
+    issues are found, but it is strongly recommended to check the
+    mapping is "sane".
     """
 
     # Check the similarity of the structures by comparing the largest
@@ -444,15 +397,17 @@ def map_atom_positions(
     map_norms = np.linalg.norm(map_struct.lattice_vectors, axis=1)
     ref_norms = np.linalg.norm(ref_struct.lattice_vectors, axis=1)
 
-    norm_diff = np.abs(map_norms - ref_norms)
+    norm_diffs = np.abs(map_norms - ref_norms)
 
-    if (norm_diff > len_tol).any():
-        raise Exception(
-            "Maximum difference in lattice vector lengths is {0:.3f} "
-            "> len_tol = {1:.3f}.".format(norm_diff.max(), len_tol)
+    if (norm_diffs > len_tol).any():
+        d_max = norm_diffs.max()
+
+        raise RuntimeError(
+            "Maximum difference in lattice vector lengths is "
+            f"{d_max:.3f} > len_tol = {len_tol:.3f}."
         )
 
-    thetas = []
+    angles = []
 
     for idx in range(3):
         dp = np.dot(
@@ -460,68 +415,65 @@ def map_atom_positions(
         )
 
         cos_theta = np.clip(dp / (map_norms[idx] * ref_norms[idx]), -1.0, 1.0)
-        thetas.append(np.arccos(cos_theta))
+        angles.append(np.arccos(cos_theta))
 
-    thetas = np.abs(np.degrees(thetas))
+    angles = np.abs(np.degrees(angles))
 
-    if (thetas > ang_tol).any():
-        raise Exception(
-            "Largest angle between lattice vectors is {0:.2f} > "
-            "{1:.2f} deg.".format(thetas.max(), ang_tol)
+    if (angles > ang_tol).any():
+        a_max = angles.max()
+
+        raise RuntimeError(
+            f"Largest angle between lattice vectors is {a_max:.2f} > "
+            f"{ang_tol:.2f} deg."
         )
 
     # If type_constraints is set to "auto", each atom type in map_struct
     # is mapped to the same type in ref_stuct, if present, or None if
     # the type is not present.
 
-    try:
-        if str(type_constraints).lower() == "auto":
-            type_constraints = []
+    if isinstance(type_const, (str, np.str_)):
+        type_const_str = str(type_const).lower()
+
+        if type_const_str == "auto":
+            type_const = []
 
             for sym in np.unique(map_struct.atom_types):
-                if sym in ref_struct.atom_types:
-                    type_constraints.append(([sym], [sym]))
-                else:
-                    type_constraints.append(([sym], None))
-    except ValueError:
-        pass
+                ref_typs = [sym] if sym in ref_struct.atom_types else None
+                type_const.append(([sym], ref_typs))
+        else:
+            raise ValueError(
+                f'Unknown string specifier type_const = "{type_const}".'
+            )
 
     # Perform the mapping on pairs of groups of indices at a time - this
     # allows constraints on atom types to be applied.
 
     index_grps = []
 
-    if type_constraints is not None:
-        for map_typs, ref_typs in type_constraints:
+    if type_const is not None:
+        for map_typs, ref_typs in type_const:
             if len(map_typs) == 0:
                 raise ValueError(
-                    "Mapping atom types in type_constraints must be an "
+                    "Mapping atom types in type_const must be an "
                     "array_like with at least one element."
                 )
 
-            inds_map = []
-
-            for sym in map_typs:
-                (inds,) = np.where(map_struct.atom_types == sym)
-                inds_map.extend(inds)
+            map_inds = np.flatnonzero(np.isin(map_struct.atom_types, map_typs))
 
             ref_inds = None
 
             if ref_typs is not None:
                 if len(ref_typs) == 0:
                     raise ValueError(
-                        "Reference atom types in type_constraints must "
-                        "either be an array_like with at least one "
-                        "element or None."
+                        "Reference atom types in type_const must be an"
+                        "array_like with at least one element or None."
                     )
 
-                ref_inds = []
+                ref_inds = np.flatnonzero(
+                    np.isin(ref_struct.atom_types, ref_typs)
+                )
 
-                for sym in ref_typs:
-                    (inds,) = np.where(ref_struct.atom_types == sym)
-                    ref_inds.extend(inds)
-
-            index_grps.append((inds_map, ref_inds))
+            index_grps.append((map_inds, ref_inds))
     else:
         index_grps = [
             (
@@ -546,25 +498,23 @@ def map_atom_positions(
 
     atom_mapping_dict = {}
 
-    for inds_map, ref_inds in index_grps:
+    for map_inds, ref_inds in index_grps:
         if ref_inds is not None:
-            pos_map = map_pos_frac_shift[inds_map]
-            pos_ref = ref_struct.atom_positions[ref_inds]
+            map_pos = map_pos_frac_shift[map_inds]
+            ref_pos = ref_struct.atom_positions[ref_inds]
 
-            neighbour_table = calculate_distances_frac(
-                pos_map, ref_struct.lattice_vectors, pos_ref, ret_vecs=False
+            neighbour_table = calculate_distances_from_fractional_positions(
+                map_pos, ref_struct.lattice_vectors, ref_pos, ret_vecs=False
             )
 
-            for i, idx_map in enumerate(inds_map):
-                idx = np.argmin(neighbour_table[i])
+            inds = np.argmin(neighbour_table, axis=1)
+            dists = neighbour_table[np.arange(len(map_inds)), inds]
 
-                atom_mapping_dict[idx_map] = (
-                    ref_inds[idx],
-                    neighbour_table[i][idx],
-                )
+            for map_idx, ref_idx, dist in zip(map_inds, ref_inds[inds], dists):
+                atom_mapping_dict[map_idx] = (ref_idx, dist)
         else:
-            for idx in inds_map:
-                atom_mapping_dict[idx] = (None, None)
+            for map_idx in map_inds:
+                atom_mapping_dict[map_idx] = (None, None)
 
     # If max_dist is set, check distances and set entries where the
     # distance exceeds this to None.
@@ -573,43 +523,42 @@ def map_atom_positions(
         if max_dist <= 0.0:
             raise ValueError("If set, max_dist must be > 0.")
 
-        for idx, (idx_ref, dist) in atom_mapping_dict.items():
+        for idx, (_, dist) in atom_mapping_dict.items():
             if dist is not None and dist > max_dist:
                 atom_mapping_dict[idx] = (None, None)
 
     # Check all atoms have been mapped.
 
     if len(atom_mapping_dict) != map_struct.num_atoms:
-        raise Exception(
-            "Failed to map all atoms in map_struct. If type_constraints"
-            "was set, check these include all atom types in "
-            "map_struct. If type_constraints was not set, this is most "
-            "likely a bug."
+        raise RuntimeError(
+            "Failed to map all atoms in map_struct. If type_const is "
+            "set, ensure the constraints include all atom types in "
+            "map_struct."
         )
 
-    idx_refs, dists = [], []
+    ref_inds, dists = [], []
 
     for idx in range(map_struct.num_atoms):
-        idx_ref, dist = atom_mapping_dict[idx]
+        ref_idx, dist = atom_mapping_dict[idx]
 
-        idx_refs.append(idx_ref)
+        ref_inds.append(ref_idx)
         dists.append(dist)
 
-    # If allow_non_unique is not set, check the mapping is unique.
+    # If allow_multi is not set, check the mapping is unique.
 
-    if not allow_non_unique:
-        temp = [idx for idx in idx_refs if idx is not None]
+    if not allow_multi:
+        temp = [idx for idx in ref_inds if idx is not None]
 
         if len(temp) != len(set(temp)):
             raise Exception(
-                "Failed to produce a unique mapping. If a non-unique "
-                "mapping is physical this can be explicitly allowed by "
-                "setting allow_non_unique=True)."
+                "Failed to obtain a unique mapping. If this is "
+                "physical it can be explicitly allowed using "
+                "allow_multi=True."
             )
 
     # Use dtype=object to ensure None is preserved.
 
-    return (np.array(idx_refs, dtype=object), np.array(dists, dtype=object))
+    return (np.array(ref_inds, dtype=object), np.array(dists, dtype=object))
 
 
 def invert_atom_map(atom_map, map_struct, ref_struct):
@@ -630,25 +579,22 @@ def invert_atom_map(atom_map, map_struct, ref_struct):
 
     Notes
     -----
-    Entries can be a single integer (atom in `ref_struct` maps to a
-    single atom in `map_struct`), `None` (atom does not map to anything
-    in `map_struct`), or a `numpy.ndarray` of integers (atom maps to
-    multiple atoms in `map_struct`).
+    Entries in `inv_map` can be single integers (atom in `ref_struct`
+    maps to a single atom in `map_struct`), `None` (atom does not map to
+    anything) or a sequence of integers (atom maps to multiple atoms`).
     """
 
     if len(atom_map) != map_struct.num_atoms:
         raise ValueError(
-            "The number of entries in atom_map does not match the "
-            "number of atoms in map_struct."
+            "Length of atom_map does not match number of atoms in map_struct."
         )
 
-    for i, idx in enumerate(atom_map):
+    for idx in atom_map:
         if idx is not None:
             if idx < 0 or idx >= ref_struct.num_atoms:
                 raise ValueError(
-                    "One or more indices in atom_map are "
-                    "inconsistent with the number of atoms in "
-                    "ref_struct."
+                    "One or more indices in atom_map are out of range "
+                    "for the number of atoms in ref_struct."
                 )
 
     inv_atom_map = [[] for _ in range(ref_struct.num_atoms)]
@@ -675,7 +621,7 @@ def map_qpoints(qpts, ref_struct, map_struct):
     Parameters
     ----------
     qpts : array_like
-        Reduced q-point(s) to map (shape: `(3,)` or `(N, 3)`).
+        Reduced q-point(s) to map (shape: `(3,)` or `(N, 3)`.
     ref_struct, map_struct : Structure
         Reference structure for which `qpts` are specified and structure
         to map to.
@@ -687,9 +633,12 @@ def map_qpoints(qpts, ref_struct, map_struct):
         (same shape as `qpts`).
     """
 
-    qpts, n_dim_add = np_expand_dims(
-        np.asarray(qpts, dtype=np.float64), (None, 3)
-    )
+    qpts = np.atleast_1d(np.asanyarray(qpts))
+
+    if qpts.shape[-1] != 3:
+        raise ValueError(
+            "qpts must be an array_like with shape (3,) or (N, 3)."
+        )
 
     # No need to include the factor of 2 \pi in the reciprocal lattice
     # vectors as long as we're consistent.
@@ -721,10 +670,6 @@ def map_qpoints(qpts, ref_struct, map_struct):
         map_qpts_cart, map_rec_v_latt
     )
 
-    map_qpts = _in_place_centred_modulo(map_qpts)
+    map_qpts -= np.round(map_qpts)
 
-    diff = map_qpts - qpts
-    diff = diff - np.rint(diff)
-    assert np.allclose(diff, 0.0)
-
-    return map_qpts if n_dim_add == 0 else map_qpts[0]
+    return map_qpts

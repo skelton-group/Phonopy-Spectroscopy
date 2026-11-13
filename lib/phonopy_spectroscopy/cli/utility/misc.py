@@ -13,7 +13,6 @@
 import numpy as np
 
 from ...utility.geometry import rotation_matrix_from_vectors
-from ...utility.numpy_helper import np_check_shape
 
 # ---------
 # Functions
@@ -48,11 +47,11 @@ def get_crystal_rotation_matrix(struct, hkl, geom, rot=None):
     )
 
     if rot is not None:
-        if not np_check_shape(rot, (3, 3)):
-            raise ValueError(
-                "If supplied, rot must be an array_like with shape (3, 3)."
-            )
+        rot = np.asanyarray(rot)
 
-        r = np.dot(rot, r)
+        if rot.shape != (3, 3):
+            raise ValueError("rot must be an array_like with shape (3, 3).")
+
+        r = rot @ r
 
     return r

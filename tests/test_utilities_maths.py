@@ -42,8 +42,6 @@ def _rotation_matrix(axis, theta):
     """Return the rotation matrix for rotation about axis by the angle
     theta using the analytical formulae."""
 
-    theta = np.radians(theta)
-
     c = np.cos(theta)
     s = np.sin(theta)
 
@@ -116,7 +114,7 @@ class TestGeometry(unittest.TestCase):
 
         num_angs = 25
 
-        angles = np.random.random(num_angs) * 360.0
+        angles = np.random.random(num_angs) * 2.0 * np.pi
 
         for cart_dir in "x", "y", "z":
             for a in angles:
@@ -135,9 +133,17 @@ class TestGeometry(unittest.TestCase):
 
         t = np.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 3.0]])
 
-        r_x_20 = rotation_matrix_from_axis_angle([1.0, 0.0, 0.0], 20.0)
-        r_y_45 = rotation_matrix_from_axis_angle([0.0, 1.0, 0.0], 45.0)
-        r_z_60 = rotation_matrix_from_axis_angle([0.0, 0.0, 1.0], 60.0)
+        r_x_20 = rotation_matrix_from_axis_angle(
+            [1.0, 0.0, 0.0], np.radians(20.0)
+        )
+
+        r_y_45 = rotation_matrix_from_axis_angle(
+            [0.0, 1.0, 0.0], np.radians(45.0)
+        )
+
+        r_z_60 = rotation_matrix_from_axis_angle(
+            [0.0, 0.0, 1.0], np.radians(60.0)
+        )
 
         rots = [
             r_x_20,

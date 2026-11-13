@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+# TODO: Check NumPy array conversion.
+
 # ---------
 # Docstring
 # ---------
@@ -32,8 +34,6 @@ from ..utility.geometry import (
     rotation_matrix_from_vectors,
 )
 
-from ..utility.numpy_helper import np_check_shape, np_expand_dims
-
 from ..utility.quadrature import (
     circle_circle_euler_angle_quad_rule,
     lebedev_circle_euler_angle_quad_rule,
@@ -56,14 +56,17 @@ _EIGHT_PI_SQUARED = 8.0 * np.pi**2
 
 """Value of 8 * pi^2."""
 
-_SCIPY_LLC_CFUNC_SIG = types.float64(
-    types.intc,
-    types.CPointer(types.float64),
-    types.CPointer(types.float64),
-)
+_SCIPY_LLC_CFUNC_SIG = None
 
-"""Signature of Numba `@cfuncs` for constructing SciPy
+"""Signature of Numba `@cfunc`s for constructing SciPy
 `LowLevelCallable` objects."""
+
+if _NUMBA_AVAILABLE:
+    _SCIPY_LLC_CFUNC_SIG = types.float64(
+        types.intc,
+        types.CPointer(types.float64),
+        types.CPointer(types.float64),
+    )
 
 # ----------------
 # Helper functions
@@ -86,7 +89,18 @@ def _check_raman_tensor_transpose_symmetry(r_t):
         otherwise `False`.
     """
 
-    r_t, _ = np_expand_dims(r_t, (None, 3, 3))
+    r_t = np.asanyarray(r_t)
+
+    match r_t.shape:
+        case (3, 3):
+            r_t = r_t[np.newaxis, :, :]
+        case (_, 3, 3):
+            pass
+        case _:
+            raise ValueError(
+                "r_t must be an array_like with shape (3, 3) or (N, 3, 3)."
+            )
+
     return (np.abs(r_t - r_t.swapaxes(2, 1)) < ZERO_TOLERANCE).all()
 
 
@@ -120,24 +134,38 @@ def _validate_params_and_transform_coords(
 
     Notes
     -----
-    Setting `po_r=None` is guaranteed to bypasses coordinate
+    Setting `po_r=None` is guaranteed to bypass coordinate
     transformations for preferred orientation calculations.
     """
 
     # Check polarisations are compatible with the measurement geometry.
 
     if not (
-        geom.check_incident_polarisations(i_pol)
-        and geom.check_scattered_polarisations(s_pol)
+        i_pol.check_perpendicular(geom.incident_direction)
+        and s_pol.check_perpendicular(geom.collection_direction)
     ):
         raise ValueError(
             "The supplied incident and scattered polarisations are "
             "not possible with the supplied geometry."
         )
 
-    # "Expand" Raman tensors.
+    # "Expand" Raman tensors. Use asarray() rather than asanyarray()
+    # because the data may be passed to Numba-compiled functions that
+    # may not work with subclasses.
 
-    r_t, n_dim_add = np_expand_dims(np.asarray(r_t), (None, 3, 3))
+    r_t = np.asarray(r_t)
+
+    ret_multi = False
+
+    match r_t.shape:
+        case (3, 3):
+            r_t = r_t[np.newaxis, :, :]
+        case (_, 3, 3):
+            ret_multi = True
+        case _:
+            raise ValueError(
+                "r_t must be an array_like with shape (3, 3) or (N, 3, 3)."
+            )
 
     # Additional setup for calculations including preferred orientation.
 
@@ -168,7 +196,7 @@ def _validate_params_and_transform_coords(
 
         r_t = rotate_tensors(r_t, rotation_matrix_from_vectors(po_norm, "+z"))
 
-    return (r_t, i_pol, s_pol, po_r, n_dim_add == 0)
+    return (r_t, i_pol, s_pol, po_r, ret_multi)
 
 
 # --------------------
@@ -191,12 +219,13 @@ def calculate_single_crystal_raman_intensities(
     i_pol, s_pol : Polarisation
         Polarisations of the incident and scattered light.
     rot : array_like or None, optional
-        Rotation matrix to apply to Raman tensors (shape: `(3, 3)`).
+        Optional rotation matrix to rotate the Raman tensors from the
+        crystal to instrument frame (shape: `(3, 3)`).
 
     Returns
     -------
     ints : numpy.ndarray
-        Calcuated intensity/intensities (scalar or shape `(N,)`).
+        Calculated intensity/intensities (scalar or shape `(N,)`).
     """
 
     # Check polarisations are valid for measurement geometry and
@@ -247,7 +276,7 @@ def calculate_powder_raman_intensities_analytical(r_t, geom, i_pol, s_pol):
     Returns
     -------
     ints : float or numpy.ndarray
-        Calcuated intensity or array of intensities (shape: `(N,)`).
+        Calculated intensity or array of intensities (shape: `(N,)`).
 
     Notes
     -----
@@ -287,7 +316,7 @@ def calculate_powder_raman_intensities_analytical(r_t, geom, i_pol, s_pol):
 
     ints = np.zeros((r_t.shape[0],), dtype=np.float64)
 
-    for i, t in enumerate(r_t.real):
+    for i, t in enumerate(r_t):
         # \alpha^\prime in Porezag and Pederson's notation.
 
         a_p = np.abs(np.trace(t) / 3.0)
@@ -309,7 +338,7 @@ def calculate_powder_raman_intensities_analytical(r_t, geom, i_pol, s_pol):
                 np.linalg.norm(v_i) * np.linalg.norm(v_s)
             )
 
-            ints[i] += w * (i_per + (i_par - i_per) * cos_chi**2)
+            ints[i] += w * (i_per + (i_par - i_per) * np.abs(cos_chi) ** 2)
 
     return ints if ret_multi else ints[0]
 
@@ -532,7 +561,7 @@ def _powder_raman_make_quad_int_func(t, v_i, v_s, po_r):
     preferred wherever possible.
     """
 
-    if not np_check_shape(t, (3, 3)):
+    if t.shape != (3, 3):
         raise ValueError("t must be an array_like with shape (3, 3).")
 
     if po_r <= 0.0:
@@ -549,11 +578,19 @@ def _powder_raman_make_quad_int_func(t, v_i, v_s, po_r):
 
         np_dtype = np.float64 if real else np.complex128
 
+        # Make sure arrays are C-contiguous before preparing the data
+        # buffer for the LowLevelCallable.
+
+        t = np.ascontiguousarray(t, dtype=np_dtype)
+        v_i_conj = np.ascontiguousarray(v_i_conj, dtype=np_dtype)
+        v_s = np.ascontiguousarray(v_s, dtype=np_dtype)
+        po_r = np.ascontiguousarray([po_r], dtype=np.float64)
+
         user_data = [
-            t.astype(np_dtype).view(np.float64).ravel(),
-            v_i_conj.astype(np_dtype).view(np.float64).ravel(),
-            v_s.astype(np_dtype).view(np.float64).ravel(),
-            np.array([po_r], dtype=np.float64),
+            t.view(np.float64).ravel(),
+            v_i_conj.view(np.float64).ravel(),
+            v_s.view(np.float64).ravel(),
+            po_r,
         ]
 
         user_data = np.concatenate(user_data, dtype=np.float64)
@@ -618,9 +655,9 @@ def calculate_powder_raman_intensities_quad(
                 opts={"epsabs": ZERO_TOLERANCE, "epsrel": ZERO_TOLERANCE},
             )
 
-        ints[i] += w * res[0]
-        errs[i] += w * res[1]
-        func_evals[i] += res[2]["neval"]
+            ints[i] += w * res[0]
+            errs[i] += w * res[1]
+            func_evals[i] += res[2]["neval"]
 
     return (
         ints if ret_multi else ints[0],
@@ -652,7 +689,7 @@ class _PowderRamanCubeIntFunc:
             r parameter for preferred orientation (default: 1.0).
         """
 
-        if not np_check_shape(t, (3, 3)):
+        if t.shape != (3, 3):
             raise ValueError("t must be an array_like with shape (3, 3).")
 
         if po_r <= 0.0:
@@ -783,7 +820,8 @@ def calculate_powder_raman_intensities_leb_circ(
     i_pol, s_pol : Polarisation
         Polarisations of the incident and scattered light.
     p : int
-        Precision (order) of the Lebedev + circle quadrature scheme.
+        Integer precision (order) of the Lebedev + circle scheme or one
+        of {"min", "low", "medium", "high", "ultra", "max"}.
     po_r : float, optional
         r parameter for preferred orientation (default: 1.0).
     po_norm, po_axis : array_like or str, optional
@@ -1117,7 +1155,7 @@ def _powder_raman_make_quad_circ_int_func(t, v_i, v_s, po_r, m):
     preferred wherever possible.
     """
 
-    if not np_check_shape(t, (3, 3)):
+    if t.shape != (3, 3):
         raise ValueError("t must be an array_like with shape (3, 3).")
 
     if po_r <= 0.0:
@@ -1136,12 +1174,18 @@ def _powder_raman_make_quad_circ_int_func(t, v_i, v_s, po_r, m):
 
         np_dtype = np.float64 if real else np.complex128
 
+        t = np.ascontiguousarray(t, dtype=np_dtype)
+        v_i_conj = np.ascontiguousarray(v_i_conj, dtype=np_dtype)
+        v_s = np.ascontiguousarray(v_s, dtype=np_dtype)
+        po_r = np.ascontiguousarray([po_r], dtype=np_dtype)
+        phi_psi = np.ascontiguousarray(phi_psi, dtype=np_dtype)
+
         user_data = [
-            t.astype(np_dtype).view(np.float64).ravel(),
-            v_i_conj.astype(np_dtype).view(np.float64).ravel(),
-            v_s.astype(np_dtype).view(np.float64).ravel(),
-            np.array([po_r], dtype=np.float64),
-            phi_psi.view(np.float64).ravel(),
+            t.view(np.float64).ravel(),
+            v_i_conj.view(np.float64).ravel(),
+            v_s.view(np.float64).ravel(),
+            po_r,
+            phi_psi.ravel(),
         ]
 
         user_data = np.concatenate(user_data, dtype=np.float64)
@@ -1212,9 +1256,9 @@ def calculate_powder_raman_intensities_quad_circ(
                 epsrel=ZERO_TOLERANCE,
             )
 
-        ints[i] += w * res[0]
-        errs[i] += w * res[1]
-        func_evals[i] += m**2 * res[2]["neval"]
+            ints[i] += w * res[0]
+            errs[i] += w * res[1]
+            func_evals[i] += m**2 * res[2]["neval"]
 
     return (
         ints if ret_multi else ints[0],
@@ -1253,10 +1297,10 @@ def calculate_powder_raman_intensities(
     Returns
     -------
     ints : float or numpy.ndarray
-        Calcuated intensity/intensities (scalar or shape `(N,)`).
+        Calculated intensity/intensities (scalar or shape `(N,)`).
     """
 
-    r_t = np.asarray(r_t)
+    r_t = np.asanyarray(r_t)
 
     # Determine whether the Raman tensors are transpose symmetric, and
     # whether the calculation is for an isotropic powder (no preferred
@@ -1292,7 +1336,7 @@ def calculate_powder_raman_intensities(
             m=8,
             po_r=po_r,
             po_norm=po_norm,
-            po_axis=(-1.0 * geom.collection_direction),
+            po_axis=(-1.0 * geom.incident_direction),
         )
 
         return ints

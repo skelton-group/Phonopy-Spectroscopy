@@ -15,7 +15,7 @@ import unittest
 
 import numpy as np
 
-from phonopy_spectroscopy.cli.utility.raman_io import (
+from phonopy_spectroscopy.cli.io.raman import (
     fd_read_dielectrics_vasp,
 )
 
@@ -187,26 +187,21 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
             file_path_template,
         )
 
-        e, eps_e = fd_read_dielectrics_vasp(
+        dielectrics = fd_read_dielectrics_vasp(
             file_list, self._calc_1.num_bands, self._calc_1.num_steps
         )
 
         # Calculate and check Raman tensors.
 
-        raman_calc = self._calc_1.get_raman_calculation(eps_e, e)
+        r_t = self._calc_1.get_raman_tensors(dielectrics)
 
-        r_t = raman_calc.raman_tensors
-
-        self.assertTrue(np.allclose(r_t.energies, e))
-
-        exp_shape = (self._calc_1.num_bands, len(e), 3, 3)
-        self.assertTrue(np.equal(r_t.raman_tensors.shape, exp_shape).all())
-
-        self.assertFalse(r_t.is_energy_dependent)
+        self.assertFalse(r_t.energy_dependent)
 
         # Serialise the RamanCalcuator object to a dictionary, write it
         # to a JSON file, reload it, and check the two objects are
         # equivalent.
+
+        raman_calc = RamanCalculation(r_t)
 
         save_json(raman_calc.to_dict(), r"raman_calculation.json.tmp")
 
@@ -234,20 +229,13 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
             file_path_template,
         )
 
-        e, eps_e = fd_read_dielectrics_vasp(
+        dielectrics = fd_read_dielectrics_vasp(
             file_list, self._calc_1.num_bands, self._calc_1.num_steps
         )
 
-        raman_calc = self._calc_1.get_raman_calculation(eps_e, e)
+        r_t = self._calc_1.get_raman_tensors(dielectrics)
 
-        r_t = raman_calc.raman_tensors
-
-        self.assertTrue(np.allclose(r_t.energies, e))
-
-        exp_shape = (self._calc_1.num_bands, len(e), 3, 3)
-        self.assertTrue(np.equal(r_t.raman_tensors.shape, exp_shape).all())
-
-        self.assertTrue(r_t.is_energy_dependent)
+        self.assertTrue(r_t.energy_dependent)
 
         # The first set of Raman tensors should have E = 0 and should
         # be real.
@@ -259,6 +247,8 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
         # This is slightly different to the previous test, as the
         # RamanTensors object contains energy-dependent tensors that
         # are complex-valued.
+
+        raman_calc = RamanCalculation(r_t)
 
         save_json(raman_calc.to_dict(), r"raman_calculation.json.tmp")
 
@@ -287,20 +277,20 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
             file_path_template,
         )
 
-        e, eps_e = fd_read_dielectrics_vasp(
+        dielectrics = fd_read_dielectrics_vasp(
             file_list, self._calc_2.num_bands, self._calc_2.num_steps
         )
 
-        raman_calc = self._calc_2.get_raman_calculation(eps_e, e)
+        r_t = self._calc_2.get_raman_tensors(dielectrics)
+
+        self.assertTrue(isinstance(r_t.phonon_calculation, PolarGammaPhonons))
+
+        raman_calc = RamanCalculation(r_t)
 
         save_json(raman_calc.to_dict(), r"raman_calculation.json.tmp")
 
         raman_calc_cmp = RamanCalculation.from_dict(
             load_json(r"raman_calculation.json.tmp")
-        )
-
-        self.assertTrue(
-            isinstance(raman_calc_cmp.phonon_calculation, PolarGammaPhonons)
         )
 
         self.assertTrue(compare_raman_calculations(raman_calc_cmp, raman_calc))

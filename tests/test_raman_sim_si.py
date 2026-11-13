@@ -26,7 +26,7 @@ import unittest
 
 import numpy as np
 
-from phonopy_spectroscopy.cli.utility.raman_io import (
+from phonopy_spectroscopy.cli.io.raman import (
     fd_read_dielectrics_vasp,
 )
 
@@ -36,6 +36,8 @@ from phonopy_spectroscopy.interfaces.phonopy_interface import (
     gamma_phonons_from_phono3py,
 )
 
+from phonopy_spectroscopy.raman.calculation import RamanCalculation
+
 from phonopy_spectroscopy.raman.calculators import (
     FiniteDisplacementRamanTensorCalculator,
 )
@@ -44,6 +46,8 @@ from phonopy_spectroscopy.raman.intensity import (
     calculate_single_crystal_raman_intensities,
     calculate_powder_raman_intensities,
 )
+
+from phonopy_spectroscopy.raman.tensors import RamanTensors
 
 from phonopy_spectroscopy.structure import Structure
 
@@ -109,14 +113,14 @@ class TestRamanSimulation(unittest.TestCase):
             fd_calc.band_indices, fd_calc.num_steps, file_path_template
         )
 
-        e, eps_e = fd_read_dielectrics_vasp(
+        dielectrics = fd_read_dielectrics_vasp(
             file_list, fd_calc.num_bands, fd_calc.num_steps
         )
 
         # Obtain a RamanCalculation object for performing test Raman
         # simulations.
 
-        self._calc = fd_calc.get_raman_calculation(eps_e, e)
+        self._calc = RamanCalculation(fd_calc.get_raman_tensors(dielectrics))
 
         # Define an "empty" structure and set of model Raman tensors.
 
@@ -138,44 +142,43 @@ class TestRamanSimulation(unittest.TestCase):
 
         self._geom = Geometry("z", "-z")
 
-    def test_single_crystal_xtal_rot(self):
-        """Test a simulation of a single-crystal crystal rotation Raman
-        experiment."""
+    def test_single_crystal_pol_rot(self):
+        """Test a simulation of a single-crystal polarisation rotation
+        Raman experiment."""
 
-        pol = Polarisation.from_direction("x")
+        i_pol = Polarisation.from_direction("x")
 
         # Perform simulation with calculated Raman tensors.
 
-        sp = self._calc.single_crystal_crystal_rotation(
+        sp = self._calc.single_crystal_polarisation_rotation(
             (0, 0, 1),
             geom=self._geom,
-            i_pol=pol,
-            s_pol=pol,
-            phi_start=0.0,
-            phi_end=360.0,
-            phi_step=2.5,
+            i_pol=i_pol,
+            s_pol="rot",
+            start=0.0,
+            end=360.0,
+            step=2.5,
+            e_rt=0.0,
         )
 
         # Perform simulation "manually" with model Raman tensors.
 
-        r_hkl = rotation_matrix_from_vectors(
+        r = rotation_matrix_from_vectors(
             self._model_struct.real_space_normal((0, 0, 1)),
             -1.0 * self._geom.incident_direction,
         )
 
-        angles = np.linspace(0.0, 360.0, sp.intensities.shape[1])
-
         ints = np.zeros(
-            (self._model_r_t.shape[0], len(angles)), dtype=np.float64
+            (len(self._model_r_t), len(sp.rotation_angles)), dtype=np.float64
         )
 
-        for i, a in enumerate(angles):
-            r = rotation_matrix_from_axis_angle(
-                self._geom.incident_direction, a
-            )
+        s_pols = Polarisation.from_angles(
+            self._geom.collection_direction, sp.rotation_angles
+        )
 
+        for i, s_pol in enumerate(s_pols):
             ints[:, i] = calculate_single_crystal_raman_intensities(
-                self._model_r_t, self._geom, pol, pol, rot=np.dot(r, r_hkl)
+                self._model_r_t, self._geom, i_pol, s_pol, rot=r
             )
 
         ints = ints.sum(axis=0)
@@ -183,10 +186,54 @@ class TestRamanSimulation(unittest.TestCase):
         # Normalise both sets of intensities for comparison.
 
         ints_ref = ints / ints.max()
-        ints_cmp = sp.intensities[0, :] / sp.intensities[0, :].max()
+        ints_cmp = sp.band_intensities[:, 0] / sp.band_intensities[:, 0].max()
+
+        self.assertTrue(np.allclose(ints_cmp, ints_ref))
+
+    def test_single_crystal_xtal_rot(self):
+        """Test a simulation of a single-crystal crystal rotation Raman
+        experiment."""
+
+        pol = Polarisation.from_direction("x")
+
+        sp = self._calc.single_crystal_crystal_rotation(
+            (0, 0, 1),
+            geom=self._geom,
+            i_pol=pol,
+            s_pol=pol,
+            start=0.0,
+            end=360.0,
+            step=2.5,
+            e_rt=0.0,
+        )
+
+        r_hkl = rotation_matrix_from_vectors(
+            self._model_struct.real_space_normal((0, 0, 1)),
+            -1.0 * self._geom.incident_direction,
+        )
+
+        ints = np.zeros(
+            (len(self._model_r_t), len(sp.rotation_angles)), dtype=np.float64
+        )
+
+        for i, a in enumerate(sp.rotation_angles):
+            r = rotation_matrix_from_axis_angle(
+                self._geom.incident_direction, a
+            )
+
+            ints[:, i] = calculate_single_crystal_raman_intensities(
+                self._model_r_t, self._geom, pol, pol, rot=(r @ r_hkl)
+            )
+
+        ints = ints.sum(axis=0)
+
+        ints_ref = ints / ints.max()
+        ints_cmp = sp.band_intensities[:, 0] / sp.band_intensities[:, 0].max()
 
         # An absolute tolerance of 1.0e-2 requires that the two sets of
-        # relative intensities are within 1% of each other.
+        # relative intensities are within 1% of each other. (TODO: Not
+        # clear why this happens for a crystal rotation but not for a
+        # polarisation rotation?)
 
         self.assertTrue(np.allclose(ints_cmp, ints_ref, atol=1.0e-2))
 
@@ -200,9 +247,9 @@ class TestRamanSimulation(unittest.TestCase):
             geom=self._geom,
             i_pol=i_pol,
             s_pol="rot",
-            chi_start=0.0,
-            chi_end=360.0,
-            chi_step=2.5,
+            start=0.0,
+            end=360.0,
+            step=2.5,
             e_rt=0.0,
         )
 
@@ -222,7 +269,7 @@ class TestRamanSimulation(unittest.TestCase):
         ints = ints.sum(axis=0)
 
         ints_ref = ints / ints.max()
-        ints_cmp = sp.intensities[0, :] / sp.intensities[0, :].max()
+        ints_cmp = sp.band_intensities[:, 0] / sp.band_intensities[:, 0].max()
 
         # Powder averaging effectively removes the variation between the
         # model and calculated Raman tensors, so the relative
