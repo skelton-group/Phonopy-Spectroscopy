@@ -41,13 +41,15 @@ The current code can be cloned from the `develop` branch of the GitHub:
 This code does not currently ship with a `setup.py` script or as a PIP/Conda package.
 After cloning or downloading and unpacking the repository, add the `lib` subfolder to your `PYTHONPATH`, e.g.:
 
-`export PYTHONPATH=${PYTHONPATH}:$(pwd)/Phonopy-Spectroscopy/lib`
+```bash
+% export PYTHONPATH=${PYTHONPATH}:$(pwd)/Phonopy-Spectroscopy/lib
+```
 
 It is a good idea to run the unit tests to check your installation is working:
 
 ```bash
-cd Phonopy-Spectroscopy/tests
-python -m unittest discover
+% cd Phonopy-Spectroscopy/tests
+% python -m unittest discover
 ```
 
 
