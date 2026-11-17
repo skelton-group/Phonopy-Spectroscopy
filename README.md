@@ -10,10 +10,10 @@ The software package consists of a Python package, `phonopy_spectroscopy`, and c
 The current status of the development code is as follows:
 
 * The "backend" Python API has been completely rewritten with a new object model.
-* The infrared (IR) capability has been rewritten around computing the IR dielectric function, with options to account for different measurement geometries.
-* The Raman capability has been expanded to include complete functionality for simulating single-crystal and powder Raman experiments, including with energy-dependent Raman tensors.
-* Unit tests have been implemented with reasonable code coverage.
-* The command-line programs and associated API have been temporarily removed pending a rewrite.
+* The infrared (IR) capability has been rewritten around computing the IR dielectric function, with plans to implement broad support for single-crystal and powder spectra measured in both on- and off-axis geometries.
+* The Raman capability has been expanded to include complete functionality for simulating single-crystal and powder Raman experiments, including with energy-dependent Raman tensors and non-analytical corrections for non-centrosymmetric materials.
+* Unit tests have been implemented with good code coverage.
+* The command-line programs and associated API are currently being rewritten.
 
 
 ## Installation
@@ -32,12 +32,18 @@ We recommend using Anaconda (or Miniconda)[[9](#Ref9)] and installing the requir
 % conda install -c conda-forge phonopy pandas numba
 ```
 
+The current code can be cloned from the `develop` branch of the GitHub:
+
+```bash
+% git clone -b develop https://github.com/skelton-group/Phonopy-Spectroscopy
+```
+
 This code does not currently ship with a `setup.py` script or as a PIP/Conda package.
 After cloning or downloading and unpacking the repository, add the `lib` subfolder to your `PYTHONPATH`, e.g.:
 
-`export PYTHONPATH=${PYTHONPATH}:/Users/user/Desktop/Repositories/Phonopy-Spectroscopy/lib`
+`export PYTHONPATH=${PYTHONPATH}:$(pwd)/Phonopy-Spectroscopy/lib`
 
-You can run the unit tests to check your installation is working:
+It is a good idea to run the unit tests to check your installation is working:
 
 ```bash
 cd Phonopy-Spectroscopy/tests
