@@ -3,9 +3,18 @@
 *.pyc
 *__pycache__/*
 
+# Jupyter notebook checkpoints.
+
+*.ipynb_checkpoints
+
 # MacOS .DS_Store files.
 
 *.DS_Store
+
+# coverage and reports.
+
+tests/.coverage
+tests/htmlcov
 
 # "scratch" folder.
 

@@ -19,7 +19,7 @@ from .tensors import RamanTensors
 from ..constants import ZERO_TOLERANCE
 from ..structure import Structure
 from ..gamma_phonons import GammaPhonons, FullPolarGammaPhonons
-from ..units import nm_to_ev
+from ..units import convert_frequency_energy_units, nm_to_ev
 
 from ..optics.response_function import DielectricFunction
 
@@ -49,8 +49,9 @@ class FiniteDisplacementRamanTensorCalculator:
         ----------
         ph_calc : GammaPhonons or PolarGammaPhonons
             Gamma-point phonon calculation.
-        step_size : float
-            Step size for displacements in sqrt(amu) Ang.
+        step_size : float, optional
+            Step size for displacements in sqrt(amu) Ang (default:
+            1.0e-2).
         prec : int, optional
             Precision of the central-difference scheme (defualt: 2).
         band_inds : {"all", "active"} or array_like, optional
@@ -275,7 +276,9 @@ class FiniteDisplacementRamanTensorCalculator:
 
         epss = DielectricFunction.align_energies(epss)
 
-        e = epss[0, 0].energy
+        e = convert_frequency_energy_units(
+            epss[0, 0].energy, epss[0, 0].energy_units, "ev"
+        )
 
         eps = np.zeros(epss.shape + (len(e), 3, 3), dtype=np.complex128)
 

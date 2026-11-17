@@ -18,9 +18,9 @@ from scipy.interpolate import interp1d
 from ..constants import ZERO_TOLERANCE
 
 from ..units import (
-    get_supported_frequency_units,
-    get_frequency_unit_text_label,
-    get_frequency_unit_plot_label,
+    get_supported_frequency_energy_units,
+    get_frequency_energy_unit_text_label,
+    get_frequency_energy_unit_plot_label,
 )
 
 from ..utility.diagonalisation import reorder_with_branch_tracking
@@ -31,8 +31,8 @@ from ..utility.diagonalisation import reorder_with_branch_tracking
 
 
 class ResponseFunction:
-    """Class for storing and working with general energy-dependent response
-    functions."""
+    """Class for storing and working with general energy-dependent
+    response functions."""
 
     def __init__(self, e, response_func, e_units="ev"):
         """Create a new instance of the `ResponseFunction` class.
@@ -40,7 +40,7 @@ class ResponseFunction:
         Parameters
         ----------
         e : float or array_like, optional
-            Energy in `e_units` (array shape: `(O,)`).
+            Frequencies in `e_units` (array shape: `(O,)`).
         response_func : array_like
             Response function (shape: `(O, D, D)`, `(D, D)` or `(O,)`).
         e_units : str, optional
@@ -82,7 +82,7 @@ class ResponseFunction:
 
         e_units = str(e_units).lower()
 
-        if e_units not in get_supported_frequency_units():
+        if e_units not in get_supported_frequency_energy_units():
             raise ValueError(f'e_units="{e_units}" are not supported.')
 
         e.flags.writeable = False
@@ -116,13 +116,13 @@ class ResponseFunction:
     @property
     def energy_unit_text_label(self):
         """str : Energy unit label suitable for plain-text output."""
-        return get_frequency_unit_text_label(self._e_units)
+        return get_frequency_energy_unit_text_label(self._e_units)
 
     @property
     def energy_unit_plot_label(self):
         """str : Energy unit label suitable for plotting (may contain
         TeX strings)."""
-        return get_frequency_unit_plot_label(self._e_units)
+        return get_frequency_energy_unit_plot_label(self._e_units)
 
     def eigenmodes(self, branch_tracking=True):
         """Diagonalise the response function and return the eigenmodes
@@ -220,15 +220,16 @@ class ResponseFunction:
                 # indicates a mistake.
 
                 raise ValueError(
-                    "All response functions must have the same energy_units."
+                    "All response functions must have the same "
+                    "energy_units."
                 )
 
         if e is None:
             # Default to matching the "common" range of energies with
             # the smallest step size.
 
-            e_min = max(f.energy.min() for f in response_funcs.flat)
-            e_max = min(f.energy.max() for f in response_funcs.flat)
+            e_min = max(r_f.energy.min() for r_f in response_funcs.flat)
+            e_max = min(r_f.energy.max() for r_f in response_funcs.flat)
 
             if np.isclose(e_min, e_max, atol=ZERO_TOLERANCE):
                 # Single energy.
@@ -247,8 +248,8 @@ class ResponseFunction:
                     "Failed to automatically determine a common set of "
                     "energies for interpolation - one or more response "
                     "functions may not be energy dependent, the "
-                    "ranges/steps may not overlap, or e may need to be "
-                    "manually specified."
+                    "the ranges/steps may not overlap, or e may need "
+                    "to be manually specified."
                 )
 
         # Generate a new set of DielectricFunction objects with the
@@ -257,29 +258,29 @@ class ResponseFunction:
         response_funcs_new = np.zeros_like(response_funcs, dtype=object)
 
         for idx in np.ndindex(*response_funcs.shape):
-            f = response_funcs[idx]
+            r_f = response_funcs[idx]
 
-            if len(f.energy) == len(e) and np.allclose(f.energy, e):
+            if len(r_f.energy) == len(e) and (np.allclose(r_f.energy, e)):
                 # Energies already aligned.
 
-                if type(f) == cls:
-                    response_funcs_new[idx] = f
+                if type(r_f) == cls:
+                    response_funcs_new[idx] = r_f
                 else:
                     response_funcs_new[idx] = cls(
                         e,
-                        f.response_function,
-                        e_units=f.energy_units,
+                        r_f.response_function,
+                        e_units=e_units,
                         **kwargs,
                     )
             else:
                 # Interpolation required.
 
                 interp_func = interp1d(
-                    f.energy, f.response_function, kind="linear", axis=0
+                    r_f.energy, r_f.response_function, kind="linear", axis=0
                 )
 
                 response_funcs_new[idx] = cls(
-                    e, interp_func(e), e_units=f.energy_units, **kwargs
+                    e, interp_func(e), e_units=e_units, **kwargs
                 )
 
         return response_funcs_new[0] if ret_scalar else response_funcs_new
@@ -291,8 +292,8 @@ class ResponseFunction:
 
 
 class DielectricFunction(ResponseFunction):
-    """Class for storing and working with energy-dependent 1D, 2D or 3D
-    dielectric functions."""
+    """Class for storing and working with frequency-dependent 1D, 2D or
+    3D dielectric functions."""
 
     epsilon_unit_text_label = r"\eps / \eps_0"
     r"""Units of \epsilon suitable for plain-text output."""
@@ -305,8 +306,8 @@ class DielectricFunction(ResponseFunction):
 
         Parameters
         ----------
-        e : float or array_like, optional
-            Energy in `e_units` (array shape: `(O,)`).
+        e : array_like
+            Energies in `e_units` (array shape: `(O,)`).
         eps : array_like
             Dielectric function in units of relative permittivity
             (shape: `(O, D, D)`, `(D, D)` or `(O,)`).
@@ -349,8 +350,6 @@ class DielectricFunction(ResponseFunction):
                     eps_re = self.epsilon[:, idx, idy].real
                     d[f"epsilon_re_{x}{y}"] = eps_re
 
-            for idx, x in enumerate(dim_labels):
-                for idy, y in enumerate(dim_labels):
                     eps_im = self.epsilon[:, idx, idy].imag
                     d[f"epsilon_im_{x}{y}"] = eps_im
 
@@ -363,11 +362,11 @@ class DielectricFunction(ResponseFunction):
 
         Parameters
         ----------
+        e : float or array_like, optional
+            Energies in `e_units` (array shape: `(O,)`, default: 0.0).
         eps_sc : complex or array_like
             Scalar dielectric function in units of relative permittivity
             (shape: `(O,)`).
-        e : float or array_like, optional
-            Energy in `e_units` (array shape: `(O,)`, default: 0.0).
         e_units : str, optional
             Units of `e` (default: "ev").
         d : int
@@ -393,14 +392,13 @@ class DielectricFunction(ResponseFunction):
 
     @staticmethod
     def from_upper_triangle(e, eps_tri, e_units="ev"):
-        """Construct a symmetric energy-dependent 3D dielectric
-        function from the six independent elements in the upper
-        triangle.
+        """Construct a symmetric energy-dependent 3D dielectric function
+        from the six independent elements in the upper triangle.
 
         Parameters
         ----------
         e : array_like
-            Energy in `e_units` (array shape: `(O,)`).
+            Energies in `e_units` (array shape: `(O,)`).
         eps_sc : array_like
             Independent elements of the dielectric function in units of
             relative permittivity (shape: `(6,)` or `(O, 6)`, order: xx,

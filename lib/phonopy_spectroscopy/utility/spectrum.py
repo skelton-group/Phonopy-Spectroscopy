@@ -20,7 +20,7 @@ from ..constants import ZERO_TOLERANCE
 
 
 def auto_range(
-    freqs, lws, f_range=None, f_res=None, f_pad_mult=5.0, f_res_min_pts=1000
+    freqs, lws, f_range=None, f_res=None, f_pad_mult=5.0, f_res_min_pts=500
 ):
     """Given a set of frequencies and linewidths, determine a suitable
     minimum/maximum frequency and resolution for simulating a spectrum.
@@ -40,7 +40,7 @@ def auto_range(
         linewidth (default: 5.0, ignored when `f_range` is set).
     f_res_min_pts : int, optional
         Minimum number of points between min/max frequency (default:
-        1000, ignored when `f_res` is set).
+        500, ignored when `f_res` is set).
 
     Returns
     -------
@@ -76,12 +76,16 @@ def auto_range(
 
     if f_res is None:
         # Choose the resolution to ensure at least f_res_min_pts between
-        # f_min and f_max. We estimate it to give f_res_min_pts, then
-        # round the result down to the nearest power of 10 to get a
-        # "nice" frequency spacing.
+        # f_min and f_max or to be 1/5 the narrowest non-zero linewidth.
+        # Once found, round down to an integer multiple of the nearest
+        # "floor" order of magnitude.
 
-        f_res = (f_max - f_min) / f_res_min_pts
-        f_res = np.power(10.0, np.floor(np.log10(f_res)))
+        min_lw = lws[lws > 100.0 * ZERO_TOLERANCE].min()
+
+        f_res = min((f_max - f_min) / f_res_min_pts, min_lw / 5.0)
+        f_mag = np.power(10.0, np.floor(np.log10(f_res)))
+
+        f_res = int(f_res // f_mag) * f_mag
 
     # If the range is being set automatically, "align" the minimum and
     # maximum to an order of magnitude.

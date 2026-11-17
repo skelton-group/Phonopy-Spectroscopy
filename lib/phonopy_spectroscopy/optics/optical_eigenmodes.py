@@ -19,7 +19,7 @@ from .spectrum import OpticalSpectrumBase
 
 from ..constants import ZERO_TOLERANCE, SPEED_OF_LIGHT, VACUUM_PERMITIVITY
 from ..instrument import SPPolarisation
-from ..units import convert_frequency_units
+from ..units import convert_frequency_energy_units
 
 # --------------------------
 # Optical properties/spectra
@@ -35,7 +35,7 @@ def optical_properties_from_epsilon(e, eps, e_units):
     Parameters
     ----------
     e : array_like
-        Frequencies (shape: `(O,)`).
+        Energies (shape: `(O,)`).
     eps : array_like
         Scalar dielectric function or array_like of dielectric functions
         in units of relative permittivity (shape: `(O, ...)`).
@@ -89,7 +89,7 @@ def optical_properties_from_epsilon(e, eps, e_units):
 
     # Convert e to rad.  THz and reshape to broadcast against eps.
 
-    e = convert_frequency_units(e, e_units, "rad_thz")
+    e = convert_frequency_energy_units(e, e_units, "rad_thz")
     e = e.reshape((len(e),) + (1,) * (eps.ndim - 1))
 
     # Complex refractive index.
@@ -263,7 +263,9 @@ class OpticalEigenmodes:
 
         if self._mode_n_t is None:
             n_t, a, s, l = optical_properties_from_epsilon(
-                self._eps.energy, self._mode_evals, self._eps.energy_units
+                self._eps.energy,
+                self._mode_evals,
+                self._eps.energy_units,
             )
 
             n_t.flags.writeable = False
@@ -300,7 +302,8 @@ class OpticalEigenmodes:
 
     @property
     def energy(self):
-        """numpy.ndarray : Energies in `energy_units` (shape: `(O,)`)."""
+        """numpy.ndarray : Energy in `energy_units` (shape:
+        `(O,)`)."""
         return self._eps.energy
 
     @property
@@ -318,7 +321,7 @@ class OpticalEigenmodes:
     def eigenvectors(self):
         """numpy.ndarray : Eigenvectors of the optical eigenmodes
         (shape: `(O, D, D)`) (column-major format - the `j`th
-        eigenvector at the `i`th frequency is
+        eigenvector at the `i`th energy is
         `epsilon_eigenvectors[i, :, j]`)."""
         return self._mode_evecs
 
@@ -364,10 +367,13 @@ class OpticalEigenmodes:
 
     @property
     def energy_unit_text_label(self):
+        """str : Energy unit label suitable for plain-text output."""
         return self._eps.energy_unit_text_label
 
     @property
     def energy_unit_plot_label(self):
+        """str : Energy unit label suitable for plotting (may contain
+        TeX strings)."""
         return self._eps.energy_unit_plot_label
 
     @property
@@ -396,7 +402,7 @@ class OpticalEigenmodes:
 
         self._lazy_init_optical_properties()
 
-        d = {"freq_energy": self.energy}
+        d = {"energy": self.energy}
 
         for i in range(self.num_dims):
             n = i + 1
@@ -550,7 +556,7 @@ class EigenmodeAverageOpticalSpectrum(OpticalSpectrumBase):
                 )
 
             if not np.allclose(ave_w.sum(axis=1), 1.0, atol=ZERO_TOLERANCE):
-                raise ValueError("ave_w at each frequency must sum to 1.")
+                raise ValueError("ave_w at each energy must sum to 1.")
         else:
             # Equal weight.
 

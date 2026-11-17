@@ -267,8 +267,7 @@ class TestRamanCalculationWorkflow(unittest.TestCase):
 
         file_path_template = os.path.join(
             _EXAMPLE_BASE_DIR_SNSE,
-            r"raman_ref",
-            r"vasprun-PBEsol+D3-DFPT-{0:0>4}-{1:0>2}.xml",
+            r"raman_ref/vasprun-{0:0>4}-{1:0>2}.xml",
         )
 
         file_list = generate_fd_raman_dielectric_input_file_list(

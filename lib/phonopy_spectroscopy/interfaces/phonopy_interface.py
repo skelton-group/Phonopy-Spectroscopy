@@ -99,6 +99,7 @@ def gamma_phonons_from_phono3py(
     lws_t=300.0,
     irreps_file=None,
     born_file=None,
+    eps_inf=None,
     allow_imag_evecs=False,
     **kwargs,
 ):
@@ -123,6 +124,9 @@ def gamma_phonons_from_phono3py(
     born_file : str, optional
         BORN file to read high-frequency dielectric constant \eps_inf
         and Born effective charges from (default: `None`).
+    eps_inf : array_like or None, optional
+        Override the \eps_inf from `born_file` (shape: `(3, 3)`,
+        default: `None`).
     allow_imag_evecs : bool, optional
         If `True`, allow imaginary eigenvectors (default: `False`).
     **kwargs : any, optional
@@ -221,13 +225,26 @@ def gamma_phonons_from_phono3py(
 
     t = lws_t if lws is not None else None
 
-    eps_inf, born_charges = None, None
+    if eps_inf is not None:
+        eps_inf = np.asanyarray(eps_inf, dtype=np.float64)
+
+        if eps_inf.shape != (3, 3):
+            raise ValueError(
+                "eps_inf must be an array_like with shape (3, 3)."
+            )
+
+    born_charges = None
 
     if born_file is not None:
         # If born_file is specified, read high-frequency dielectric
         # constant and Born charges.
 
-        eps_inf, born_charges = eps_inf_and_born_from_born(born_file, struct)
+        eps_inf_file, born_charges = eps_inf_and_born_from_born(
+            born_file, struct
+        )
+
+        if eps_inf is None:
+            eps_inf = eps_inf_file
 
     # Automatically return "best" GammaPhonons object depending on data.
 

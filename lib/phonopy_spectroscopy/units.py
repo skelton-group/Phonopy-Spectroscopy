@@ -100,11 +100,11 @@ def convert_distance_units(vals, unit_from, unit_to):
     return np.asanyarray(vals, dtype=np.float64) * factor
 
 
-# ---------------
-# Frequency units
-# ---------------
+# ----------------------
+# Frequency/energy units
+# ----------------------
 
-_FREQUENCY_UNIT_DATA = {
+_FREQUENCY_ENERGY_UNIT_DATA = {
     "thz": {
         "text_label": "v / THz",
         "plot_label": r"$\nu$ / THz",
@@ -136,29 +136,29 @@ _FREQUENCY_UNIT_DATA = {
         "to_thz": 1.0 / (THZ_TO_EV * 1000.0),
     },
 }
-"""Dictionary of supported frequency units and conversion factors
+"""Dictionary of supported frequency/energy units and conversion factors
 to/from the internal units of THz."""
 
 
-def get_supported_frequency_units():
-    """Return a list of supported frequency units.
+def get_supported_frequency_energy_units():
+    """Return a list of supported frequency/energy units.
 
     Returns
     -------
-    supported_units : list of str
-        List of supported frequency units.
+    supported_units : numpy.ndarray
+        Supported frequency/energy units.
     """
 
-    return [k for k in _FREQUENCY_UNIT_DATA.keys()]
+    return np.array([k for k in _FREQUENCY_ENERGY_UNIT_DATA.keys()], dtype=str)
 
 
-def get_frequency_unit_text_label(unit):
+def get_frequency_energy_unit_text_label(unit):
     """Return a label for `unit` suitable for text output.
 
     Parameters
     ----------
     unit : str
-        Frequency unit.
+        Frequency/energy unit.
 
     Returns
     -------
@@ -169,20 +169,20 @@ def get_frequency_unit_text_label(unit):
     if unit is not None:
         k = unit.lower()
 
-        if k in _FREQUENCY_UNIT_DATA:
-            return _FREQUENCY_UNIT_DATA[k]["text_label"]
+        if k in _FREQUENCY_ENERGY_UNIT_DATA:
+            return _FREQUENCY_ENERGY_UNIT_DATA[k]["text_label"]
 
-    raise ValueError(f'Unsupported frequency unit "{unit}".')
+    raise ValueError(f'Unsupported frequency/energy unit "{unit}".')
 
 
-def get_frequency_unit_plot_label(unit):
+def get_frequency_energy_unit_plot_label(unit):
     """Return a label for `unit` suitable for plotting, which may
     contain TeX strings.
 
     Parameters
     ----------
     unit : str
-        Frequency unit.
+        Frequency/energy unit.
 
     Returns
     -------
@@ -193,15 +193,15 @@ def get_frequency_unit_plot_label(unit):
     if unit is not None:
         k = unit.lower()
 
-        if k in _FREQUENCY_UNIT_DATA:
-            return _FREQUENCY_UNIT_DATA[k]["plot_label"]
+        if k in _FREQUENCY_ENERGY_UNIT_DATA:
+            return _FREQUENCY_ENERGY_UNIT_DATA[k]["plot_label"]
 
-    raise ValueError(f'Unsupported frequency unit "{unit}".')
+    raise ValueError(f'Unsupported frequency/energy unit "{unit}".')
 
 
-def get_frequency_unit_conversion_factor(unit_from, unit_to):
-    """Return a multiplicative convertion factor to convert frequencies
-    in `units_from` to `units_to`.
+def get_frequency_energy_unit_conversion_factor(unit_from, unit_to):
+    """Return a multiplicative convertion factor to convert
+    frequencies/energies in `units_from` to `units_to`.
 
     Parameters
     ----------
@@ -216,24 +216,24 @@ def get_frequency_unit_conversion_factor(unit_from, unit_to):
 
     unit_from = unit_from.lower()
 
-    if unit_from not in _FREQUENCY_UNIT_DATA:
+    if unit_from not in _FREQUENCY_ENERGY_UNIT_DATA:
         raise ValueError(f'Unsupported unit_from "{unit_from}".')
 
     unit_to = unit_to.lower()
 
-    if unit_to not in _FREQUENCY_UNIT_DATA:
+    if unit_to not in _FREQUENCY_ENERGY_UNIT_DATA:
         raise ValueError(f'Unsupported unit_to "{unit_to}".')
 
     # Determine conversion factor.
 
     return (
-        _FREQUENCY_UNIT_DATA[unit_from]["to_thz"]
-        * _FREQUENCY_UNIT_DATA[unit_to]["from_thz"]
+        _FREQUENCY_ENERGY_UNIT_DATA[unit_from]["to_thz"]
+        * _FREQUENCY_ENERGY_UNIT_DATA[unit_to]["from_thz"]
     )
 
 
-def convert_frequency_units(vals, unit_from, unit_to):
-    """Convert frequencies in `unit_from` to `unit_to`.
+def convert_frequency_energy_units(vals, unit_from, unit_to):
+    """Convert frequencies/energies in `unit_from` to `unit_to`.
 
     Parameters
     ----------
@@ -248,7 +248,7 @@ def convert_frequency_units(vals, unit_from, unit_to):
         Converted values (same shape as `vals`).
     """
 
-    factor = get_frequency_unit_conversion_factor(unit_from, unit_to)
+    factor = get_frequency_energy_unit_conversion_factor(unit_from, unit_to)
     return factor * np.asanyarray(vals)
 
 

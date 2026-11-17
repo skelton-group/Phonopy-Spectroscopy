@@ -1084,11 +1084,12 @@ class FullPolarGammaPhonons(PolarGammaPhonons):
                 evals_new.imag / np.sqrt(evals_new.real.astype(np.complex128))
             ) * VASP_TO_THZ
 
-            # If we have imaginary modes the linewidths could acquire
-            # a significant complex component, which is unphysical and
-            # will cause problems in downstream calculations. This needs
-            # a looser tolerance than the default ZERO_TOLERANCE to
-            # avoid spurious warnings from acoustic modes.
+            # If there are imaginary modes the linewidths could acquire
+            # a significant complex component. This is unphysical and
+            # will cause problems in downstream calculations.
+
+            # The linewidths of the acoustic modes may also be slightly
+            # negative due to numerical noise.
 
             lws_new = np.real_if_close(lws_new, tol=(100.0 * ZERO_TOLERANCE))
 
@@ -1101,6 +1102,18 @@ class FullPolarGammaPhonons(PolarGammaPhonons):
                 )
 
                 lws_new = lws_new.real
+
+            mask = lws_new < 0.0
+
+            lws_new = np.abs(lws_new)
+
+            if (lws_new[mask] > 100.0 * ZERO_TOLERANCE).any():
+                warnings.warn(
+                    "One or more NAC-corrected linewidths are negative "
+                    "and will be converted to their absolute values. "
+                    f"(max. abs. = {-1.0 * lws_new[mask].max():.3e}).",
+                    RuntimeWarning,
+                )
 
         # evecs_new is in column-major format -> reorder columns,
         # transpose to row-major format, then reshape to (3N, N, 3).

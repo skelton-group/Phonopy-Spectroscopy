@@ -21,7 +21,7 @@ from ..constants import (
 
 from ..distributions import lorentz_oscillator
 from ..optics.response_function import DielectricFunction
-from ..units import convert_frequency_units
+from ..units import convert_frequency_energy_units
 
 from ..utility.numpy_helper import atleast_3d
 from ..utility.spectrum import auto_range
@@ -33,7 +33,7 @@ from ..utility.spectrum import auto_range
 
 class InfraredDielectricFunction(DielectricFunction):
     """Class for generating simulated infrared dielectric functions
-    from sets of frequencies, mode oscillator strengths and linewidths.
+    from sets of mode energies, oscillator strengths and linewidths.
     """
 
     mode_oscillator_strength_unit_text_label = "e^2 amu^-1"
@@ -42,24 +42,24 @@ class InfraredDielectricFunction(DielectricFunction):
 
     def __init__(
         self,
-        freqs,
+        energies,
         osc_strs,
         lws,
         cell_volume,
         eps_inf,
         irreps=None,
         ir_syms="?",
-        f_units="thz",
-        f_range=None,
-        f_res=None,
+        e_units="thz",
+        e_range=None,
+        e_res=None,
     ):
         """Create a new instance of the `InfraredDielectricFunction`
         class.
 
         Parameters
         ----------
-        freqs : array_like
-            Frequencies in THz (shape: `(N,)`).
+        energies : array_like
+            Mode energies (frequencies) in THz (shape: `(N,)`).
         osc_strs : array_like
             Dipole oscillator strengths in e^2 amu^-1 (shape:
             `(N, 3, 3)`) .
@@ -73,17 +73,19 @@ class InfraredDielectricFunction(DielectricFunction):
         ir_syms : scalar, array_like or None, optional
             Irrep symbols of the bands included in the spectrum (scalar
             or shape: `(N,)`, default: "?").
-        f_units : str
-            Frequency units (default: "thz").
-        f_range : tuple of float, optional
+        e_units : str
+            Energy units (default: "thz").
+        e_range : tuple of float, optional
             `(min, max)` for simulated dielectric function (default:
             automatic).
-        f_res : float, optional
+        e_res : float, optional
             Resolution of simulated dielectric function (default:
             automatic).
         """
 
-        freqs = np.atleast_1d(np.array(freqs, dtype=np.float64, copy=True))
+        energies = np.atleast_1d(
+            np.array(energies, dtype=np.float64, copy=True)
+        )
 
         osc_strs = atleast_3d(
             np.array(osc_strs, dtype=np.complex128, copy=True)
@@ -93,9 +95,9 @@ class InfraredDielectricFunction(DielectricFunction):
 
         # Broadcast freqs, osc_strs and lws to a common N.
 
-        n = max(len(freqs), osc_strs.shape[0], len(lws))
+        n = max(len(energies), osc_strs.shape[0], len(lws))
 
-        freqs = np.broadcast_to(freqs, (n,))
+        energies = np.broadcast_to(energies, (n,))
         osc_strs = np.broadcast_to(osc_strs, (n, 3, 3))
         lws = np.broadcast_to(lws, (n,))
 
@@ -105,12 +107,12 @@ class InfraredDielectricFunction(DielectricFunction):
 
         osc_strs = np.real_if_close(osc_strs, tol=ZERO_TOLERANCE)
 
-        # If irreps are supplied, average frequencies/linewidths and sum
+        # If irreps are supplied, average energies/linewidths and sum
         # mode oscillator strengths.
 
         if irreps is not None:
-            # "Reduce" N -> M bands by averaging
-            # frequencies/linewidths and summing intensities.
+            # "Reduce" N -> M bands by averaging energies/linewidths and
+            # summing intensities.
 
             inds = irreps.irrep_band_indices
             ir_syms = np.copy(irreps.irrep_symbols)
@@ -124,16 +126,16 @@ class InfraredDielectricFunction(DielectricFunction):
 
             m = len(ir_syms)
 
-            freqs_new = np.zeros((m,), dtype=np.float64)
+            energies_new = np.zeros((m,), dtype=np.float64)
             osc_strs_new = np.zeros((m, 3, 3), dtype=np.float64)
             lws_new = np.zeros((m,), dtype=np.float64)
 
             for idx in np.unique(inds):
-                freqs_new[idx] = np.mean(freqs[inds == idx])
+                energies_new[idx] = np.mean(energies[inds == idx])
                 osc_strs_new[idx] = osc_strs[inds == idx].sum(axis=0)
                 lws_new[idx] = np.mean(lws[inds == idx])
 
-            freqs, osc_strs, lws = freqs_new, osc_strs_new, lws_new
+            energies, osc_strs, lws = energies_new, osc_strs_new, lws_new
         else:
             # Broadcast ir_syms against N.
 
@@ -151,51 +153,54 @@ class InfraredDielectricFunction(DielectricFunction):
                 "eps_inf must be an array_like with shape (3, 3)."
             )
 
+        # Convert units but keep the originals in THz to avoid
+        # converting back again for lorentz_oscillator.
+
+        energies_thz, lws_thz = energies, lws
+
+        energies = convert_frequency_energy_units(energies, "thz", e_units)
+        lws = convert_frequency_energy_units(lws, "thz", e_units)
+
         # Determine energy axis range.
 
         (e_min, e_max), e_res = auto_range(
-            freqs,
+            energies,
             lws,
-            f_range=f_range,
-            f_res=f_res,
-            f_pad_mult=5.0,
-            f_res_min_pts=1000,
+            f_range=e_range,
+            f_res=e_res,
         )
 
         e = np.arange(e_min, e_max + e_res / 10.0, e_res)
+        e_thz = convert_frequency_energy_units(e, e_units, "thz")
 
-        eps = lorentz_oscillator(e, osc_strs, freqs, lws).sum(axis=0)
+        eps = lorentz_oscillator(e_thz, osc_strs, energies_thz, lws_thz).sum(
+            axis=0
+        )
+
         eps *= VASP_INFRARED_DIELECTIC_TO_RELATIVE_PERMITTIVITY / cell_volume
         eps += eps_inf
 
-        # Convert units.
-
-        freqs = convert_frequency_units(freqs, "thz", f_units)
-        lws = convert_frequency_units(lws, "thz", f_units)
-
-        e = convert_frequency_units(e, "thz", f_units)
-
-        super().__init__(e, eps, e_units=f_units)
+        super().__init__(e, eps, e_units=e_units)
 
         # Store additional data.
 
-        freqs.flags.writeable = False
+        energies.flags.writeable = False
         osc_strs.flags.writeable = False
         lws.flags.writeable = False
         ir_syms.flags.writeable = False
         eps_inf.flags.writeable = False
 
-        self._freqs = freqs
+        self._energies = energies
         self._osc_strs = osc_strs
         self._lws = lws
         self._ir_syms = ir_syms
         self._eps_inf = eps_inf
 
     @property
-    def mode_frequencies(self):
-        """numpy.ndarray : Mode frequencies in `energy_units`
-        (shape: `(N,)`)."""
-        return self._freqs
+    def mode_energies(self):
+        """numpy.ndarray : Mode energies in `energy_units` (shape:
+        `(N,)`)."""
+        return self._energies
 
     @property
     def mode_oscillator_strengths(self):
@@ -220,30 +225,6 @@ class InfraredDielectricFunction(DielectricFunction):
         (shape: `(3, 3)`)."""
         return self._eps_inf
 
-    @property
-    def frequency(self):
-        """numpy.ndarray : Frequencies in `frequency_units` (alias for
-        base class `energy`)."""
-        return self.energy
-
-    @property
-    def frequency_units(self):
-        """str : Frequency units (alias for base class `energy_units`)."""
-        return self.energy_units
-
-    @property
-    def frequency_unit_text_label(self):
-        """str : Frequency unit label suitable for plain-text output
-        (alias for base class `energy_unit_text_label`)."""
-        return self.energy_unit_text_label
-
-    @property
-    def frequency_unit_plot_label(self):
-        """str : Frequency unit label suitable for plotting (may contain
-        TeX strings, alias for base class `frequency_unit_plot_label`).
-        """
-        return self.energy_unit_plot_label
-
     def peak_table(self):
         """Return the peak table as a Pandas `DataFrame`.
 
@@ -253,7 +234,7 @@ class InfraredDielectricFunction(DielectricFunction):
             `DataFrame` containing the peak table.
         """
 
-        d = {"freq_energy": self._freqs}
+        d = {"energy": self._energies}
 
         osc_str = self._osc_strs
 

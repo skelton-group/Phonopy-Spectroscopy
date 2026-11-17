@@ -162,9 +162,9 @@ def effective_dielectric_function(
 
     epss = DielectricFunction.align_energies(epss, e=None)
 
-    # All dielectric functions should now have the same energies.
+    # All dielectric functions should now have the same frequencies.
 
-    e = epss[0].energy
+    f = epss[0].frequency
 
     fracs = fracs[:, np.newaxis, np.newaxis]
     ident = np.identity(3, dtype=np.float64)[np.newaxis, :, :]
@@ -175,17 +175,17 @@ def effective_dielectric_function(
     global_num_non_conv = 0
 
     # Temporary array to store \eps tenosrs of components at current
-    # energy.
+    # frequency.
 
     eps_cmp = np.zeros((len(epss), 3, 3), dtype=np.complex128)
 
     for idx in range(len(e)):
-        # Update eps_temp with component tensors at current energy.
+        # Update eps_temp with component tensors at current frequeny.
 
         for i, eps in enumerate(epss):
             eps_cmp[i] = eps.epsilon[idx]
 
-        # For first energy, set initial guess for eps_eff to weighted
+        # For first frequency, set initial guess for eps_eff to weighted
         # average of component tensors. For subsequent energies, use the
         # previous converged eps_eff as the initial guess.
 
@@ -194,7 +194,7 @@ def effective_dielectric_function(
         else:
             eps_eff[idx] = eps_eff[idx - 1]
 
-        # Track convergence at current energy.
+        # Track convergence at current frequency.
 
         max_diff = None
 
@@ -242,4 +242,4 @@ def effective_dielectric_function(
             RuntimeWarning,
         )
 
-    return DielectricFunction(eps_eff, e, e_units=epss[0].energy_units)
+    return DielectricFunction(f, eps_eff, e_units=epss[0].frequency_units)

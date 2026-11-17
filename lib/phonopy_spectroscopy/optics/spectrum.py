@@ -15,6 +15,12 @@ import abc
 import numpy as np
 import pandas as pd
 
+from ..units import (
+    get_supported_frequency_energy_units,
+    get_frequency_energy_unit_text_label,
+    get_frequency_energy_unit_plot_label,
+)
+
 # -------------------------
 # OpticalSpectrumBase class
 # -------------------------
@@ -29,7 +35,7 @@ class OpticalSpectrumBase(abc.ABC):
         Parameters
         ----------
         e : array_like
-            Energies in `e_units` (shape: `(O,)`).
+            Frequencies in `e_units` (shape: `(O,)`).
         t : float
             Thickness (path length) in mm (default: 1 mm).
         n_f, n_b : float, optional
@@ -42,10 +48,13 @@ class OpticalSpectrumBase(abc.ABC):
         e = np.atleast_1d(np.array(e, dtype=np.float64, copy=True))
 
         if e.ndim > 1 or len(e) == 0:
-            raise ValueError("e must be an array_like with shape (O,).")
+            raise ValueError("f must be an array_like with shape (O,).")
 
         if t <= 0.0:
             raise ValueError("t must be > 0.")
+
+        if e_units not in get_supported_frequency_energy_units():
+            raise ValueError(f'f_units="{e_units}" are not supported.')
 
         e.flags.writeable = False
 
@@ -111,7 +120,7 @@ class OpticalSpectrumBase(abc.ABC):
 
     @property
     def energy(self):
-        """numpy.ndarray : Energy in `e_units` (shape: `(O,)`)."""
+        """numpy.ndarray : Energies in `e_units` (shape: `(O,)`)."""
         return self._e
 
     @property
@@ -133,6 +142,17 @@ class OpticalSpectrumBase(abc.ABC):
     def energy_units(self):
         """str : Energy units."""
         return self._e_units
+
+    @property
+    def energy_unit_text_label(self):
+        """str : Energy unit label suitable for plain-text output."""
+        return get_frequency_energy_unit_text_label(self._e_units)
+
+    @property
+    def energy_unit_plot_label(self):
+        """str : Energy unit label suitable for plotting (may contain
+        TeX strings)."""
+        return get_frequency_energy_unit_plot_label(self._e_units)
 
     @property
     def single_reflectivity(self):

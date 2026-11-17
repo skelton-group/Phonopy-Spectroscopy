@@ -146,19 +146,19 @@ class TestInfraredSimulation(unittest.TestCase):
         e_step = np.mean(e[1:] - e[:-1])
 
         eps_ir = calc_new.dielectric_function(
-            lw=(2.0 * e_step), f_range=(e[0], e[-1]), f_res=e_step, nac=False
+            lw=(2.0 * e_step), e_range=(e[0], e[-1]), e_res=e_step, nac=False
         )
 
         # VASP does not include \eps_inf in its calculated dielectric
         # function.
 
-        eps_e = eps_ir.epsilon - eps_ir.epsilon_inf[np.newaxis, :, :]
+        eps_f = eps_ir.epsilon - eps_ir.epsilon_inf[np.newaxis, :, :]
 
-        # The diagonal components have some slight frequency shifts and
+        # The diagonal components have some slight energy shifts and
         # differences in magnitude, both of which are expected, but are
         # otherwise visually very similar. We compare the real and
         # imaginary parts separately by using scipy.signal.find_peaks to
-        # compare: (1) the number of peaks; (2) the absolute frequency
+        # compare: (1) the number of peaks; (2) the absolute energy
         # shifts; and (3) and the differences in magnitude relative to
         # the highest feature in the reference.
 
@@ -166,19 +166,22 @@ class TestInfraredSimulation(unittest.TestCase):
         ints_tol = 5.0e-2
 
         for i in range(3):
-            for f, f_ref in [
-                (eps_e.real[:, i, i], eps_e_ref.real[:, i, i]),
-                (eps_e.imag[:, i, i], eps_e_ref.imag[:, i, i]),
+            for eps_ii, eps_ii_ref in [
+                (eps_f.real[:, i, i], eps_e_ref.real[:, i, i]),
+                (eps_f.imag[:, i, i], eps_e_ref.imag[:, i, i]),
             ]:
-                inds, _ = find_peaks(f)
-                inds_ref, _ = find_peaks(f_ref)
+                inds, _ = find_peaks(eps_ii)
+                inds_ref, _ = find_peaks(eps_ii_ref)
 
                 self.assertTrue(len(inds) == len(inds_ref))
 
                 for idx, idx_ref in zip(inds, inds_ref):
                     self.assertTrue(np.abs(e[idx] - e[idx_ref]) < freq_tol)
 
-                    scale = np.abs((f[idx] - f_ref[idx_ref]) / f_ref.max())
+                    scale = np.abs(
+                        (eps_ii[idx] - eps_ii_ref[idx_ref]) / eps_ii_ref.max()
+                    )
+
                     self.assertTrue(scale < ints_tol)
 
         # The off-diagonal components should be close to zero and
@@ -188,7 +191,7 @@ class TestInfraredSimulation(unittest.TestCase):
 
         for i1, i2 in inds:
             self.assertTrue(
-                np.allclose(eps_e[:, i1, i2], eps_e_ref[:, i1, i2])
+                np.allclose(eps_f[:, i1, i2], eps_e_ref[:, i1, i2])
             )
 
     def test_single_crystal_eigenmode_projection(self):
@@ -199,18 +202,18 @@ class TestInfraredSimulation(unittest.TestCase):
 
         eps_ir = calc.dielectric_function(nac=False)
 
-        # Ensure the frequency/energy axes of subsequent simulations
-        # match the "base" dielectric function.
+        # Ensure the energy axes of subsequent simulations match the
+        # "base" dielectric function.
 
-        f_range = (eps_ir.frequency[0], eps_ir.frequency[-1])
-        f_res = np.mean(eps_ir.frequency[1:] - eps_ir.frequency[:-1])
+        e_range = (eps_ir.energy[0], eps_ir.energy[-1])
+        e_res = np.mean(eps_ir.energy[1:] - eps_ir.energy[:-1])
 
         # The three optical eigenmodes should be orthogonal, each should
         # be aligned to one of the Cartesian directions, and the
         # eigenvalues should be equal to the diagonal components of the
         # "source" dielectric function.
 
-        oes = calc.optical_eigenmodes(f_range=f_range, f_res=f_res)
+        oes = calc.optical_eigenmodes(e_range=e_range, e_res=e_res)
 
         oe_evecs_row = oes.eigenvectors.swapaxes(1, 2)
 
@@ -251,7 +254,7 @@ class TestInfraredSimulation(unittest.TestCase):
             )
 
             sp = calc.incoherent_single_crystal_on_axis_spectrum(
-                hkl, i_pol=i_pol, t=1.0e-3, f_range=f_range, f_res=f_res
+                hkl, i_pol=i_pol, t=1.0e-3, e_range=e_range, e_res=e_res
             )
 
             self.assertTrue(

@@ -29,10 +29,10 @@ from ..distributions import lorentzian, phonon_occupation_number
 from ..irreps import Irreps
 
 from ..units import (
-    convert_frequency_units,
+    convert_frequency_energy_units,
     nm_to_thz,
-    get_frequency_unit_text_label,
-    get_frequency_unit_plot_label,
+    get_frequency_energy_unit_text_label,
+    get_frequency_energy_unit_plot_label,
 )
 
 from ..utility.spectrum import auto_range
@@ -56,7 +56,7 @@ cross sections in Ang^2 / sr."""
 
 
 def adjust_band_params_for_spectrum_type(
-    freqs, ints, lws, ir_syms=None, sp_type="stokes"
+    shifts, ints, lws, ir_syms=None, sp_type="stokes"
 ):
     """Adjust band frequencies, intensities, linewidths and, optionally,
     irreps for different types of Raman spectra.
@@ -78,7 +78,7 @@ def adjust_band_params_for_spectrum_type(
     Returns
     -------
     params : tuple of (numpy.ndarray or None)
-        `(freqs, ints, lws, irreps)` tuple with input data adjusted for
+        `(shifts, ints, lws, irreps)` tuple with input data adjusted for
         `sp_type` and broadcast to a common shape.
 
     Notes
@@ -89,7 +89,7 @@ def adjust_band_params_for_spectrum_type(
     """
 
     ints = np.asanyarray(ints)
-    freqs = np.asanyarray(freqs)
+    shifts = np.asanyarray(shifts)
 
     if lws is not None:
         lws = np.asanyarray(lws)
@@ -106,7 +106,7 @@ def adjust_band_params_for_spectrum_type(
         case "anti-stokes":
             # Negate frequencies and reverse band ordering.
 
-            freqs = -1.0 * freqs[..., ::-1]
+            shifts = -1.0 * shifts[..., ::-1]
             ints = ints[..., ::-1]
 
             if lws is not None:
@@ -119,16 +119,18 @@ def adjust_band_params_for_spectrum_type(
             # Concatenate stokes/anti-Stokes data. For this, we need at
             # least 1D arrays.
 
-            freqs, ints = np.atleast_1d(freqs, ints)
+            shifts, ints = np.atleast_1d(shifts, ints)
 
-            if (freqs < 0.0).any():
+            if (shifts < 0.0).any():
                 warnings.warn(
                     "Imaginary frequencies may give unexpected results for "
                     'sp_type="both".',
                     RuntimeWarning,
                 )
 
-            freqs = np.concatenate((-1.0 * freqs[..., ::-1], freqs), axis=-1)
+            shifts = np.concatenate(
+                (-1.0 * shifts[..., ::-1], shifts), axis=-1
+            )
             ints = np.concatenate((ints[..., ::-1], ints), axis=-1)
 
             if lws is not None:
@@ -150,27 +152,27 @@ def adjust_band_params_for_spectrum_type(
     ints_shape = ints.shape
 
     return (
-        np.broadcast_to(freqs, ints_shape),
+        np.broadcast_to(shifts, ints_shape),
         ints,
         np.broadcast_to(lws, ints_shape) if lws is not None else None,
         np.broadcast_to(ir_syms, ints_shape) if ir_syms is not None else None,
     )
 
 
-def intensities_to_cross_sections(f, i, w, t, f_units="thz"):
+def intensities_to_cross_sections(s, i, w, t, s_units="thz"):
     """Convert "raw" Raman intensities in Ang^4 / amu to differential
     cross sections in Ang^2 / sr.
 
     Parameters
     ----------
-    f : scalar or array_like
-        Frequencies in `f_units` (scalar or shape: `(..., O)`).
+    s : scalar or array_like
+        Raman shifts in `s_units` (scalar or shape: `(..., O)`).
     i : scalar or array_like
         Intensities in Ang^4 / amu (scalar or shape: `(..., O)`).
     w, t : float
         Measurement wavelength in nm and temperature in K.
-    f_units : str, optional
-        Units of `f` (default: "thz").
+    s_units : str, optional
+        Units of `s` (default: "thz").
 
     Returns
     -------
@@ -179,7 +181,7 @@ def intensities_to_cross_sections(f, i, w, t, f_units="thz"):
 
     Notes
     -----
-    `f` must be broadcastable to the same shape as `i`.
+    `s` must be broadcastable to the same shape as `i`.
     """
 
     if w <= 0.0 or t <= 0.0:
@@ -189,8 +191,9 @@ def intensities_to_cross_sections(f, i, w, t, f_units="thz"):
 
     # Convert x to THz and broadcast against y.
 
-    f = np.broadcast_to(
-        convert_frequency_units(np.asanyarray(f), f_units, "thz"), i.shape
+    s = np.broadcast_to(
+        convert_frequency_energy_units(np.asanyarray(s), s_units, "thz"),
+        i.shape,
     )
 
     # Power modulation.
@@ -198,14 +201,14 @@ def intensities_to_cross_sections(f, i, w, t, f_units="thz"):
     f_i = nm_to_thz(w)
 
     scale = _RAMAN_INTENSITY_PREFACTOR * (
-        ((1.0e12 * (f_i - f)) ** 4) / (1.0e12 * np.abs(f))
+        ((1.0e12 * (f_i - s)) ** 4) / (1.0e12 * np.abs(s))
     )
 
     # Temperature modulation.
 
-    n = phonon_occupation_number(np.abs(f), t)
+    n = phonon_occupation_number(np.abs(s), t)
 
-    t_w = np.where(f >= 0.0, n + 1.0, n)
+    t_w = np.where(s >= 0.0, n + 1.0, n)
 
     return i * scale * t_w
 
@@ -269,7 +272,7 @@ class NDRamanSpectrum:
         sp_type : {"stokes", "anti-stokes", "both"}, optional
             Spectrum type (default: "stokes").
         sp_units : str, optional
-            Frequency units of simulated spectrum (default: "thz").
+            Raman shift units of simulated spectrum (default: "thz").
         sp_range : tuple of float, optional
             `(min, max)` for simulated spectrum (default: automatic).
         sp_res : float, optional
@@ -336,15 +339,15 @@ class NDRamanSpectrum:
 
         sp_units = str(sp_units).lower()
 
-        freqs = convert_frequency_units(freqs, "thz", sp_units)
-        lws = convert_frequency_units(lws, "thz", sp_units)
+        freqs = convert_frequency_energy_units(freqs, "thz", sp_units)
+        lws = convert_frequency_energy_units(lws, "thz", sp_units)
 
         # adjust_band_params_for_spectrum_type() checks sp_type and
         # handles shape matching via broadcasting.
 
         sp_type = str(sp_type).lower()
 
-        freqs, ints, lws, ir_syms = adjust_band_params_for_spectrum_type(
+        shifts, ints, lws, ir_syms = adjust_band_params_for_spectrum_type(
             freqs, ints, lws, ir_syms, sp_type=sp_type
         )
 
@@ -390,16 +393,14 @@ class NDRamanSpectrum:
         # Set frequency grid for simulating spectra. auto_range() will
         # check and use sp_range and sp_res if set.
 
-        (f_min, f_max), f_res = auto_range(
-            freqs,
+        (s_min, s_max), s_res = auto_range(
+            shifts,
             lws,
             f_range=sp_range,
             f_res=sp_res,
-            f_pad_mult=5.0,
-            f_res_min_pts=1000,
         )
 
-        f = np.arange(f_min, f_max + f_res / 10.0, f_res)
+        s = np.arange(s_min, s_max + s_res / 10.0, s_res)
 
         # Mark arrays/views as readonly.
 
@@ -412,9 +413,9 @@ class NDRamanSpectrum:
             or_a.flags.writeable = False
             or_w.flags.writeable = False
 
-        f.flags.writeable = False
+        s.flags.writeable = False
 
-        self._band_freqs = freqs
+        self._band_shifts = freqs
         self._band_ints = ints
         self._band_lws = lws
         self._band_ir_syms = ir_syms
@@ -428,10 +429,10 @@ class NDRamanSpectrum:
         self._or_a = or_a
         self._or_w = or_w
 
-        self._f = f
+        self._s = s
         self._xs = None
 
-        self._f_units = sp_units
+        self._s_units = sp_units
 
     def _lazy_set_band_x_sects(self):
         """Compute band cross sections and set the _band_xs field on
@@ -439,11 +440,11 @@ class NDRamanSpectrum:
 
         if self._band_xs is None:
             band_xs = intensities_to_cross_sections(
-                self._band_freqs,
+                self._band_shifts,
                 self._band_ints,
                 self._w,
                 self._t,
-                f_units=self._f_units,
+                s_units=self._s_units,
             )
 
             band_xs.flags.writeable = False
@@ -460,9 +461,9 @@ class NDRamanSpectrum:
             # second-to-last axis to sum the spectra over bands.
 
             xs = lorentzian(
-                self._f,
+                self._s,
                 self._band_ints,
-                self._band_freqs,
+                self._band_shifts,
                 self._band_lws,
             ).sum(axis=-2)
 
@@ -473,7 +474,7 @@ class NDRamanSpectrum:
                 xs = np.average(xs, axis=-2, weights=self._or_w)
 
             xs = intensities_to_cross_sections(
-                self._f, xs, self._w, self._t, f_units=self._f_units
+                self._s, xs, self._w, self._t, s_units=self._s_units
             )
 
             xs.flags.writeable = False
@@ -525,7 +526,7 @@ class NDRamanSpectrum:
     @property
     def band_raman_shifts(self):
         """numpy.ndarray : Band Raman shifts (shape: `(..., N)`)."""
-        return self._band_freqs
+        return self._band_shifts
 
     @property
     def band_intensities(self):
@@ -581,7 +582,7 @@ class NDRamanSpectrum:
     def raman_shift(self):
         """numpy.ndarray : Raman shifts in `frequency_units` (shape:
         `(O,)`)."""
-        return self._f
+        return self._s
 
     @property
     def cross_section(self):
@@ -592,9 +593,9 @@ class NDRamanSpectrum:
         return self._xs
 
     @property
-    def frequency_units(self):
-        """str : Frequency units."""
-        return self._f_units
+    def raman_shift_units(self):
+        """str : Raman shift units."""
+        return self._s_units
 
     @property
     def orientation_average(self):
@@ -610,18 +611,18 @@ class NDRamanSpectrum:
         return d - 2 if self.orientation_average else d - 1
 
     @property
-    def frequency_unit_text_label(self):
-        """str : Frequency unit label suitable for plain-text output."""
-        return get_frequency_unit_text_label(self._f_units)
+    def raman_shift_unit_text_label(self):
+        """str : Raman shift unit label suitable for plain-text output."""
+        return get_frequency_energy_unit_text_label(self._s_units)
 
     @property
-    def frequency_unit_plot_label(self):
-        """str : Frequency unit label suitable for plotting (may contain
-        TeX strings)."""
-        return get_frequency_unit_plot_label(self._f_units)
+    def raman_shift_unit_plot_label(self):
+        """str : Raman shift unit label suitable for plotting (may
+        contain TeX strings)."""
+        return get_frequency_energy_unit_plot_label(self._s_units)
 
     def peak_table(self, or_stack=True):
-        """Generate a peak table with the band frequencies,
+        """Generate a peak table with the band Raman shifts,
         intensities/cross sections, linewidths and irrep symbols as a
         Pandas `DataFrame`.
 
@@ -692,7 +693,7 @@ class NDRamanSpectrum:
         return pd.DataFrame(data)
 
     def spectrum(self):
-        """Return the simulated spectrum as a Pandas `DataFrame`.
+        """Return the simulated spectra as a Pandas `DataFrame`.
 
         Returns
         -------
@@ -807,13 +808,13 @@ class NDRamanSpectrum:
                         "(not) be an orientational average."
                     )
 
-        f_min, f_max = self._f.min(), self._f.max()
-        f_res = np.mean(self._f[1:] - self._f[:-1])
+        f_min, f_max = self._s.min(), self._s.max()
+        f_res = np.mean(self._s[1:] - self._s[:-1])
 
         f_min = f_res * np.floor(f_min / f_res)
         f_max = f_res * np.ceil(f_max / f_res)
 
-        s = (len(spectra) + 1,) + self._band_freqs.shape
+        s = (len(spectra) + 1,) + self._band_shifts.shape
 
         freqs = np.zeros(s, dtype=np.float64)
         ints = np.zeros(s, dtype=np.float64)
@@ -821,14 +822,14 @@ class NDRamanSpectrum:
         ir_syms = np.zeros(s, dtype=str)
 
         for i, sp in enumerate((self,) + spectra):
-            freqs[i] = convert_frequency_units(
-                sp.band_raman_shifts, sp.frequency_units, "thz"
+            freqs[i] = convert_frequency_energy_units(
+                sp.band_raman_shifts, sp.raman_shift_units, "thz"
             )
 
             ints[i] = sp.band_intensities
 
-            lws[i] = convert_frequency_units(
-                sp.band_linewidths, sp.frequency_units, "thz"
+            lws[i] = convert_frequency_energy_units(
+                sp.band_linewidths, sp.raman_shift_units, "thz"
             )
 
             ir_syms[i] = sp.band_irrep_symbols
@@ -845,7 +846,7 @@ class NDRamanSpectrum:
                 lws = lws[..., ::-1]
                 ir_syms = ir_syms[..., ::-1]
             case "both":
-                idx = self._band_freqs.shape[-1] // 2
+                idx = self._band_shifts.shape[-1] // 2
 
                 freqs = freqs[..., idx:]
                 ints = ints[..., idx:]
@@ -861,7 +862,7 @@ class NDRamanSpectrum:
             sp_type = self._sp_type
 
         if sp_units is None:
-            sp_units = self._f_units
+            sp_units = self._s_units
 
         return NDRamanSpectrum(
             freqs,

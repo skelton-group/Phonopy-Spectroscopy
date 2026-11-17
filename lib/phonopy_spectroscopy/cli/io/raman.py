@@ -12,9 +12,6 @@
 
 import numpy as np
 
-from scipy.interpolate import interp1d
-
-from ...constants import ZERO_TOLERANCE
 from ...interfaces.vasp_interface import dielectric_from_vasprun_xml
 
 # ----------------

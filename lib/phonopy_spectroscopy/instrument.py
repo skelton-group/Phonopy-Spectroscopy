@@ -729,23 +729,79 @@ class SPPolarisation(PolarisationBase):
             \hat{p} = \hat{s} \times \hat{q}
         """
 
+        s_dirn, p_dirn = SPPolarisation.get_basis(q, n=n)
+        v_3d = [v[0] * s_dirn + v[1] * p_dirn for v in self._v]
+
+        return Polarisation(v_3d, w=self._w)
+
+    @staticmethod
+    def get_basis(q, n="+z"):
+        """Get the conventional s and p directions in Cartesian
+        for a given incident wavevector `q` and surface normal `n`.
+
+        Params
+        ------
+        q : array_like or str
+            Incident wavevector.
+        n : array_like or str, optional
+            Surface normal
+
+        Returns
+        -------
+        s_p_dirn : tuple of numpy.ndarray
+            Tuple of `(s_dirn, p_dirn)` with the conventional
+            directions.
+
+        See Also
+        --------
+        utility.geometry.parse_direction :
+            Accepted inputs for `q` and `n`.
+        """
+
         q = parse_direction(q)
         n = parse_direction(n)
-
-        s_dirn, p_dirn = None, None
 
         if (np.abs(np.dot(q, n)) - 1.0) < ZERO_TOLERANCE:
             # q and n are parallel -> use default convention.
 
-            s_dirn = parse_direction("y")
-            p_dirn = parse_direction("x")
+            return (parse_direction("y"), parse_direction("x"))
         else:
             s_dirn = np.cross(n, q)
-            p_dirn = np.cross(s_dirn, q)
+            return (s_dirn, np.cross(s_dirn, q))
 
-        v_3d = [v[0] * s_dirn + v[1] * p_dirn for v in self._v]
+    @staticmethod
+    def from_direction(dirn, q, n="+z"):
+        """s/p polarisation from a Cartesian direction.
 
-        return Polarisation(v_3d, w=self._w)
+        Parameters
+        ----------
+        dirn : array_like or str
+            Cartesian direction.
+        q : array_like or str
+            Incident wavevector.
+        n : array_like or str, optional
+            Normal vector (default: "+z").
+
+        Returns
+        -------
+        p : SPPolarisation
+            `SPPolarisation` for `dirn`.
+
+        See Also
+        --------
+        utility.geometry.parse_direction :
+            Accepted inputs for `dirn`, `q` and `n`.
+        """
+
+        dirn = parse_direction(dirn)
+        q = parse_direction(q)
+
+        if np.abs(np.dot(dirn, q)) > ZERO_TOLERANCE:
+            raise ValueError("dirn must be perpendicular to q.")
+
+        s_dirn, p_dirn = SPPolarisation.get_basis(q, n=n)
+
+        return SPPolarisation([np.dot(dirn, s_dirn), np.dot(dirn, p_dirn)])
 
     @staticmethod
     def unpolarised_incident():
