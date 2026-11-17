@@ -10,7 +10,7 @@ The software package consists of a Python package, `phonopy_spectroscopy`, and c
 The current status of the development code is as follows:
 
 * The "backend" Python API has been completely rewritten with a new object model.
-* The infrared (IR) capability has been rewritten around computing the IR dielectric function, with options to account for different measurement geometries including powder averaging.
+* The infrared (IR) capability has been rewritten around computing the IR dielectric function, with options to account for different measurement geometries.
 * The Raman capability has been expanded to include complete functionality for simulating single-crystal and powder Raman experiments, including with energy-dependent Raman tensors.
 * Unit tests have been implemented with reasonable code coverage.
 * The command-line programs and associated API have been temporarily removed pending a rewrite.
@@ -18,15 +18,18 @@ The current status of the development code is as follows:
 
 ## Installation
 
-The code requires a typical scientific computing Python stack with the `NumPy`[[2](#Ref3)], `SciPy`[[3](#Ref3)], `Pandas`[[4](#Ref4)], `PyYaml`[[5](#Ref5)] and `H5py`[[6](#Ref6)] packages.
-The Phonopy interface additionally requires the `Phonopy` Python library[[1](#Ref1)].
+The code requires the following:
+* Python >= 3.10
+* The typical scientific computing Python stack: NumPy[[2](#Ref3)], SciPy[[3](#Ref3)], Pandas[[4](#Ref4)], PyYaml[[5](#Ref5)] and H5py[[6](#Ref6)].
+* The Phonopy and spglib Python libraries[[1](#Ref1), [7](#Ref7)].
+* Numba[[8](#Ref8)] is optional but recommended.
 
-We recommend using Anaconda (or Miniconda)[[7](#Ref7)] and installing the required packages in a virtual environment:
+We recommend using Anaconda (or Miniconda)[[9](#Ref9)] and installing the required packages in a virtual environment:
 
 ```bash
 % conda create -n phonopy-spectroscopy
 % conda activate phonopy-spectroscopy
-% conda install -c conda-forge phonopy pandas
+% conda install -c conda-forge phonopy pandas numba
 ```
 
 This code does not currently ship with a `setup.py` script or as a PIP/Conda package.
@@ -34,7 +37,12 @@ After cloning or downloading and unpacking the repository, add the `lib` subfold
 
 `export PYTHONPATH=${PYTHONPATH}:/Users/user/Desktop/Repositories/Phonopy-Spectroscopy/lib`
 
-If you wish, you can run some of the `test_*.py` files in the `/tests` subfolder to check your installation is working.
+You can run the unit tests to check your installation is working:
+
+```bash
+cd Phonopy-Spectroscopy/tests
+python -m unittest discover
+```
 
 
 ## Citation
@@ -55,4 +63,6 @@ If you use Phonopy-Spectroscopy in your work, please consider citing this paper 
 4. <a name="Ref4"></a>[https://pandas.pydata.org](https://pandas.pydata.org)
 5. <a name="Ref5"></a>[https://pyyaml.org/wiki/PyYAML](https://pyyaml.org/wiki/PyYAML)
 6. <a name="Ref6"></a>[https://www.h5py.org](https://www.h5py.org)
-7. <a name="Ref7"></a>[https://www.anaconda.com](https://www.anaconda.com)
+7. <a name="Ref7"></a>[https://spglib.readthedocs.io](https://spglib.readthedocs.io)
+8. <a name="Ref8"></a>[https://numba.pydata.org](https://numba.pydata.org)
+9. <a name="Ref7"></a>[https://www.anaconda.com](https://www.anaconda.com)

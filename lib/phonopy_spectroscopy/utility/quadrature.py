@@ -124,7 +124,7 @@ def unit_sphere_lebedev_quad_rule_available_precs():
         for integrating over the unit sphere with Lebedev quadrature.
     """
 
-    return np.asarray(
+    return np.array(
         _UNIT_SPHERE_LEBEDEV_QUAD_AVAILABLE_PRECS, dtype=int, copy=True
     )
 

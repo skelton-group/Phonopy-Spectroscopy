@@ -102,7 +102,7 @@ class RamanTensors:
 
         if band_inds is not None:
             band_inds = np.atleast_1d(
-                np.asarray(band_inds, dtype=int, copy=True)
+                np.array(band_inds, dtype=int, copy=True)
             )
 
             if (band_inds < 0).any() or (band_inds >= ph_calc.num_modes).any():
